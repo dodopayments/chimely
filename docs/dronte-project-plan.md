@@ -135,9 +135,21 @@ dronte/
 
 **Build/ship:** GitHub Actions (Swatinem/rust-cache), cargo-chef multi-stage Docker, debian-slim image. Docs: Fumadocs (Next.js), with fumadocs-openapi rendering the exported spec so the docs site stays generated-from-code too. `npx dronte dev`: postgresql_embedded, Redis-less mode (exercises the LISTEN/NOTIFY fallback).
 
+## Licensing
+
+**SDKs and examples — MIT.** `packages/client`, `packages/react`, and `examples/` ship MIT unconditionally. These embed in customers' frontends; any copyleft here would kill adoption, and the SDKs are the distribution channel.
+
+**Server — AGPL-3.0 by default.** On-brand for the positioning (Plausible is AGPL) and the right mechanics for single-org self-host: network copyleft stops a cloud vendor from wrapping Dronte into a closed hosted product, while imposing nothing on normal users — self-hosters run the binary as a standalone service and integrate over HTTP through MIT SDKs, so AGPL obligations never reach their codebase. State this explicitly in the README's license FAQ, because "AGPL" reflexively scares enterprise reviewers who haven't noticed the boundary.
+
+**The one decision rule:** if a commercial Dronte Cloud ever becomes a live intention, switch the server to FSL (Apache-2.0 after two years) *before* the first external contribution is merged. AGPL with outside contributors and no CLA forecloses relicensing permanently. Deadline: first external PR, not launch.
+
+**Contribution mechanics:** DCO from day one (sign-off enforced in CI) — lightweight and sufficient under pure AGPL. Add a CLA only if keeping the FSL option open past the first contributor, accepting the contributor friction that brings.
+
+**Adjacent rights:** the generated OpenAPI spec and docs content are MIT/CC-BY so third-party clients and integrations are unambiguous. The Dronte name and logo are not licensed — trademark stays with the project regardless of code license, which is the actual protection against confusing forks.
+
 ## Phases
 
-**Phase 0 — Claims and scaffolding (days).** GitHub org, npm scope `@dronte`, crates.io name, dronte.dev. Monorepo, CI (fmt/clippy/test with Postgres+Redis service containers; typecheck/vitest for packages; changesets; Docker publish). License: MIT for SDKs; server MIT unless cloud is a live option (then FSL), decided before the first external contributor; DCO from day one.
+**Phase 0 — Claims and scaffolding (days).** GitHub org, npm scope `@dronte`, crates.io name, dronte.dev. Monorepo, CI (fmt/clippy/test with Postgres+Redis service containers; typecheck/vitest for packages; changesets; Docker publish). Licensing per the Licensing section: LICENSE files in place (AGPL-3.0 server, MIT packages/examples), DCO check in CI.
 
 **Phase 1 — Core inbox engine (2–3 weeks).** Schema (subscribers, notifications, broadcasts, subscriber_counters, broadcast read exceptions, outbox/jobs with `progress_cursor`, environments, api_keys, preferences with `channel` column — `environment_id` in every key), notifications + broadcasts endpoints with idempotency and `deliver_at`, SKIP LOCKED worker loop with per-environment fair claiming and delete-on-complete, subscriber REST API (keyset-paginated merged list, maintained unread count, watermark read marks, per-category preferences, ETag), SSE with debounced Redis pub/sub hints (LISTEN/NOTIFY fallback), HMAC auth, migrations-on-boot, health endpoints.
 
