@@ -200,9 +200,18 @@ paths:
         sources. `cursor` is the opaque keyset token from the previous page's
         `next_cursor`. Category mutes are applied server-side.
 
-        Supports `ETag` / `If-None-Match`: the ETag covers the page content
-        plus read state, so post-reconnect refetches (deploy thundering herd)
-        are mostly 304s.
+        Supports `ETag` / `If-None-Match`, so post-reconnect refetches
+        (deploy thundering herd) are mostly 304s. The validator is a strong
+        hash over: the request cursor, `subscriber_counters.updated_at`
+        (bumped by EVERY read-state mutation — see the counter invariants in
+        schema.sql), the subscriber's latest direct item `(visible_at, id)`,
+        the environment's latest broadcast `(created_at, id)`, and
+        `max(preferences.updated_at)` for the subscriber. Each input is one
+        index-only lookup; anything that can change a page moves at least
+        one of them.
+
+        Responses are `Cache-Control: private, max-age=0` — inbox pages are
+        per-user data and must never be cached by shared proxies.
       security:
         - { SubscriberEnv: [], SubscriberId: [], SubscriberHash: [] }
       parameters:
@@ -214,6 +223,7 @@ paths:
           description: A page of inbox items.
           headers:
             ETag: { schema: { type: string }, description: Strong validator for this page + read state. }
+            Cache-Control: { schema: { type: string }, description: 'Always `private, max-age=0`.' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/InboxPage' }
@@ -348,6 +358,9 @@ paths:
         missed hints are harmless by construction.
 
         Auth via query parameters (browser `EventSource` cannot set headers).
+        Server requirement (tested invariant, not a habit): `subscriber_hash`
+        is scrubbed from access/proxy log lines for this endpoint —
+        query-string credentials otherwise leak into logs.
 
         Events (`id:` on every event is an opaque resume token):
         * `hint` — something changed for this subscriber; refetch list/counts.

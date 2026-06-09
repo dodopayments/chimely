@@ -150,9 +150,18 @@ declare module '@dronte/client' {
     createEventSource?: (url: string) => EventSourceLike;
   }
 
-  /** Minimal structural EventSource so non-browser runtimes can plug in. */
+  /**
+   * Minimal structural EventSource so non-browser runtimes can plug in.
+   * The client listens for named hint events plus 'open' and 'error' —
+   * 'error' events carry no data but are what drive the reconnect/backoff
+   * loop, so an implementation that never emits them silently breaks
+   * reconnection.
+   */
   export interface EventSourceLike {
-    addEventListener(type: string, listener: (event: { data: string; lastEventId?: string }) => void): void;
+    addEventListener(
+      type: 'open' | 'error' | string,
+      listener: (event: { data?: string; lastEventId?: string }) => void
+    ): void;
     close(): void;
   }
 
@@ -331,13 +340,17 @@ declare module '@dronte/react' {
     classNames?: Partial<Record<InboxSlot, string>>;
   }
 
+  /**
+   * No index signature on purpose — it would let typos type-check silently.
+   * Future strings are added as OPTIONAL fields (consumers pass
+   * Partial<InboxLocalization>, and exhaustive implementations must not
+   * break on minor versions).
+   */
   export interface InboxLocalization {
     emptyTitle: string;
     emptyBody: string;
     markAllRead: string;
     preferencesTitle: string;
-    /** Extension point for future strings. */
-    [key: string]: string;
   }
 
   /**

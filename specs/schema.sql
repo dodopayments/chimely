@@ -85,6 +85,13 @@
 --      that *appeared* in January, not things scheduled in January for June.
 -- For broadcasts (no deliver_at in v1) created_at IS the ordering timestamp.
 --
+-- Ordering timestamps are DB-clock-sourced, ALWAYS: created_at and visible_at
+-- are computed by Postgres (now()) inside the INSERT — never by application
+-- replicas. N stateless binaries means N clocks; app-clock skew would insert
+-- items "in the past" — below a watermark (born read) or below an in-flight
+-- pagination cursor (skipped forever). The CHECK on notifications makes a
+-- mixed-source mistake fail loudly instead of drifting.
+--
 -- Canonical merged list query (keyset-paginated, newest first; $cursor is the
 -- (visible_at, id) tuple of the last item of the previous page, or +infinity):
 --
@@ -146,8 +153,16 @@
 -- that one subscriber — eventual exactness, cheap because it is per-subscriber.
 --
 -- Counter maintenance invariants (all inside the owning transaction):
---   * direct insert (immediately visible): unread_direct_count += 1,
---     unseen_direct_count += 1 in the SAME txn as the notifications insert.
+--   * direct insert (immediately visible): counters bumped in the SAME txn
+--     as the notifications insert, as a CONDITIONAL increment reading the
+--     watermark inside the UPDATE itself:
+--       unread_direct_count += (visible_at > read_watermark)::int
+--     (unseen_direct_count likewise against seen_watermark). This is the
+--     symmetric guard to the decrement rule below: without it, a
+--     mark-all-read committing between this txn's now() and its commit
+--     leaves the item born-read but counted — permanent +1 drift. Both
+--     paths write the counters row, so the row lock serializes them; the
+--     condition makes the serialization order irrelevant.
 --   * scheduled insert: counters NOT bumped at create. The deliver job bumps
 --     them in the SAME txn that deletes the job row — job deletion is the
 --     exactly-once keying for the side effect (job gone = effect applied).
@@ -158,6 +173,13 @@
 --     GC: DELETE FROM broadcast_reads WHERE broadcast_created_at <= new
 --     watermark (exception rows below the watermark are redundant).
 --   * mark-all-seen: seen_watermark = now(), unseen_direct_count = 0.
+--   * EVERY read-state mutation — individual read_at set, broadcast_reads
+--     insert, either watermark move — also touches
+--     subscriber_counters.updated_at in the same txn. That column is the
+--     change-detection input for the list ETag (see openapi.yaml); a
+--     mutation that skips the bump makes conditional refetches serve stale
+--     304s. (This is why mark-broadcast-read writes the counters row even
+--     though no maintained counter changes.)
 -- Redis caches the computed totals; Postgres is authoritative.
 -- =============================================================================
 
