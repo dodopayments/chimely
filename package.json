@@ -1,0 +1,19 @@
+{
+  "name": "dronte-monorepo",
+  "private": true,
+  "packageManager": "pnpm@11.5.2",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "biome ci .",
+    "format": "biome format --write .",
+    "generate": "./scripts/generate.sh"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.16",
+    "@changesets/cli": "^2.31.0",
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^6.0.3"
+  }
+}

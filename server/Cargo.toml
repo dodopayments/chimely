@@ -1,0 +1,27 @@
+[package]
+name = "dronte"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+axum = "0.8"
+fred = "10.1.0"
+metrics = "0.24.6"
+metrics-exporter-prometheus = "0.18.3"
+opentelemetry = "0.32.0"
+opentelemetry-otlp = { version = "0.32.0", features = ["grpc-tonic"] }
+opentelemetry_sdk = { version = "0.32.1", features = ["rt-tokio"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "uuid", "chrono", "json", "macros"] }
+thiserror = "2.0.18"
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "signal"] }
+tracing = "0.1.44"
+tracing-opentelemetry = "0.33.0"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+utoipa = { version = "5.5.0", features = ["yaml"] }
+utoipa-scalar = { version = "0.3.0", features = ["axum"] }
+
+[dev-dependencies]
+testcontainers-modules = { version = "0.15.0", features = ["postgres", "redis"] }

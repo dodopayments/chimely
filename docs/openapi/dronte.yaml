@@ -1,0 +1,11 @@
+openapi: 3.1.0
+info:
+  title: Dronte API
+  version: 1.0.0
+paths: {}
+components: {}
+tags:
+- name: management
+  description: Backend-to-Dronte. Bearer API key.
+- name: subscriber
+  description: Widget-to-Dronte. HMAC subscriber hash.

@@ -1,0 +1,5 @@
+# Whitelist: the image build needs only the server crate.
+*
+!server/Cargo.toml
+!server/Cargo.lock
+!server/src/
