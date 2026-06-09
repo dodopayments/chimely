@@ -118,8 +118,22 @@ dronte/
     client/            @dronte/client — headless TS core
     react/             @dronte/react  — hooks + <Inbox />
   examples/            next.js quickstart, vite, axum trigger example
-  docs/                starlight site
+  docs/                fumadocs site (Next.js)
 ```
+
+## Stack decisions (settled — sessions do not relitigate)
+
+**Server:** Rust stable (2024 edition, pinned via rust-toolchain.toml), axum 0.8 on tokio, sqlx (compile-time-checked raw SQL; built-in migrator, run on boot under advisory lock), Postgres ≥15, `fred` Redis client (resilient pub/sub), Redis Lua token bucket for cross-replica rate limiting, RustCrypto hmac+sha2, thiserror/anyhow, tracing + OTLP, metrics + Prometheus exporter. Single crate until compile times force a split.
+
+**Contract tooling:** code-first via utoipa, rendered docs served from the binary via utoipa-scalar at /docs. Until v1: specs/openapi.yaml (Session 0) is the convergence target — CI exports the generated spec (`cargo run -- openapi`) and gates on oasdiff equivalence; full match is the Phase 1/2 completion criterion. After v1: the hand-written spec retires, the generated spec is the published artifact, and the CI gate becomes oasdiff breaking-change detection against the last release. openapi-typescript consumes the generated spec for @dronte/client types in the same CI step. A light schemathesis run guards against annotation-vs-handler drift (utoipa response codes are hand-annotated).
+
+**Testing:** testcontainers-rs (Postgres + Redis), cargo-nextest, proptest for two-source merge and watermark invariants.
+
+**TypeScript:** pnpm workspaces, tsup, vitest, Biome, changesets. `<Inbox />`: plain CSS with custom properties, @floating-ui/dom as the only runtime UI dep, no Tailwind in published packages.
+
+**Admin SPA:** Vite + React + TanStack Query/Router, embedded via rust-embed.
+
+**Build/ship:** GitHub Actions (Swatinem/rust-cache), cargo-chef multi-stage Docker, debian-slim image. Docs: Fumadocs (Next.js), with fumadocs-openapi rendering the exported spec so the docs site stays generated-from-code too. `npx dronte dev`: postgresql_embedded, Redis-less mode (exercises the LISTEN/NOTIFY fallback).
 
 ## Phases
 
