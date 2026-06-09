@@ -24,6 +24,11 @@ Encoded in `specs/` in the same commit that added this file:
   (sdk-api.d.ts).
 - **`InboxLocalization` index signature removed** — typos no longer
   type-check (sdk-api.d.ts).
+- **M4 (pre-publish SDK design review)** — executed at contract freeze
+  (2026-06-10): provider-vs-standalone precedence, slot list, appearance
+  variables, localization all reviewed; SSE keep-alive wording fixed
+  (comment frame, not event). Contract tagged `contract-v1`; changes from
+  here are additive-only per the rules in sdk-api.d.ts's header.
 
 ## Next week — Phase 0 / Phase 1 entry criteria
 
@@ -41,7 +46,6 @@ Encoded in `specs/` in the same commit that added this file:
 | M1 | **No undo anywhere**: no cancel for scheduled notifications, no broadcast retraction, no notification delete. A typo'd broadcast is permanent; a scheduled trial-ending notice fires after the user upgrades | First real customer "oops", week one of usage | Design in Phase 2 (cancel-vs-deliver-job race needs thought), ship as additive endpoints |
 | M2 | Redis count-cache invalidation on broadcast create is env-wide — without an env-level epoch in the cache key, every subscriber's cached count goes stale | First broadcast after Redis caching lands | Phase 1 design note, before counters hit Redis |
 | M3 | No per-subscriber SSE connection caps; dev environments (`require_subscriber_hash=false`) are an open connection-exhaustion relay | A staging URL leaks | Phase 1 |
-| M4 | SDK publish freezes the contract — remaining pre-publish review items: provider-vs-standalone precedence rules, slot list completeness, appearance variable names | `npm publish` of v0.1 | Phase 2 gate: design review checklist |
 | M5 | Phase 1 scope is front-loaded by the contract (deliver_at, seen watermarks, ETag, fairness all published) — "2–3 weeks" is the plan's most optimistic number for a solo maintainer | Week 3 of Phase 1 | Re-plan openly if slipping; nothing can be cut silently anymore |
 | M6 | **Meta-risk**: nothing binds spec to implementation — the three spec files drift into aspirational documentation | Quietly, by month two | Phase 1 CI: schemathesis against openapi.yaml; schema.sql canonical queries as integration tests |
 

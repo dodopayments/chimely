@@ -365,7 +365,10 @@ paths:
         Events (`id:` on every event is an opaque resume token):
         * `hint` — something changed for this subscriber; refetch list/counts.
           Debounced server-side (at most one per subscriber per interval).
-        * `ping` — keep-alive comment frame every 30s.
+
+        Keep-alive is a comment frame (`: ping`) every 30 seconds, not an
+        event — comment frames are deliberately invisible to EventSource
+        listeners. Unknown future event types must be ignored by clients.
 
         Resume: browsers replay `Last-Event-ID` automatically on reconnect; the
         server answers by emitting an immediate `hint` if anything changed
