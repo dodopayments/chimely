@@ -62,6 +62,14 @@ device is 1:1.
 the API, not in the admin UI. Environments are the isolation unit;
 multi-tenancy is "run another instance".
 
+**Licensing is settled** (plan, "Licensing"): AGPL-3.0-only for `server/`,
+MIT for `packages/*` and `examples/`. Never add a dependency whose license
+is incompatible with this split; any copyleft transitive dependency in
+`server/` (including weak copyleft — MPL, LGPL) must be flagged for review
+and explicitly allowed in `server/deny.toml`, never waved through. The
+`cargo-deny` CI job is the gate. SDK runtime dependencies must be
+permissive (they embed in customer frontends).
+
 ## API contract rules
 
 - The contract is **code-first via utoipa**; `dronte openapi` prints the

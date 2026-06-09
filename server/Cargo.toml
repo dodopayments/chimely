@@ -2,6 +2,8 @@
 name = "dronte"
 version = "0.1.0"
 edition = "2024"
+license = "AGPL-3.0-only"
+description = "In-app notification inbox infrastructure: one binary + Postgres + Redis."
 
 [dependencies]
 anyhow = "1.0.102"

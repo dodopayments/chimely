@@ -1,0 +1,39 @@
+# cargo-deny policy — wired into CI (see .github/workflows/ci.yml).
+#
+# Licensing is settled (docs/dronte-project-plan.md, "Licensing"): the server
+# is AGPL-3.0-only, the SDKs/examples are MIT. Dependencies of the server
+# must be permissively licensed: copyleft INSIDE the dependency tree is
+# legally compatible with AGPL but is deliberately review-gated — any
+# copyleft (including weak copyleft like MPL/LGPL) transitive dependency
+# must be flagged and explicitly allowed here with a comment, never waved
+# through silently.
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "BSL-1.0",
+    "Unicode-3.0",
+    "CDLA-Permissive-2.0",
+]
+# Our own crate is the only AGPL code allowed in the graph.
+exceptions = [
+    { name = "dronte", allow = ["AGPL-3.0-only"] },
+]
+
+[bans]
+multiple-versions = "allow" # tightened later; licensing is the gate for now
+
+[advisories]
+# Advisory auditing is Phase 3 operational hygiene; until then warn only so
+# the license gate stays the single hard failure mode of this job.
+version = 2
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
