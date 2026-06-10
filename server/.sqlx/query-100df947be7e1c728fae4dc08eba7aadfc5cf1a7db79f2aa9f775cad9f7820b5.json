@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM jobs\n                    WHERE (environment_id, id) IN (\n                        SELECT environment_id, id FROM jobs\n                         WHERE environment_id = $1 AND job_type = 'hint'\n                           AND id <> $2 AND payload = $3\n                         FOR UPDATE SKIP LOCKED)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "100df947be7e1c728fae4dc08eba7aadfc5cf1a7db79f2aa9f775cad9f7820b5"
+}

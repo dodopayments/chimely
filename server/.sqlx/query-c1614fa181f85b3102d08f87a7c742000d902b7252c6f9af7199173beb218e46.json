@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE subscriber_counters c SET\n                   unread_direct_count = c.unread_direct_count + (\n                       SELECT count(*) FROM notifications n\n                        WHERE n.environment_id = c.environment_id\n                          AND n.subscriber_id  = c.subscriber_id\n                          AND n.id = ANY($2)\n                          AND n.read_at IS NULL\n                          AND n.visible_at > c.read_watermark)::int,\n                   unseen_direct_count = c.unseen_direct_count + (\n                       SELECT count(*) FROM notifications n\n                        WHERE n.environment_id = c.environment_id\n                          AND n.subscriber_id  = c.subscriber_id\n                          AND n.id = ANY($2)\n                          AND n.visible_at > c.seen_watermark)::int,\n                   updated_at = now()\n             WHERE c.environment_id = $1\n               AND c.subscriber_id IN (\n                   SELECT n.subscriber_id FROM notifications n\n                    WHERE n.environment_id = $1 AND n.id = ANY($2))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c1614fa181f85b3102d08f87a7c742000d902b7252c6f9af7199173beb218e46"
+}

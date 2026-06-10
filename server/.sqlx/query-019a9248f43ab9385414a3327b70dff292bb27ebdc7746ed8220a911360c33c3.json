@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n               c.updated_at AS \"counters_updated_at!\",\n               (SELECT max(p.updated_at) FROM preferences p\n                 WHERE p.environment_id = $1 AND p.subscriber_id = $2) AS prefs_updated_at,\n               (SELECT n.visible_at FROM notifications n\n                 WHERE n.environment_id = $1 AND n.subscriber_id = $2\n                   AND n.visible_at <= now()\n                 ORDER BY n.visible_at DESC, n.id DESC LIMIT 1) AS latest_direct_at,\n               (SELECT n.id FROM notifications n\n                 WHERE n.environment_id = $1 AND n.subscriber_id = $2\n                   AND n.visible_at <= now()\n                 ORDER BY n.visible_at DESC, n.id DESC LIMIT 1) AS latest_direct_id,\n               (SELECT b.created_at FROM broadcasts b\n                 WHERE b.environment_id = $1\n                 ORDER BY b.created_at DESC, b.id DESC LIMIT 1) AS latest_broadcast_at,\n               (SELECT b.id FROM broadcasts b\n                 WHERE b.environment_id = $1\n                 ORDER BY b.created_at DESC, b.id DESC LIMIT 1) AS latest_broadcast_id\n           FROM subscriber_counters c\n           WHERE c.environment_id = $1 AND c.subscriber_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "counters_updated_at!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "subscriber_counters",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "prefs_updated_at",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "latest_direct_at",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "latest_direct_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "latest_broadcast_at",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "latest_broadcast_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "019a9248f43ab9385414a3327b70dff292bb27ebdc7746ed8220a911360c33c3"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE notifications SET read_at = now()\n                WHERE environment_id = $1 AND id = $2 AND visible_at = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fff0ff7c30c71f2c63791bd38fdc7def5d65d0a05b6f44e46373b8ccf7cc5e54"
+}

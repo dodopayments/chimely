@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.subscriber_id FROM subscriber_counters c\n                WHERE c.environment_id = $1\n                  AND c.subscriber_id IN (\n                      SELECT n.subscriber_id FROM notifications n\n                       WHERE n.environment_id = $1 AND n.id = ANY($2))\n                ORDER BY c.subscriber_id\n                FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "subscriber_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "subscriber_counters",
+            "name": "subscriber_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "891b5de18a46b8b64856423b93ce52fff500990a6b8802ee564717a37cb3701b"
+}

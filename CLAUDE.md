@@ -99,6 +99,21 @@ plan.
   also provides Postgres/Redis service containers.)
 - Two-source merge and watermark invariants get proptest coverage (Phase 1).
 
+## Comment style
+
+- Comments are factual, not narrative. State the invariant, the contract
+  reference, or the failure mode the code cannot express on its own. Do not
+  restate what the next line does, address the reader, or argue for the
+  change.
+- A comment must earn its place. If the code is clear without it, write no
+  comment.
+- No semicolons and no em-dashes in comments. This applies doubly to doc
+  comments (`///`). Write short declarative sentences instead.
+- Exception: text quoted verbatim from a frozen contract (specs/) keeps its
+  original punctuation.
+- Long literal text (OpenAPI descriptions and similar) uses raw strings
+  (`r#"..."#`) with real newlines, never `\n` escapes.
+
 ## Stack decisions (settled — sessions do not relitigate)
 
 **Server:** Rust stable (2024 edition, pinned via rust-toolchain.toml), axum 0.8 on tokio, sqlx (compile-time-checked raw SQL; built-in migrator, run on boot under advisory lock), Postgres ≥15, `fred` Redis client (resilient pub/sub), Redis Lua token bucket for cross-replica rate limiting, RustCrypto hmac+sha2, thiserror/anyhow, tracing + OTLP, metrics + Prometheus exporter. Single crate until compile times force a split.

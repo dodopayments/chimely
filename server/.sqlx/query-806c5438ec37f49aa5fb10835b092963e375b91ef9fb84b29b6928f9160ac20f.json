@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM preferences\n                    WHERE environment_id = $1 AND subscriber_id = $2\n                      AND category = $3 AND channel = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "806c5438ec37f49aa5fb10835b092963e375b91ef9fb84b29b6928f9160ac20f"
+}

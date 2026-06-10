@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO subscriber_counters (environment_id, subscriber_id)\n           SELECT $1, unnest($2::uuid[])\n           ON CONFLICT (environment_id, subscriber_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2ab91e60229f527940014ca418adf00085bd6cb71cd69da4e4b864084bda1fb0"
+}

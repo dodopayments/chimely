@@ -9,6 +9,7 @@
     "includes": [
       "**",
       "!specs",
+      "!server/.sqlx",
       "!packages/client/src/generated",
       "!docs/openapi",
       "!docs/app/global.css"

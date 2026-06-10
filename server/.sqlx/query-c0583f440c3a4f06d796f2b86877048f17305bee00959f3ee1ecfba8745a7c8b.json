@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (c.updated_at > $4)\n                OR EXISTS (SELECT 1 FROM notifications n\n                     WHERE n.environment_id = $1 AND n.subscriber_id = $2\n                       AND n.visible_at <= now() AND n.visible_at > $4)\n                OR EXISTS (SELECT 1 FROM broadcasts b\n                     WHERE b.environment_id = $1\n                       AND b.created_at >= $3 AND b.created_at > $4)\n               AS \"changed!\"\n           FROM subscriber_counters c\n           WHERE c.environment_id = $1 AND c.subscriber_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "changed!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c0583f440c3a4f06d796f2b86877048f17305bee00959f3ee1ecfba8745a7c8b"
+}

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO subscribers (environment_id, id, subscriber_id, created_at)\n           VALUES ($1, $2, $3, COALESCE($4, now()))\n           ON CONFLICT (environment_id, subscriber_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "323b8e9edeaf1cea854207066b5c00faf99e44c316883c621769e72233d8ea41"
+}

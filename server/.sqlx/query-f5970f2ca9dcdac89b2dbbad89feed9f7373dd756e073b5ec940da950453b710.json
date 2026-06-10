@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE subscriber_counters SET\n               read_watermark = now(),\n               unread_direct_count = 0,\n               updated_at = now()\n         WHERE environment_id = $1 AND subscriber_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f5970f2ca9dcdac89b2dbbad89feed9f7373dd756e073b5ec940da950453b710"
+}

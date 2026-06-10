@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE subscriber_counters SET updated_at = now()\n                WHERE environment_id = $1 AND subscriber_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2c6c2b14ee6e2c61d63f4baaa21f4c20d244ac2890a93a3714079288dd719e66"
+}

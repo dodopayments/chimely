@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO preferences\n                       (environment_id, subscriber_id, category, channel, enabled)\n                   VALUES ($1, $2, $3, $4, false)\n                   ON CONFLICT (environment_id, subscriber_id, category, channel)\n                   DO UPDATE SET enabled = excluded.enabled, updated_at = now()\n                   WHERE preferences.enabled IS DISTINCT FROM excluded.enabled",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "361ec59f18dd407eba3eff6ee906cc4b0a96be294f1c70761031bbbdb098a55f"
+}

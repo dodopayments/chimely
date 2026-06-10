@@ -1,9 +1,896 @@
 openapi: 3.1.0
 info:
   title: Dronte API
+  description: |
+    Two planes, one binary:
+
+    * **Management plane** — called by the customer's backend with a Bearer API
+      key. Creates notifications and broadcasts, manages subscribers and their
+      preferences. API keys are environment-scoped; the environment is implied
+      by the key.
+    * **Subscriber plane** — called by `@dronte/client` (the `<Inbox />`
+      widget) on behalf of one end user. Authenticated with an HMAC subscriber
+      hash: `hex(HMAC-SHA256(environment.subscriber_hmac_secret, subscriber_id))`
+      computed by the customer's backend. Mandatory in environments with
+      `require_subscriber_hash = true` (the production default); optional in
+      dev environments so the quickstart works without a backend.
+
+    Subscriber-plane scoping travels in headers (or query parameters where
+    headers are impossible, i.e. `EventSource`):
+
+    | Header | Query fallback | Meaning |
+    |---|---|---|
+    | `X-Dronte-Environment` | `environment` | environment slug |
+    | `X-Dronte-Subscriber` | `subscriber_id` | customer-provided subscriber id |
+    | `X-Dronte-Subscriber-Hash` | `subscriber_hash` | HMAC hash (when required) |
+
+    **Idempotency.** Every create accepts `idempotency_key` (client-supplied or
+    server-generated and echoed). Uniqueness is per environment per resource
+    type. A retried key returns the original response byte-identically with
+    HTTP 200 (first acceptance is 201) — acknowledged-and-dropped.
+
+    **Timestamps** are RFC 3339 UTC. **IDs** are
+    [TypeIDs](https://github.com/jetify-com/typeid): a resource prefix plus a
+    UUIDv7 in Crockford base32 — `notif_01h455vb4pex5vsknk084sn02q` for
+    notifications, `bcast_…` for broadcasts. The prefix is part of the id;
+    treat ids as opaque strings.
+
+    **Errors** use a single envelope: `{"error": {"code", "message"}}` with
+    conventional status codes. 429 carries `Retry-After`.
   version: 1.0.0
-paths: {}
-components: {}
+servers:
+- url: https://dronte.example.com
+paths:
+  /v1/broadcasts:
+    post:
+      tags:
+      - management
+      summary: Create a broadcast (one row, fan-out on read)
+      description: |
+        One row per announcement targeting the whole environment, regardless of
+        subscriber count. Visible to each subscriber only if the broadcast is
+        created at or after that subscriber's `created_at`.
+      operationId: createBroadcast
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBroadcastRequest'
+        required: true
+      responses:
+        '200':
+          description: Idempotent replay.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Broadcast'
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Broadcast'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - ApiKeyBearer: []
+  /v1/inbox/broadcasts/{id}/read:
+    post:
+      tags:
+      - subscriber
+      summary: Mark one broadcast read (for this subscriber)
+      description: Idempotent. Inserts a `broadcast_reads` exception row; a no-op if the broadcast is already below the read watermark.
+      operationId: markBroadcastRead
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/BroadcastId'
+      responses:
+        '204':
+          description: Read (now or already).
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Resource not found in this environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - SubscriberEnv: []
+        SubscriberHash: []
+        SubscriberId: []
+  /v1/inbox/counts:
+    get:
+      tags:
+      - subscriber
+      summary: Unread and unseen counts
+      description: |
+        `unread` drives list styling; `unseen` drives the bell badge (cleared
+        by mark-all-seen when the inbox opens). Served from maintained counters
+        (Redis cache, Postgres authoritative) — O(1), not O(rows).
+      operationId: getInboxCounts
+      responses:
+        '200':
+          description: Current counts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboxCounts'
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - SubscriberEnv: []
+        SubscriberHash: []
+        SubscriberId: []
+  /v1/inbox/items:
+    get:
+      tags:
+      - subscriber
+      summary: Merged inbox list (direct + broadcast), keyset-paginated
+      description: |
+        Newest first, ordered by `(occurred_at, id)` descending across both
+        sources. `cursor` is the opaque keyset token from the previous page's
+        `next_cursor`. Category mutes are applied server-side.
+
+        Supports `ETag` / `If-None-Match`, so post-reconnect refetches
+        (deploy thundering herd) are mostly 304s. The validator is a strong
+        hash over: the request cursor, `subscriber_counters.updated_at`
+        (bumped by EVERY read-state mutation — see the counter invariants in
+        schema.sql), the subscriber's latest direct item `(visible_at, id)`,
+        the environment's latest broadcast `(created_at, id)`, and
+        `max(preferences.updated_at)` for the subscriber. Each input is one
+        index-only lookup; anything that can change a page moves at least
+        one of them.
+
+        Responses are `Cache-Control: private, max-age=0` — inbox pages are
+        per-user data and must never be cached by shared proxies.
+      operationId: listInboxItems
+      parameters:
+      - name: cursor
+        in: query
+        description: Opaque keyset cursor; omit for the first page.
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+          maximum: 100
+          minimum: 1
+      - name: If-None-Match
+        in: header
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: A page of inbox items.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: Always `private, max-age=0`.
+            ETag:
+              schema:
+                type: string
+              description: Strong validator for this page + read state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboxPage'
+        '304':
+          description: Not modified (If-None-Match matched).
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - SubscriberEnv: []
+        SubscriberHash: []
+        SubscriberId: []
+  /v1/inbox/notifications/{id}/read:
+    post:
+      tags:
+      - subscriber
+      summary: Mark one direct notification read
+      description: Idempotent. Sets `read_at`; decrements the unread counter only if it was unread.
+      operationId: markNotificationRead
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/NotificationId'
+      responses:
+        '204':
+          description: Read (now or already).
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Resource not found in this environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - SubscriberEnv: []
+        SubscriberHash: []
+        SubscriberId: []
+  /v1/inbox/preferences:
+    get:
+      tags:
+      - subscriber
+      summary: Read own preferences
+      operationId: getPreferences
+      responses:
+        '200':
+          description: Explicit preference rows only — absence means enabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreferenceList'
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - SubscriberEnv: []
+        SubscriberHash: []
+        SubscriberId: []
+    put:
+      tags:
+      - subscriber
+      summary: Set own preferences
+      operationId: setPreferences
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreferenceWriteList'
+        required: true
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreferenceList'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - SubscriberEnv: []
+        SubscriberHash: []
+        SubscriberId: []
+  /v1/inbox/read-all:
+    post:
+      tags:
+      - subscriber
+      summary: Mark everything read (watermark move)
+      description: |
+        Moves the per-subscriber read watermark to now — a one-row update, not
+        a bulk UPDATE. Covers both sources; individually-read exception rows
+        below the new watermark are garbage-collected.
+      operationId: markAllRead
+      responses:
+        '200':
+          description: Watermark moved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboxCounts'
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - SubscriberEnv: []
+        SubscriberHash: []
+        SubscriberId: []
+  /v1/inbox/seen-all:
+    post:
+      tags:
+      - subscriber
+      summary: Mark everything seen (badge clear; watermark move)
+      description: Called by the SDK when the inbox opens. Moves the seen watermark; read state is untouched.
+      operationId: markAllSeen
+      responses:
+        '200':
+          description: Watermark moved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboxCounts'
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - SubscriberEnv: []
+        SubscriberHash: []
+        SubscriberId: []
+  /v1/inbox/stream:
+    get:
+      tags:
+      - subscriber
+      summary: SSE hint stream
+      description: |
+        `text/event-stream` of **hints, not transports**: the client refetches
+        via REST (conditional, ETag) on every hint and on every (re)connect, so
+        missed hints are harmless by construction.
+
+        Auth via query parameters (browser `EventSource` cannot set headers).
+        Server requirement (tested invariant, not a habit): `subscriber_hash`
+        is scrubbed from access/proxy log lines for this endpoint —
+        query-string credentials otherwise leak into logs.
+
+        Events (`id:` on every event is an opaque resume token):
+        * `hint` — something changed for this subscriber; refetch list/counts.
+          Debounced server-side (at most one per subscriber per interval).
+
+        Keep-alive is a comment frame (`: ping`) every 30 seconds, not an
+        event — comment frames are deliberately invisible to EventSource
+        listeners. Unknown future event types must be ignored by clients.
+
+        Resume: browsers replay `Last-Event-ID` automatically on reconnect; the
+        server answers by emitting an immediate `hint` if anything changed
+        after that token (it does not replay individual missed events — the
+        REST refetch is the recovery mechanism). On graceful shutdown the
+        server sends a `retry:` directive with jitter before closing, so a
+        deploy does not produce a reconnect stampede.
+      operationId: streamInbox
+      parameters:
+      - name: Last-Event-ID
+        in: header
+        description: Sent automatically by EventSource on reconnect.
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Event stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |
+                  id: 01h455vb4pex5vsknk084sn02q
+                  event: hint
+                  data: {"reason":"notification"}
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - SubscriberEnvQ: []
+        SubscriberHashQ: []
+        SubscriberIdQ: []
+  /v1/notifications:
+    post:
+      tags:
+      - management
+      summary: Create direct notifications (1–100 recipients, fan-out on write)
+      description: |
+        Creates one notification per recipient in a single transaction together
+        with counter bumps and the outbox job. The `idempotency_key` covers the
+        **whole request**: a retry never partially re-runs the batch.
+
+        `deliver_at` schedules delivery (max 13 months out): the notification
+        is durable immediately but invisible to the subscriber until then;
+        counters and real-time hints fire at `deliver_at`.
+
+        Recipients that don't exist yet are lazily created as subscribers.
+        Need more than 100 recipients? That's a broadcast.
+      operationId: createNotifications
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNotificationsRequest'
+        required: true
+      responses:
+        '200':
+          description: Idempotent replay — original response echoed, nothing re-created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateNotificationsResponse'
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateNotificationsResponse'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - ApiKeyBearer: []
+  /v1/subscribers/{subscriber_id}:
+    put:
+      tags:
+      - management
+      summary: Upsert a subscriber
+      description: |
+        Subscribers are normally created lazily; this exists for imports.
+        `created_at` may be **backdated** on first create (ignored on update) —
+        it is the knob controlling which historical broadcasts an imported user
+        sees (`broadcast.created_at >= subscriber.created_at`).
+      operationId: upsertSubscriber
+      parameters:
+      - name: subscriber_id
+        in: path
+        description: Customer-provided subscriber id (e.g. `usr_42`).
+        required: true
+        schema:
+          type: string
+          maxLength: 255
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                created_at:
+                  type: string
+                  format: date-time
+                  description: Backdate on create only; ignored if the subscriber exists.
+        required: false
+      responses:
+        '200':
+          description: Upserted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscriber'
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - ApiKeyBearer: []
+  /v1/subscribers/{subscriber_id}/preferences:
+    get:
+      tags:
+      - management
+      summary: Read a subscriber's preferences (admin)
+      operationId: getSubscriberPreferences
+      parameters:
+      - name: subscriber_id
+        in: path
+        description: Customer-provided subscriber id (e.g. `usr_42`).
+        required: true
+        schema:
+          type: string
+          maxLength: 255
+      responses:
+        '200':
+          description: Explicit preference rows only — absence means enabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreferenceList'
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Resource not found in this environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - ApiKeyBearer: []
+    put:
+      tags:
+      - management
+      summary: Set preferences for a subscriber (admin)
+      operationId: setSubscriberPreferences
+      parameters:
+      - name: subscriber_id
+        in: path
+        description: Customer-provided subscriber id (e.g. `usr_42`).
+        required: true
+        schema:
+          type: string
+          maxLength: 255
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreferenceWriteList'
+        required: true
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreferenceList'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - ApiKeyBearer: []
+components:
+  schemas:
+    Broadcast:
+      type: object
+      required:
+      - id
+      - category
+      - payload
+      - created_at
+      - idempotency_key
+      properties:
+        category:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        id:
+          $ref: '#/components/schemas/BroadcastId'
+        idempotency_key:
+          type: string
+        payload:
+          $ref: '#/components/schemas/Payload'
+    BroadcastId:
+      type: string
+      description: 'TypeID: `bcast_` + UUIDv7 suffix (Crockford base32).'
+      example: bcast_01h455vb4pex5vsknk084sn02q
+      pattern: ^bcast_[0-7][0-9a-hjkmnp-tv-z]{25}$
+    CreateBroadcastRequest:
+      type: object
+      required:
+      - category
+      properties:
+        category:
+          type: string
+          example: product.update
+          maxLength: 255
+        idempotency_key:
+          type: string
+          maxLength: 255
+        payload:
+          $ref: '#/components/schemas/Payload'
+    CreateNotificationsRequest:
+      type: object
+      description: Exactly one of `subscriber_id` / `subscriber_ids` is required.
+      required:
+      - category
+      properties:
+        category:
+          type: string
+          example: payment.failed
+          maxLength: 255
+        deliver_at:
+          type: string
+          format: date-time
+          description: Scheduled delivery; must be in the future, at most 13 months out.
+        idempotency_key:
+          type: string
+          description: Client-supplied; server-generated and echoed if omitted. Covers the whole batch.
+          maxLength: 255
+        payload:
+          $ref: '#/components/schemas/Payload'
+        subscriber_id:
+          type: string
+          description: 'Single-recipient sugar for `subscriber_ids: [x]`.'
+          maxLength: 255
+        subscriber_ids:
+          type: array
+          items:
+            type: string
+            maxLength: 255
+          description: Recipients; one notification row each. >100 → use a broadcast.
+          maxItems: 100
+          minItems: 1
+    CreateNotificationsResponse:
+      type: object
+      required:
+      - idempotency_key
+      - notifications
+      properties:
+        idempotency_key:
+          type: string
+        notifications:
+          type: array
+          items:
+            type: object
+            required:
+            - id
+            - subscriber_id
+            properties:
+              id:
+                $ref: '#/components/schemas/NotificationId'
+              subscriber_id:
+                type: string
+    Error:
+      type: object
+      required:
+      - error
+      properties:
+        error:
+          type: object
+          required:
+          - code
+          - message
+          properties:
+            code:
+              type: string
+              example: invalid_request
+            message:
+              type: string
+    InboxCounts:
+      type: object
+      required:
+      - unread
+      - unseen
+      properties:
+        unread:
+          type: integer
+          minimum: 0
+        unseen:
+          type: integer
+          minimum: 0
+    InboxItem:
+      type: object
+      required:
+      - id
+      - source
+      - category
+      - payload
+      - occurred_at
+      - read
+      properties:
+        category:
+          type: string
+        id:
+          oneOf:
+          - $ref: '#/components/schemas/NotificationId'
+          - $ref: '#/components/schemas/BroadcastId'
+          description: The TypeID prefix already encodes the source; `source` is kept as the explicit discriminator.
+        occurred_at:
+          type: string
+          format: date-time
+          description: The ordering timestamp — `visible_at` for direct, `created_at` for broadcast.
+        payload:
+          $ref: '#/components/schemas/Payload'
+        read:
+          type: boolean
+          description: Computed — per-item exception OR at-or-below the read watermark.
+        source:
+          type: string
+          description: Routes mark-read to the right endpoint; the SDK handles this.
+          enum:
+          - notification
+          - broadcast
+    InboxPage:
+      type: object
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InboxItem'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          description: Opaque keyset token; null when the last page is reached.
+    NotificationId:
+      type: string
+      description: 'TypeID: `notif_` + UUIDv7 suffix (Crockford base32).'
+      example: notif_01h455vb4pex5vsknk084sn02q
+      pattern: ^notif_[0-7][0-9a-hjkmnp-tv-z]{25}$
+    Payload:
+      type: object
+      description: |
+        Customer-defined JSON, delivered to the widget verbatim — the server
+        never reads it (no templates, no interpretation). Max 16 KiB serialized.
+
+        The optional **well-known fields** below are what the default
+        `<Inbox />` rendering understands; a payload with none of them renders
+        as category + timestamp only. All other fields ride along untouched
+        for custom renderers (`renderItem`). Keys are snake_case: payloads are
+        wire format and are never case-transformed by the SDK.
+      properties:
+        action_url:
+          type: string
+          format: uri
+          description: Followed on item click by the default renderer (after mark-read).
+        body:
+          type: string
+          description: Secondary line; treated as plain text, never HTML.
+        icon_url:
+          type: string
+          format: uri
+          description: Leading icon/avatar in the default rendering.
+        title:
+          type: string
+          description: First line of the default item rendering.
+      additionalProperties: true
+    Preference:
+      type: object
+      required:
+      - category
+      - channel
+      - enabled
+      properties:
+        category:
+          type: string
+        channel:
+          type: string
+          description: Only `in_app` in v1; push channels later, no contract break.
+          enum:
+          - in_app
+        enabled:
+          type: boolean
+    PreferenceList:
+      type: object
+      required:
+      - preferences
+      properties:
+        preferences:
+          type: array
+          items:
+            $ref: '#/components/schemas/Preference'
+    PreferenceWriteList:
+      type: object
+      description: Partial upsert — listed (category, channel) pairs are written; unlisted pairs are untouched. Setting enabled=true deletes the explicit row (absence means enabled).
+      required:
+      - preferences
+      properties:
+        preferences:
+          type: array
+          items:
+            $ref: '#/components/schemas/Preference'
+          maxItems: 100
+          minItems: 1
+    Subscriber:
+      type: object
+      required:
+      - subscriber_id
+      - created_at
+      properties:
+        created_at:
+          type: string
+          format: date-time
+          description: Governs broadcast visibility for this subscriber.
+        subscriber_id:
+          type: string
+  responses:
+    BadRequest:
+      description: Validation error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found in this environment.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    RateLimited:
+      description: Per-API-key (management) or per-subscriber (widget) rate limit.
+      headers:
+        retry-after:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Missing/invalid API key or subscriber hash.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  securitySchemes:
+    ApiKeyBearer:
+      type: http
+      scheme: bearer
+      description: Environment-scoped management API key.
+    SubscriberEnv:
+      type: apiKey
+      in: header
+      name: X-Dronte-Environment
+    SubscriberEnvQ:
+      type: apiKey
+      in: query
+      name: environment
+    SubscriberHash:
+      type: apiKey
+      in: header
+      name: X-Dronte-Subscriber-Hash
+      description: Optional when the environment has require_subscriber_hash = false.
+    SubscriberHashQ:
+      type: apiKey
+      in: query
+      name: subscriber_hash
+    SubscriberId:
+      type: apiKey
+      in: header
+      name: X-Dronte-Subscriber
+    SubscriberIdQ:
+      type: apiKey
+      in: query
+      name: subscriber_id
+security: []
 tags:
 - name: management
   description: Backend-to-Dronte. Bearer API key.

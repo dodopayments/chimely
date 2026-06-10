@@ -1,0 +1,14 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 06935d00e7ef4504bd6877106a44ef099ab5eed6a4e6f31cfff56d31ea5e6b09 # shrinks to ops = [MarkBroadcastRead { pick: 0 }]
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0b98304fe68d6e8f35c63f5752adf5cce19924297fcb61d1567afff4a55d354e # shrinks to ops = [MarkDirectRead { pick: 841 }]

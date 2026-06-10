@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO subscriber_counters (environment_id, subscriber_id)\n           VALUES ($1, $2) ON CONFLICT (environment_id, subscriber_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ea1bdbae5ad655df1110319d7328b97a2306b16e29622483aa1fb84389bd3a2a"
+}

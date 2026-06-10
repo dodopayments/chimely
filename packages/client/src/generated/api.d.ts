@@ -3,15 +3,1023 @@
  * Do not make direct changes to the file.
  */
 
-export type paths = Record<string, never>;
+export interface paths {
+    "/v1/broadcasts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a broadcast (one row, fan-out on read)
+         * @description One row per announcement targeting the whole environment, regardless of
+         *     subscriber count. Visible to each subscriber only if the broadcast is
+         *     created at or after that subscriber's `created_at`.
+         */
+        post: operations["createBroadcast"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbox/broadcasts/{id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark one broadcast read (for this subscriber)
+         * @description Idempotent. Inserts a `broadcast_reads` exception row; a no-op if the broadcast is already below the read watermark.
+         */
+        post: operations["markBroadcastRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbox/counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Unread and unseen counts
+         * @description `unread` drives list styling; `unseen` drives the bell badge (cleared
+         *     by mark-all-seen when the inbox opens). Served from maintained counters
+         *     (Redis cache, Postgres authoritative) — O(1), not O(rows).
+         */
+        get: operations["getInboxCounts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbox/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Merged inbox list (direct + broadcast), keyset-paginated
+         * @description Newest first, ordered by `(occurred_at, id)` descending across both
+         *     sources. `cursor` is the opaque keyset token from the previous page's
+         *     `next_cursor`. Category mutes are applied server-side.
+         *
+         *     Supports `ETag` / `If-None-Match`, so post-reconnect refetches
+         *     (deploy thundering herd) are mostly 304s. The validator is a strong
+         *     hash over: the request cursor, `subscriber_counters.updated_at`
+         *     (bumped by EVERY read-state mutation — see the counter invariants in
+         *     schema.sql), the subscriber's latest direct item `(visible_at, id)`,
+         *     the environment's latest broadcast `(created_at, id)`, and
+         *     `max(preferences.updated_at)` for the subscriber. Each input is one
+         *     index-only lookup; anything that can change a page moves at least
+         *     one of them.
+         *
+         *     Responses are `Cache-Control: private, max-age=0` — inbox pages are
+         *     per-user data and must never be cached by shared proxies.
+         */
+        get: operations["listInboxItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbox/notifications/{id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark one direct notification read
+         * @description Idempotent. Sets `read_at`; decrements the unread counter only if it was unread.
+         */
+        post: operations["markNotificationRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbox/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read own preferences */
+        get: operations["getPreferences"];
+        /** Set own preferences */
+        put: operations["setPreferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbox/read-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark everything read (watermark move)
+         * @description Moves the per-subscriber read watermark to now — a one-row update, not
+         *     a bulk UPDATE. Covers both sources; individually-read exception rows
+         *     below the new watermark are garbage-collected.
+         */
+        post: operations["markAllRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbox/seen-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark everything seen (badge clear; watermark move)
+         * @description Called by the SDK when the inbox opens. Moves the seen watermark; read state is untouched.
+         */
+        post: operations["markAllSeen"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbox/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * SSE hint stream
+         * @description `text/event-stream` of **hints, not transports**: the client refetches
+         *     via REST (conditional, ETag) on every hint and on every (re)connect, so
+         *     missed hints are harmless by construction.
+         *
+         *     Auth via query parameters (browser `EventSource` cannot set headers).
+         *     Server requirement (tested invariant, not a habit): `subscriber_hash`
+         *     is scrubbed from access/proxy log lines for this endpoint —
+         *     query-string credentials otherwise leak into logs.
+         *
+         *     Events (`id:` on every event is an opaque resume token):
+         *     * `hint` — something changed for this subscriber; refetch list/counts.
+         *       Debounced server-side (at most one per subscriber per interval).
+         *
+         *     Keep-alive is a comment frame (`: ping`) every 30 seconds, not an
+         *     event — comment frames are deliberately invisible to EventSource
+         *     listeners. Unknown future event types must be ignored by clients.
+         *
+         *     Resume: browsers replay `Last-Event-ID` automatically on reconnect; the
+         *     server answers by emitting an immediate `hint` if anything changed
+         *     after that token (it does not replay individual missed events — the
+         *     REST refetch is the recovery mechanism). On graceful shutdown the
+         *     server sends a `retry:` directive with jitter before closing, so a
+         *     deploy does not produce a reconnect stampede.
+         */
+        get: operations["streamInbox"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create direct notifications (1–100 recipients, fan-out on write)
+         * @description Creates one notification per recipient in a single transaction together
+         *     with counter bumps and the outbox job. The `idempotency_key` covers the
+         *     **whole request**: a retry never partially re-runs the batch.
+         *
+         *     `deliver_at` schedules delivery (max 13 months out): the notification
+         *     is durable immediately but invisible to the subscriber until then;
+         *     counters and real-time hints fire at `deliver_at`.
+         *
+         *     Recipients that don't exist yet are lazily created as subscribers.
+         *     Need more than 100 recipients? That's a broadcast.
+         */
+        post: operations["createNotifications"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/subscribers/{subscriber_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Upsert a subscriber
+         * @description Subscribers are normally created lazily; this exists for imports.
+         *     `created_at` may be **backdated** on first create (ignored on update) —
+         *     it is the knob controlling which historical broadcasts an imported user
+         *     sees (`broadcast.created_at >= subscriber.created_at`).
+         */
+        put: operations["upsertSubscriber"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/subscribers/{subscriber_id}/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a subscriber's preferences (admin) */
+        get: operations["getSubscriberPreferences"];
+        /** Set preferences for a subscriber (admin) */
+        put: operations["setSubscriberPreferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+}
 export type webhooks = Record<string, never>;
 export interface components {
-    schemas: never;
-    responses: never;
+    schemas: {
+        Broadcast: {
+            category: string;
+            /** Format: date-time */
+            created_at: string;
+            id: components["schemas"]["BroadcastId"];
+            idempotency_key: string;
+            payload: components["schemas"]["Payload"];
+        };
+        /**
+         * @description TypeID: `bcast_` + UUIDv7 suffix (Crockford base32).
+         * @example bcast_01h455vb4pex5vsknk084sn02q
+         */
+        BroadcastId: string;
+        CreateBroadcastRequest: {
+            /** @example product.update */
+            category: string;
+            idempotency_key?: string;
+            payload?: components["schemas"]["Payload"];
+        };
+        /** @description Exactly one of `subscriber_id` / `subscriber_ids` is required. */
+        CreateNotificationsRequest: {
+            /** @example payment.failed */
+            category: string;
+            /**
+             * Format: date-time
+             * @description Scheduled delivery; must be in the future, at most 13 months out.
+             */
+            deliver_at?: string;
+            /** @description Client-supplied; server-generated and echoed if omitted. Covers the whole batch. */
+            idempotency_key?: string;
+            payload?: components["schemas"]["Payload"];
+            /** @description Single-recipient sugar for `subscriber_ids: [x]`. */
+            subscriber_id?: string;
+            /** @description Recipients; one notification row each. >100 → use a broadcast. */
+            subscriber_ids?: string[];
+        };
+        CreateNotificationsResponse: {
+            idempotency_key: string;
+            notifications: {
+                id: components["schemas"]["NotificationId"];
+                subscriber_id: string;
+            }[];
+        };
+        Error: {
+            error: {
+                /** @example invalid_request */
+                code: string;
+                message: string;
+            };
+        };
+        InboxCounts: {
+            unread: number;
+            unseen: number;
+        };
+        InboxItem: {
+            category: string;
+            /** @description The TypeID prefix already encodes the source; `source` is kept as the explicit discriminator. */
+            id: components["schemas"]["NotificationId"] | components["schemas"]["BroadcastId"];
+            /**
+             * Format: date-time
+             * @description The ordering timestamp — `visible_at` for direct, `created_at` for broadcast.
+             */
+            occurred_at: string;
+            payload: components["schemas"]["Payload"];
+            /** @description Computed — per-item exception OR at-or-below the read watermark. */
+            read: boolean;
+            /**
+             * @description Routes mark-read to the right endpoint; the SDK handles this.
+             * @enum {string}
+             */
+            source: "notification" | "broadcast";
+        };
+        InboxPage: {
+            items: components["schemas"]["InboxItem"][];
+            /** @description Opaque keyset token; null when the last page is reached. */
+            next_cursor: string | null;
+        };
+        /**
+         * @description TypeID: `notif_` + UUIDv7 suffix (Crockford base32).
+         * @example notif_01h455vb4pex5vsknk084sn02q
+         */
+        NotificationId: string;
+        /**
+         * @description Customer-defined JSON, delivered to the widget verbatim — the server
+         *     never reads it (no templates, no interpretation). Max 16 KiB serialized.
+         *
+         *     The optional **well-known fields** below are what the default
+         *     `<Inbox />` rendering understands; a payload with none of them renders
+         *     as category + timestamp only. All other fields ride along untouched
+         *     for custom renderers (`renderItem`). Keys are snake_case: payloads are
+         *     wire format and are never case-transformed by the SDK.
+         */
+        Payload: {
+            /**
+             * Format: uri
+             * @description Followed on item click by the default renderer (after mark-read).
+             */
+            action_url?: string;
+            /** @description Secondary line; treated as plain text, never HTML. */
+            body?: string;
+            /**
+             * Format: uri
+             * @description Leading icon/avatar in the default rendering.
+             */
+            icon_url?: string;
+            /** @description First line of the default item rendering. */
+            title?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        Preference: {
+            category: string;
+            /**
+             * @description Only `in_app` in v1; push channels later, no contract break.
+             * @enum {string}
+             */
+            channel: "in_app";
+            enabled: boolean;
+        };
+        PreferenceList: {
+            preferences: components["schemas"]["Preference"][];
+        };
+        /** @description Partial upsert — listed (category, channel) pairs are written; unlisted pairs are untouched. Setting enabled=true deletes the explicit row (absence means enabled). */
+        PreferenceWriteList: {
+            preferences: components["schemas"]["Preference"][];
+        };
+        Subscriber: {
+            /**
+             * Format: date-time
+             * @description Governs broadcast visibility for this subscriber.
+             */
+            created_at: string;
+            subscriber_id: string;
+        };
+    };
+    responses: {
+        /** @description Validation error. */
+        BadRequest: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Resource not found in this environment. */
+        NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Per-API-key (management) or per-subscriber (widget) rate limit. */
+        RateLimited: {
+            headers: {
+                "retry-after"?: number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Missing/invalid API key or subscriber hash. */
+        Unauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+    };
     parameters: never;
     requestBodies: never;
     headers: never;
     pathItems: never;
 }
 export type $defs = Record<string, never>;
-export type operations = Record<string, never>;
+export interface operations {
+    createBroadcast: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateBroadcastRequest"];
+            };
+        };
+        responses: {
+            /** @description Idempotent replay. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Broadcast"];
+                };
+            };
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Broadcast"];
+                };
+            };
+            /** @description Validation error. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    markBroadcastRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["BroadcastId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Read (now or already). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Resource not found in this environment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getInboxCounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxCounts"];
+                };
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listInboxItems: {
+        parameters: {
+            query?: {
+                /** @description Opaque keyset cursor; omit for the first page. */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: {
+                "If-None-Match"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of inbox items. */
+            200: {
+                headers: {
+                    /** @description Always `private, max-age=0`. */
+                    "Cache-Control"?: string;
+                    /** @description Strong validator for this page + read state. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxPage"];
+                };
+            };
+            /** @description Not modified (If-None-Match matched). */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    markNotificationRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["NotificationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Read (now or already). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Resource not found in this environment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Explicit preference rows only — absence means enabled. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferenceList"];
+                };
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    setPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferenceWriteList"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferenceList"];
+                };
+            };
+            /** @description Validation error. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    markAllRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Watermark moved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxCounts"];
+                };
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    markAllSeen: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Watermark moved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxCounts"];
+                };
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    streamInbox: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Sent automatically by EventSource on reconnect. */
+                "Last-Event-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Event stream. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createNotifications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateNotificationsRequest"];
+            };
+        };
+        responses: {
+            /** @description Idempotent replay — original response echoed, nothing re-created. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateNotificationsResponse"];
+                };
+            };
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateNotificationsResponse"];
+                };
+            };
+            /** @description Validation error. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    upsertSubscriber: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Customer-provided subscriber id (e.g. `usr_42`). */
+                subscriber_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * Format: date-time
+                     * @description Backdate on create only; ignored if the subscriber exists.
+                     */
+                    created_at?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Upserted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Subscriber"];
+                };
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getSubscriberPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Customer-provided subscriber id (e.g. `usr_42`). */
+                subscriber_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Explicit preference rows only — absence means enabled. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferenceList"];
+                };
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Resource not found in this environment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    setSubscriberPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Customer-provided subscriber id (e.g. `usr_42`). */
+                subscriber_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferenceWriteList"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferenceList"];
+                };
+            };
+            /** @description Validation error. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+}
