@@ -53,6 +53,5 @@ integrations are unambiguous.
 project regardless of code license — that, not the code license, is the
 protection against confusing forks.
 
-**Contributing:** DCO from day one — sign your commits (`git commit -s`);
-CI enforces the `Signed-off-by` trailer. External code contributions also
-require a CLA (so the licensing model above stays enforceable).
+**Contributing:** external code contributions require a CLA (so the
+licensing model above stays enforceable).

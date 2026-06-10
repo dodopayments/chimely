@@ -72,7 +72,7 @@ is incompatible with this split; any copyleft transitive dependency in
 and explicitly allowed in `server/deny.toml`, never waved through. The
 `cargo-deny` CI job is the gate. SDK runtime dependencies must be
 permissive (they embed in customer frontends). External code contributions
-require a CLA (not just DCO) so exclusive commercialization rights hold.
+require a CLA so exclusive commercialization rights hold.
 
 ## API contract rules
 
