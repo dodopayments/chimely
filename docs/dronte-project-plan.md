@@ -1,6 +1,6 @@
 # Dronte — Project Plan
 
-Open-source, self-hostable **in-app notification inbox infrastructure**. A Rust server with Postgres as source of truth and Redis as the real-time plane, plus a drop-in `<Inbox />` React component and a deliberately small HTTP API.
+Fair-source, self-hostable **in-app notification inbox infrastructure**. A Rust server with Postgres as source of truth and Redis as the real-time plane, plus a drop-in `<Inbox />` React component and a deliberately small HTTP API.
 
 The thesis: Novu models a workflow engine that happens to have an inbox channel. Dronte models an inbox that may later gain push transports. Same DX on the outside — `<Inbox />` component, one API call to notify — radically simpler on the inside: no workflow engine, no step model, no per-channel template system. Web-push and mobile-push come later as additional transports for the *same* notification object, not as workflow steps.
 
@@ -139,17 +139,15 @@ dronte/
 
 **SDKs and examples — MIT.** `packages/client`, `packages/react`, and `examples/` ship MIT unconditionally. These embed in customers' frontends; any copyleft here would kill adoption, and the SDKs are the distribution channel.
 
-**Server — AGPL-3.0 by default.** On-brand for the positioning (Plausible is AGPL) and the right mechanics for single-org self-host: network copyleft stops a cloud vendor from wrapping Dronte into a closed hosted product, while imposing nothing on normal users — self-hosters run the binary as a standalone service and integrate over HTTP through MIT SDKs, so AGPL obligations never reach their codebase. State this explicitly in the README's license FAQ, because "AGPL" reflexively scares enterprise reviewers who haven't noticed the boundary.
+**Server — FSL-1.1-MIT** (decided 2026-06; previously AGPL-3.0-only). The plan's original decision rule — "switch the server to FSL *before* the first external contribution is merged" — was exercised while every commit was still the owner's, so the relicense required no third-party consent. FSL keeps everything self-hosters care about (free use, modification, redistribution, production at any scale) and prohibits exactly one thing: offering Dronte as a competing commercial product or service. Each release converts to MIT on its second anniversary, so nothing stays locked up forever. The server is "fair source", never "open source", in all docs and marketing; the README's license FAQ spells out the boundary because the practical answer for users is unchanged from the AGPL era: nothing reaches their codebase.
 
-**The one decision rule:** if a commercial Dronte Cloud ever becomes a live intention, switch the server to FSL (Apache-2.0 after two years) *before* the first external contribution is merged. AGPL with outside contributors and no CLA forecloses relicensing permanently. Deadline: first external PR, not launch.
-
-**Contribution mechanics:** DCO from day one (sign-off enforced in CI) — lightweight and sufficient under pure AGPL. Add a CLA only if keeping the FSL option open past the first contributor, accepting the contributor friction that brings.
+**Contribution mechanics:** DCO from day one (sign-off enforced in CI) certifies origin only. Under FSL with exclusive commercialization, external code contributions ALSO require a CLA before merging — DCO alone does not grant the rights needed to sell commercial licenses over contributed code. The CLA must be in place before the first external PR is accepted.
 
 **Adjacent rights:** the generated OpenAPI spec and docs content are MIT/CC-BY so third-party clients and integrations are unambiguous. The Dronte name and logo are not licensed — trademark stays with the project regardless of code license, which is the actual protection against confusing forks.
 
 ## Phases
 
-**Phase 0 — Claims and scaffolding (days).** GitHub org, npm scope `@dronte`, crates.io name, dronte.dev. Monorepo, CI (fmt/clippy/test with Postgres+Redis service containers; typecheck/vitest for packages; changesets; Docker publish). Licensing per the Licensing section: LICENSE files in place (AGPL-3.0 server, MIT packages/examples), DCO check in CI.
+**Phase 0 — Claims and scaffolding (days).** GitHub org, npm scope `@dronte`, crates.io name, dronte.dev. Monorepo, CI (fmt/clippy/test with Postgres+Redis service containers; typecheck/vitest for packages; changesets; Docker publish). Licensing per the Licensing section: LICENSE files in place (server license per the Licensing section, MIT packages/examples), DCO check in CI.
 
 **Phase 1 — Core inbox engine (2–3 weeks).** Schema (subscribers, notifications, broadcasts, subscriber_counters, broadcast read exceptions, outbox/jobs with `progress_cursor`, environments, api_keys, preferences with `channel` column — `environment_id` in every key), notifications + broadcasts endpoints with idempotency and `deliver_at`, SKIP LOCKED worker loop with per-environment fair claiming and delete-on-complete, subscriber REST API (keyset-paginated merged list, maintained unread count, watermark read marks, per-category preferences, ETag), SSE with debounced Redis pub/sub hints (LISTEN/NOTIFY fallback), HMAC auth, migrations-on-boot, health endpoints.
 

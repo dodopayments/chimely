@@ -1,12 +1,11 @@
 # cargo-deny policy — wired into CI (see .github/workflows/ci.yml).
 #
 # Licensing is settled (docs/dronte-project-plan.md, "Licensing"): the server
-# is AGPL-3.0-only, the SDKs/examples are MIT. Dependencies of the server
-# must be permissively licensed: copyleft INSIDE the dependency tree is
-# legally compatible with AGPL but is deliberately review-gated — any
-# copyleft (including weak copyleft like MPL/LGPL) transitive dependency
-# must be flagged and explicitly allowed here with a comment, never waved
-# through silently.
+# is FSL-1.1-MIT (fair source; converts to MIT two years per release), the
+# SDKs/examples are MIT. Dependencies of the server must be permissively
+# licensed: any copyleft (including weak copyleft like MPL/LGPL) transitive
+# dependency must be flagged and explicitly allowed here with a comment,
+# never waved through silently.
 
 [licenses]
 allow = [
@@ -21,9 +20,9 @@ allow = [
     "Unicode-3.0",
     "CDLA-Permissive-2.0",
 ]
-# Our own crate is the only AGPL code allowed in the graph.
+# Our own crate is the only non-permissive code allowed in the graph.
 exceptions = [
-    { name = "dronte", allow = ["AGPL-3.0-only"] },
+    { name = "dronte", allow = ["FSL-1.1-MIT"] },
 ]
 
 [bans]

@@ -32,7 +32,7 @@ jobs:
           done
           exit $missing
 
-  # License policy gate (AGPL-3.0-only server, permissive-only dependency
+  # License policy gate (FSL-1.1-MIT server, permissive-only dependency
   # tree; copyleft transitives are review-gated in server/deny.toml).
   licenses:
     name: cargo-deny (license policy)

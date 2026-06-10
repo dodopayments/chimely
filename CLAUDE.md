@@ -1,6 +1,6 @@
 # Dronte
 
-Open-source, self-hostable in-app notification inbox infrastructure: one Rust
+Fair-source, self-hostable in-app notification inbox infrastructure: one Rust
 binary + Postgres (source of truth) + Redis (real-time plane), a small HTTP
 API, and a drop-in `<Inbox />`. The full plan lives in
 `docs/dronte-project-plan.md`; week-scale risks in `docs/risk-register.md`.
@@ -62,13 +62,17 @@ device is 1:1.
 the API, not in the admin UI. Environments are the isolation unit;
 multi-tenancy is "run another instance".
 
-**Licensing is settled** (plan, "Licensing"): AGPL-3.0-only for `server/`,
-MIT for `packages/*` and `examples/`. Never add a dependency whose license
+**Licensing is settled** (plan, "Licensing"): FSL-1.1-MIT for `server/`
+(fair source — free use/self-host, no competing commercialization, each
+release converts to MIT after two years), MIT for `packages/*` and
+`examples/`. Never call the server "open source" in docs or marketing —
+"fair source" or "source available". Never add a dependency whose license
 is incompatible with this split; any copyleft transitive dependency in
 `server/` (including weak copyleft — MPL, LGPL) must be flagged for review
 and explicitly allowed in `server/deny.toml`, never waved through. The
 `cargo-deny` CI job is the gate. SDK runtime dependencies must be
-permissive (they embed in customer frontends).
+permissive (they embed in customer frontends). External code contributions
+require a CLA (not just DCO) so exclusive commercialization rights hold.
 
 ## API contract rules
 

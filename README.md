@@ -1,6 +1,6 @@
 # Dronte
 
-Open-source, self-hostable **in-app notification inbox infrastructure**.
+Fair-source, self-hostable **in-app notification inbox infrastructure**.
 One Rust binary + Postgres + Redis, a deliberately small HTTP API, and a
 drop-in `<Inbox />` React component. No workflow engine — the inbox is the
 primitive.
@@ -12,7 +12,7 @@ primitive.
 ## Repository layout
 
 ```
-server/            Rust binary: API, SSE, workers          (AGPL-3.0-only)
+server/            Rust binary: API, SSE, workers          (FSL-1.1-MIT)
 packages/client/   @dronte/client — headless TS core       (MIT)
 packages/react/    @dronte/react  — hooks + <Inbox />      (MIT)
 examples/          quickstarts and integration examples    (MIT)
@@ -23,24 +23,27 @@ specs/             frozen v1 contracts (read-only)
 ## License FAQ
 
 **What is licensed how?** The server (`server/`) is
-[AGPL-3.0-only](./LICENSE). The SDKs (`packages/client`, `packages/react`)
-and everything in `examples/` are MIT — they embed in your frontend, and
-they carry their own `LICENSE` files.
+[FSL-1.1-MIT](./LICENSE) — the Functional Source License. The SDKs
+(`packages/client`, `packages/react`) and everything in `examples/` are
+MIT — they embed in your frontend, and they carry their own `LICENSE`
+files.
 
-**Does the AGPL affect my application?** No. Self-hosters run the Dronte
+**What does FSL mean for me?** You can use, self-host, modify, and
+redistribute Dronte freely — internally, in production, commercially, at
+any scale, for free, forever. The single thing the license prohibits is
+offering Dronte itself to others as a competing commercial product or
+hosted service. Each release additionally converts to plain MIT two years
+after it ships.
+
+**Does the server license affect my application?** No. You run the Dronte
 binary as a standalone network service and integrate over HTTP through the
-MIT-licensed SDKs. AGPL obligations attach to the server process, not to
-code that talks to it — they never reach your codebase. The AGPL exists to
-stop a cloud vendor from wrapping Dronte into a closed hosted product, not
-to constrain users.
+MIT-licensed SDKs. Nothing about the server's license reaches your
+codebase, and calling the HTTP API creates no obligations.
 
-**Do I have to publish my backend because it calls Dronte's API?** No.
-Calling the HTTP API is not linking and creates no obligations.
-
-**What if I modify the server?** If you run a modified server for others
-over a network, the AGPL requires offering them the modified source —
-that's the network-copyleft point of it. Internal unmodified use requires
-nothing.
+**Is this open source?** Not by the OSI definition — FSL is
+[fair source](https://fair.io). The source is public, self-hosting is
+unrestricted, and every release becomes MIT (true open source) on its
+second anniversary.
 
 **What about the API spec and docs?** The generated OpenAPI document and
 the documentation content are MIT, so third-party clients, bindings, and
@@ -50,5 +53,6 @@ integrations are unambiguous.
 project regardless of code license — that, not the code license, is the
 protection against confusing forks.
 
-**Contributing:** DCO from day one — sign your commits (`git commit -s`).
-CI enforces the `Signed-off-by` trailer.
+**Contributing:** DCO from day one — sign your commits (`git commit -s`);
+CI enforces the `Signed-off-by` trailer. External code contributions also
+require a CLA (so the licensing model above stays enforceable).
