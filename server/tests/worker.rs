@@ -20,7 +20,7 @@ async fn job_types(app: &support::TestApp, env: Uuid) -> Vec<String> {
 
 /// Schedule a notification batch due (just) in the future and wait it out.
 async fn create_due_scheduled(app: &support::TestApp, subscriber: &str, n: usize) {
-    let deliver_at = Utc::now() + chrono::Duration::milliseconds(300);
+    let deliver_at = Utc::now() + chrono::Duration::milliseconds(800);
     let recipients: Vec<String> = (0..n).map(|i| format!("{subscriber}_{i}")).collect();
     let res = app
         .mgmt_post(
@@ -32,7 +32,7 @@ async fn create_due_scheduled(app: &support::TestApp, subscriber: &str, n: usize
         .await
         .unwrap();
     assert_eq!(res.status(), 201);
-    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
 }
 
 #[tokio::test]
@@ -91,8 +91,11 @@ async fn killing_the_worker_mid_deliver_is_replay_safe() {
 async fn large_deliver_jobs_advance_progress_cursor_per_chunk() {
     let app = support::spawn().await;
     // Build a 600-row scheduled fan-out (> DELIVER_CHUNK) as 6 API batches,
-    // then splice them into ONE deliver job to exercise chunking.
-    let deliver_at = Utc::now() + chrono::Duration::milliseconds(200);
+    // then splice them into ONE deliver job to exercise chunking. The
+    // deliver_at sits far in the future: the synthetic job below is due
+    // immediately regardless, the bump does not gate on visibility, and a
+    // near deadline 400s the later batches on slow CI runners.
+    let deliver_at = Utc::now() + chrono::Duration::seconds(60);
     for batch in 0..6 {
         let recipients: Vec<String> = (0..100).map(|i| format!("usr_big_{batch}_{i}")).collect();
         let res = app
@@ -129,7 +132,6 @@ async fn large_deliver_jobs_advance_progress_cursor_per_chunk() {
     .await
     .unwrap();
     drop(conn);
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
     // First claim: one chunk (500), cursor advanced, job still present.
     assert!(
@@ -331,7 +333,7 @@ async fn failing_jobs_back_off_and_park_at_max_attempts() {
 #[tokio::test]
 async fn reading_a_visible_but_undelivered_notification_leaves_no_drift() {
     let app = support::spawn().await;
-    let deliver_at = Utc::now() + chrono::Duration::milliseconds(300);
+    let deliver_at = Utc::now() + chrono::Duration::milliseconds(800);
     let res = app
         .mgmt_post(
             "/v1/notifications",
@@ -342,7 +344,7 @@ async fn reading_a_visible_but_undelivered_notification_leaves_no_drift() {
         .await
         .unwrap();
     assert_eq!(res.status(), 201);
-    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
 
     // Visible now, deliver job still pending.
     let items = app.list_all_items("usr_w_a", 10).await;
@@ -373,7 +375,7 @@ async fn reading_a_visible_but_undelivered_notification_leaves_no_drift() {
 #[tokio::test]
 async fn rebuild_during_the_deliver_window_does_not_double_count() {
     let app = support::spawn().await;
-    let deliver_at = Utc::now() + chrono::Duration::milliseconds(300);
+    let deliver_at = Utc::now() + chrono::Duration::milliseconds(800);
     let res = app
         .mgmt_post(
             "/v1/notifications",
@@ -384,12 +386,14 @@ async fn rebuild_during_the_deliver_window_does_not_double_count() {
         .await
         .unwrap();
     assert_eq!(res.status(), 201);
-    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
 
     // Force the rebuild to run FIRST: push the deliver job into the near
-    // future, enqueue a rebuild, process it, then let the deliver job run.
+    // future (far enough that a loaded CI runner cannot make it due before
+    // the rebuild claim below), enqueue a rebuild, process it, then let the
+    // deliver job run.
     sqlx::query(
-        "UPDATE jobs SET run_at = now() + interval '300 milliseconds'
+        "UPDATE jobs SET run_at = now() + interval '2 seconds'
                   WHERE environment_id = $1 AND job_type = 'deliver'",
     )
     .bind(app.env.id)
@@ -428,7 +432,7 @@ async fn rebuild_during_the_deliver_window_does_not_double_count() {
         "rebuild must not count rows still owned by a deliver job"
     );
 
-    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(2_200)).await;
     app.drain_jobs().await; // deliver
 
     let (unread, unseen, _) = app.counter_row("usr_rw").await;

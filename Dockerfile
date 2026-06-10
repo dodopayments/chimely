@@ -14,6 +14,11 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY server/Cargo.toml server/Cargo.lock ./
 COPY server/src ./src
+# sqlx compile-time checks read the committed offline cache (no database in
+# the image build); migrations/ is embedded by sqlx::migrate! at compile time.
+COPY server/.sqlx ./.sqlx
+COPY server/migrations ./migrations
+ENV SQLX_OFFLINE=true
 RUN cargo build --release --bin dronte
 
 FROM debian:trixie-slim AS runtime

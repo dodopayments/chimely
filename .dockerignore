@@ -3,3 +3,5 @@
 !server/Cargo.toml
 !server/Cargo.lock
 !server/src/
+!server/.sqlx/
+!server/migrations/
