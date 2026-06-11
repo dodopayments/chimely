@@ -2,8 +2,8 @@
  * In-process stub of the Dronte API for SDK tests, typed against the
  * exported OpenAPI spec (../generated/api). Implements the subscriber-plane
  * routes the SDK calls: keyset pagination with ETag/If-None-Match, the
- * mark-read endpoints, watermark moves, and preferences. Never touches
- * server/ — the generated wire types are the contract.
+ * mark-read endpoints, watermark moves, and preferences. It never touches
+ * server/. The generated wire types are the contract.
  */
 
 import type { components } from '../generated/api';
@@ -232,7 +232,10 @@ export class StubServer {
     });
   }
 
-  /** Models the graceful-close retry directive surfaced by a non-platform EventSource. */
+  /**
+   * The graceful-close frame as the server emits it on shutdown: a named
+   * retry event whose data is the next delay in milliseconds.
+   */
   emitRetry(ms: number): void {
     this.stream().emit('retry', { data: String(ms) });
   }

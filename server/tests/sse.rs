@@ -174,16 +174,40 @@ async fn graceful_shutdown_sends_a_retry_directive() {
     let mut stream = SseStream::connect(&app, SUB, None).await;
     app.shutdown_tx.send(true).unwrap();
 
-    let mut saw_retry = false;
+    let mut goodbye = None;
     while let Some(frame) = stream.next_frame(Duration::from_secs(2)).await {
         if frame.contains("retry:") {
-            saw_retry = true;
+            goodbye = Some(frame);
             break;
         }
     }
+    let frame = goodbye.expect("shutdown must emit a retry frame before closing");
+
+    // The protocol field alone is invisible to EventSource listeners, so
+    // the frame must also be a named `retry` event whose data is the same
+    // delay in milliseconds. SDK clients run their own reconnect loop and
+    // can only honor the override if they can observe it.
     assert!(
-        saw_retry,
-        "shutdown must emit a retry: directive before closing"
+        frame.contains("event: retry"),
+        "shutdown frame must be a named retry event, got: {frame}"
+    );
+    let field_ms: u64 = frame
+        .lines()
+        .find_map(|line| line.strip_prefix("retry: "))
+        .expect("protocol retry field present")
+        .trim()
+        .parse()
+        .expect("retry field is milliseconds");
+    let data_ms: u64 = frame
+        .lines()
+        .find_map(|line| line.strip_prefix("data: "))
+        .expect("data line present")
+        .trim()
+        .parse()
+        .expect("retry event data is milliseconds");
+    assert_eq!(
+        data_ms, field_ms,
+        "event data must equal the protocol field"
     );
 }
 
