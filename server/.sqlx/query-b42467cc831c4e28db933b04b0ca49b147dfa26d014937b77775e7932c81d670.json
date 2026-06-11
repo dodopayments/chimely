@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH revived AS (\n               DELETE FROM dead_letters\n                WHERE ($1::uuid IS NULL OR id = $1)\n                  AND ($2::uuid IS NULL OR environment_id = $2)\n                RETURNING environment_id, id, job_type, payload, max_attempts,\n                          last_error, progress_cursor, created_at)\n           INSERT INTO jobs (environment_id, id, job_type, payload, run_at,\n                             attempts, max_attempts, last_error,\n                             progress_cursor, created_at)\n           SELECT environment_id, id, job_type, payload, now(), 0,\n                  max_attempts, last_error, progress_cursor, created_at\n             FROM revived",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b42467cc831c4e28db933b04b0ca49b147dfa26d014937b77775e7932c81d670"
+}

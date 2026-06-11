@@ -47,6 +47,13 @@ stalls.
   operator (see below).
 - **`dronte_job_wait_seconds` p99 growing without a matching queue-depth
   flood** — claim starvation; check for a stuck worker.
+- **Timeline write latency vs retention.** The status log's idempotency
+  guard probes every `notification_status_log` partition (the table is
+  range-partitioned on `occurred_at`, and a prior status row can live in
+  any month), so each append costs one index probe per partition. With
+  the default 12-month retention that is ~26 cheap B-tree probes; if you
+  raise `DRONTE_RETENTION_MONTHS` substantially, watch notification
+  create/read latency grow with the partition count.
 
 ## Dead-letter replay
 

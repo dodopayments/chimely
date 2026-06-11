@@ -243,22 +243,26 @@ mod tests {
     #[tokio::test]
     async fn gc_judges_each_bucket_by_its_own_parameters() {
         let limiter = LocalRateLimiter::default();
-        // A nearly-full API-key-shaped bucket: spend one token of a big burst.
-        assert!(matches!(
-            limiter.check("api-key", 50.0, 200.0).await,
-            Decision::Allowed
-        ));
+        // A spent API-key-shaped bucket that refills so slowly (0.01/s) it
+        // cannot return to full during the test, no matter how slow the
+        // runner. Its own parameters say "keep".
+        for _ in 0..60 {
+            assert!(matches!(
+                limiter.check("api-key", 0.01, 200.0).await,
+                Decision::Allowed
+            ));
+        }
         // Flood subscriber-shaped buckets past the GC threshold so the NEXT
         // subscriber check (rate=10, burst=50) runs the GC. With the
-        // caller's parameters applied to every bucket, the API-key bucket
-        // (199 tokens >= burst 50) would be dropped and reborn full.
+        // caller's parameters wrongly applied to every bucket, the API-key
+        // bucket (140 tokens >= burst 50) would be dropped and reborn full.
         for i in 0..10_001 {
             limiter.check(&format!("sub-{i}"), 10.0, 50.0).await;
         }
         let buckets = limiter.buckets.lock().expect("lock");
         let bucket = buckets.get("api-key").expect("survives the GC");
         assert!(
-            bucket.tokens < 200.0,
+            bucket.tokens < 141.0,
             "bucket must keep its spent state, not be reborn full"
         );
     }

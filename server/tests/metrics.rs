@@ -104,10 +104,28 @@ async fn counter_drift_detects_an_artificially_poisoned_counter() {
     app.create_notification("usr_m3", "x").await;
     app.drain_jobs().await;
 
+    // A pending read-state hint carries an explicit JSON null in
+    // notification_ids. The drift recount's deliver-ownership probe walks
+    // job payloads and must not feed that null to
+    // jsonb_array_elements_text (scalar input raises an error).
+    let subscriber: uuid::Uuid = sqlx::query_scalar(
+        "SELECT id FROM subscribers WHERE environment_id = $1 AND subscriber_id = 'usr_m3'",
+    )
+    .bind(app.env.id)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    let mut conn = app.pool.acquire().await.unwrap();
+    dronte::jobs::enqueue_hint(&mut conn, app.env.id, &[subscriber], "read_state", &[])
+        .await
+        .unwrap();
+    drop(conn);
+
     let (unread, unseen) = metrics_sampler::counter_drift(&app.pool, 100)
         .await
         .unwrap();
     assert_eq!((unread, unseen), (0, 0));
+    app.drain_jobs().await;
 
     // Poison the maintained value; the sampled recount must see it. This is
     // the proof the chaos suite's zero-drift assertion has teeth.
