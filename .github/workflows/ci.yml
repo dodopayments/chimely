@@ -109,17 +109,15 @@ jobs:
       - name: Fail if committed generated artifacts are stale
         run: git diff --exit-code -- packages/client/src/generated docs/openapi
 
-  # ALLOWED TO FAIL until Phase 2 completes (see CLAUDE.md, "API contract
-  # rules"): specs/openapi.yaml is the convergence target and this job's diff
-  # output is the implementation to-do list. The flip, when Phase 2 lands:
-  #   1. delete `continue-on-error: true`
-  #   2. mark this job required in branch protection
-  # After v1 the hand-written spec retires and this gate becomes oasdiff
-  # breaking-change detection against the previous release.
+  # REQUIRED (the Phase 1/2 completion criterion, see CLAUDE.md "API
+  # contract rules"): the generated spec must equal specs/openapi.yaml,
+  # the frozen convergence target. Mark this job required in branch
+  # protection. After v1 the hand-written spec retires and this gate
+  # becomes oasdiff breaking-change detection against the previous
+  # release.
   contract:
-    name: contract convergence (ALLOWED TO FAIL until Phase 2)
+    name: contract convergence
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: Install pinned toolchain (rust-toolchain.toml)

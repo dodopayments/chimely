@@ -17,9 +17,7 @@ fn main() -> anyhow::Result<()> {
         // Spec export must stay side-effect free: no runtime, no sockets, no
         // tracing init — CI and the docs pipeline call this in tight loops.
         Some("openapi") => {
-            let yaml = openapi::api_doc()
-                .to_yaml()
-                .context("serializing OpenAPI document")?;
+            let yaml = openapi::to_contract_yaml().context("serializing OpenAPI document")?;
             print!("{yaml}");
             Ok(())
         }

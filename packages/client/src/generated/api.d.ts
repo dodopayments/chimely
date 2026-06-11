@@ -473,7 +473,12 @@ export interface components {
             };
         };
     };
-    parameters: never;
+    parameters: {
+        /** @description Customer-provided subscriber id (e.g. `usr_42`). */
+        SubscriberIdPath: string;
+        NotificationIdPath: components["schemas"]["NotificationId"];
+        BroadcastIdPath: components["schemas"]["BroadcastId"];
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
@@ -529,6 +534,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            429: components["responses"]["RateLimited"];
         };
     };
     markBroadcastRead: {
@@ -642,6 +648,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            429: components["responses"]["RateLimited"];
         };
     };
     markNotificationRead: {
@@ -892,6 +899,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            429: components["responses"]["RateLimited"];
         };
     };
     upsertSubscriber: {

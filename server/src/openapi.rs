@@ -12,7 +12,7 @@ use utoipa::openapi::header::HeaderBuilder;
 use utoipa::openapi::response::ResponseBuilder;
 use utoipa::openapi::schema::{ObjectBuilder, Type};
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, SecurityScheme};
-use utoipa::openapi::{Ref, ServerBuilder};
+use utoipa::openapi::{Ref, RefOr, ServerBuilder};
 
 /// Verbatim from specs/openapi.yaml `info.description`.
 const INFO_DESCRIPTION: &str = r#"Two planes, one binary:
@@ -259,6 +259,113 @@ fn fixups(doc: &mut utoipa::openapi::OpenApi) {
     {
         body.required = Some(Required::False);
     }
+
+    // The contract documents 429 on both create endpoints and the hottest
+    // read. The limiter behavior itself is Phase 3 (Redis Lua token bucket).
+    // The reusable RateLimited response is declared in api_doc above.
+    let rate_limited = || RefOr::Ref(Ref::from_response_name("RateLimited"));
+    if let Some(item) = doc.paths.paths.get_mut("/v1/notifications")
+        && let Some(post) = item.post.as_mut()
+    {
+        post.responses
+            .responses
+            .insert("429".into(), rate_limited());
+    }
+    if let Some(item) = doc.paths.paths.get_mut("/v1/broadcasts")
+        && let Some(post) = item.post.as_mut()
+    {
+        post.responses
+            .responses
+            .insert("429".into(), rate_limited());
+    }
+    if let Some(item) = doc.paths.paths.get_mut("/v1/inbox/items")
+        && let Some(get) = item.get.as_mut()
+    {
+        get.responses.responses.insert("429".into(), rate_limited());
+    }
+}
+
+/// Serializes the document in the frozen contract's OpenAPI 3.0.3 dialect.
+///
+/// utoipa 5 models OpenAPI 3.1 only, while the convergence target
+/// specs/openapi.yaml is 3.0.3. The bridge below covers the two dialect
+/// differences this document actually hits plus one model gap. It runs on
+/// the serialized value because none of the three is expressible in
+/// utoipa's 3.1 model:
+/// - the `openapi` version field itself
+/// - nullability: 3.1 `type: [T, "null"]` becomes 3.0 `type: T` with
+///   `nullable: true`
+/// - `components.parameters`: the spec declares reusable path parameters
+///   and utoipa has no components-level parameters at all (operations
+///   inline them, which oasdiff resolves as equivalent)
+pub fn to_contract_yaml() -> anyhow::Result<String> {
+    let yaml = api_doc().to_yaml()?;
+    let mut doc: serde_norway::Value = serde_norway::from_str(&yaml)?;
+    doc["openapi"] = serde_norway::Value::from("3.0.3");
+    downconvert_nullable(&mut doc);
+    doc["components"]["parameters"] = contract_parameters();
+    Ok(serde_norway::to_string(&doc)?)
+}
+
+fn downconvert_nullable(value: &mut serde_norway::Value) {
+    use serde_norway::Value;
+    match value {
+        Value::Mapping(map) => {
+            if let Some(Value::Sequence(types)) = map.get("type")
+                && types.iter().any(|t| t.as_str() == Some("null"))
+            {
+                let rest: Vec<Value> = types
+                    .iter()
+                    .filter(|t| t.as_str() != Some("null"))
+                    .cloned()
+                    .collect();
+                let new_type = match <[Value; 1]>::try_from(rest) {
+                    Ok([only]) => only,
+                    Err(rest) => Value::Sequence(rest),
+                };
+                map.insert("type".into(), new_type);
+                map.insert("nullable".into(), Value::from(true));
+            }
+            for (_, nested) in map.iter_mut() {
+                downconvert_nullable(nested);
+            }
+        }
+        Value::Sequence(seq) => {
+            for nested in seq {
+                downconvert_nullable(nested);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Verbatim from specs/openapi.yaml `components.parameters`.
+fn contract_parameters() -> serde_norway::Value {
+    serde_norway::from_str(
+        r#"
+SubscriberIdPath:
+  name: subscriber_id
+  in: path
+  required: true
+  schema:
+    type: string
+    maxLength: 255
+  description: Customer-provided subscriber id (e.g. `usr_42`).
+NotificationIdPath:
+  name: id
+  in: path
+  required: true
+  schema:
+    $ref: '#/components/schemas/NotificationId'
+BroadcastIdPath:
+  name: id
+  in: path
+  required: true
+  schema:
+    $ref: '#/components/schemas/BroadcastId'
+"#,
+    )
+    .expect("static parameter yaml parses")
 }
 
 #[cfg(test)]
@@ -270,6 +377,28 @@ mod tests {
         let yaml = api_doc().to_yaml().expect("spec serializes");
         assert!(yaml.contains("title: Dronte API"));
         assert!(yaml.contains("version: 1.0.0"));
+    }
+
+    #[test]
+    fn contract_export_speaks_the_3_0_dialect() {
+        let yaml = to_contract_yaml().expect("contract export serializes");
+        assert!(yaml.starts_with("openapi: 3.0.3"));
+        assert!(
+            !yaml.contains("- 'null'"),
+            "3.1 null types must be downconverted"
+        );
+        assert!(yaml.contains("nullable: true"));
+        for parameter in [
+            "SubscriberIdPath:",
+            "NotificationIdPath:",
+            "BroadcastIdPath:",
+        ] {
+            assert!(
+                yaml.contains(parameter),
+                "missing reusable parameter {parameter}"
+            );
+        }
+        assert!(yaml.contains("$ref: '#/components/responses/RateLimited'"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-openapi: 3.1.0
+openapi: 3.0.3
 info:
   title: Dronte API
   description: |
@@ -82,6 +82,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
       security:
       - ApiKeyBearer: []
   /v1/inbox/broadcasts/{id}/read:
@@ -210,6 +212,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
       security:
       - SubscriberEnv: []
         SubscriberHash: []
@@ -460,6 +464,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
       security:
       - ApiKeyBearer: []
   /v1/subscribers/{subscriber_id}:
@@ -746,10 +752,9 @@ components:
           items:
             $ref: '#/components/schemas/InboxItem'
         next_cursor:
-          type:
-          - string
-          - 'null'
+          type: string
           description: Opaque keyset token; null when the last page is reached.
+          nullable: true
     NotificationId:
       type: string
       description: 'TypeID: `notif_` + UUIDv7 suffix (Crockford base32).'
@@ -890,6 +895,27 @@ components:
       type: apiKey
       in: query
       name: subscriber_id
+  parameters:
+    SubscriberIdPath:
+      name: subscriber_id
+      in: path
+      required: true
+      schema:
+        type: string
+        maxLength: 255
+      description: Customer-provided subscriber id (e.g. `usr_42`).
+    NotificationIdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/NotificationId'
+    BroadcastIdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/BroadcastId'
 security: []
 tags:
 - name: management
