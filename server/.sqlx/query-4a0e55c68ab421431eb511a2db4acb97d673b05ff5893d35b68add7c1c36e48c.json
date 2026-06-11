@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE jobs SET attempts = attempts + 1, last_error = $3\n            WHERE environment_id = $1 AND id = $2\n            RETURNING job_type, attempts, max_attempts",
+  "query": "UPDATE jobs SET\n               attempts = attempts + 1,\n               last_error = $3,\n               run_at = now() + make_interval(secs =>\n                   least($5::float8, $4::float8 * power(2::float8, attempts::float8))\n                       * (0.5 + random() * 0.5))\n            WHERE environment_id = $1 AND id = $2\n            RETURNING job_type, attempts, max_attempts",
   "describe": {
     "columns": [
       {
@@ -41,7 +41,9 @@
       "Left": [
         "Uuid",
         "Uuid",
-        "Text"
+        "Text",
+        "Float8",
+        "Float8"
       ]
     },
     "nullable": [
@@ -50,5 +52,5 @@
       false
     ]
   },
-  "hash": "f66334af835672606d732bc5c17b6015b1450f160fc8cc1bada2c819bcac600f"
+  "hash": "4a0e55c68ab421431eb511a2db4acb97d673b05ff5893d35b68add7c1c36e48c"
 }
