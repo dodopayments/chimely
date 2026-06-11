@@ -33,6 +33,9 @@ opentelemetry_sdk = { version = "0.32.1", features = ["rt-tokio"] }
 rand = "0.9.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
+# Already in the tree via utoipa's yaml feature. Direct use: the 3.0.3
+# contract-dialect export (openapi::to_contract_yaml).
+serde_norway = "0.9"
 sha2 = "0.10.9"
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "uuid", "chrono", "json", "macros"] }
 thiserror = "2.0.18"
