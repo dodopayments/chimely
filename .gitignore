@@ -18,3 +18,4 @@ docs/next-env.d.ts
 !.env.example
 .DS_Store
 /server/.env
+conformance/.generated/

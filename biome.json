@@ -12,7 +12,8 @@
       "!server/.sqlx",
       "!packages/client/src/generated",
       "!docs/openapi",
-      "!docs/app/global.css"
+      "!docs/app/global.css",
+      "!conformance/.generated"
     ]
   },
   "formatter": {
