@@ -1,13 +1,29 @@
 /**
- * @dronte/react — hooks + <Inbox /> (scaffold).
+ * @dronte/react — hooks + <Inbox /> on top of @dronte/client.
  *
- * The public surface is frozen in specs/sdk-api.d.ts; the implementation
- * (DronteProvider, useNotifications/useUnreadCount/useUnseenCount,
- * usePreferences, <Inbox />) lands in Phase 2 on top of @dronte/client.
+ * The public surface is frozen in specs/sdk-api.d.ts (additive-only from
+ * the contract-v1 tag). Zero styling dependencies: plain CSS custom
+ * properties, slot classNames, render props. @floating-ui/dom is the only
+ * runtime UI dependency.
  */
-import { SDK_NAME as CLIENT_SDK_NAME } from '@dronte/client';
 
-export const SDK_NAME = '@dronte/react';
-
-/** The client core this package is built on. */
-export const CORE = CLIENT_SDK_NAME;
+export type { DronteProviderProps } from './context';
+export { DronteProvider, useDronteClient } from './context';
+export type {
+  UseCountResult,
+  UseInboxResult,
+  UseNotificationsOptions,
+  UseNotificationsResult,
+  UsePreferencesResult,
+} from './hooks';
+export {
+  useInbox,
+  useNotifications,
+  usePreferences,
+  useUnreadCount,
+  useUnseenCount,
+} from './hooks';
+export type { InboxAppearance, InboxProps, InboxSlot } from './Inbox';
+export { Inbox } from './Inbox';
+export type { InboxLocalization } from './localization';
+export { DEFAULT_LOCALIZATION } from './localization';

@@ -1,9 +1,26 @@
 /**
- * @dronte/client — headless core (scaffold).
+ * @dronte/client — framework-agnostic headless core.
  *
- * The public surface is frozen in specs/sdk-api.d.ts; the implementation
- * (auth, SSE reconnect/resume, inbox store, optimistic updates, pagination)
- * lands in Phase 2. Wire types under ./generated are produced from the
+ * The public surface is frozen in specs/sdk-api.d.ts (additive-only from
+ * the contract-v1 tag). Wire types under ./generated are produced from the
  * server's exported OpenAPI document — never hand-edit them.
  */
-export const SDK_NAME = '@dronte/client';
+
+export { BACKOFF_DEFAULTS } from './backoff';
+export { DronteClient } from './client';
+export { DronteError } from './errors';
+export type {
+  BackoffConfig,
+  BroadcastId,
+  ConnectionStatus,
+  DronteClientConfig,
+  EventSourceLike,
+  InboxCounts,
+  InboxItem,
+  InboxItemId,
+  InboxItemSource,
+  InboxSnapshot,
+  NotificationId,
+  Preference,
+  WellKnownPayload,
+} from './types';
