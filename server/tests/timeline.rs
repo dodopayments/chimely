@@ -173,8 +173,8 @@ async fn large_watermark_windows_advance_the_timeline_cursor_per_chunk() {
             .await
             .unwrap();
         assert_eq!(res.status(), 201);
-        // Distinct idempotency scopes per batch; one row each is fine, we
-        // just need volume — repeat creates.
+        // Distinct categories per batch. One row each is fine, we just
+        // need volume from repeated creates.
         for i in 0..99 {
             let res = app
                 .mgmt_post(

@@ -2,14 +2,14 @@
 //! on every sample, never carried from in-process state, so the numbers stay
 //! true across restarts and a stalled subsystem cannot freeze its own alarm
 //! (`dronte_partitions_remaining` keeps decaying even when the maintenance
-//! job is dead — that decay IS the W4 alert).
+//! job is dead, and that decay IS the W4 alert).
 //!
 //! Gauges emitted:
-//! * `dronte_queue_depth{environment,job_type}` — all pending job rows
-//! * `dronte_queue_due{environment,job_type}` — rows with run_at <= now()
-//! * `dronte_dead_letters{job_type}` — parked jobs awaiting replay
-//! * `dronte_partitions_remaining{table}` — pre-created future partitions
-//! * `dronte_counter_drift_unread` / `dronte_counter_drift_unseen` — summed
+//! * `dronte_queue_depth{environment,job_type}`: all pending job rows
+//! * `dronte_queue_due{environment,job_type}`: rows with run_at <= now()
+//! * `dronte_dead_letters{job_type}`: parked jobs awaiting replay
+//! * `dronte_partitions_remaining{table}`: pre-created future partitions
+//! * `dronte_counter_drift_unread` / `dronte_counter_drift_unseen`: summed
 //!   |recount - maintained| over a sample of recently-active subscribers
 
 use std::collections::HashSet;

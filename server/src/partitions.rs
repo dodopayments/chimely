@@ -14,7 +14,7 @@
 //! (`remaining_at`), so a stalled maintenance job shows the gauge decaying
 //! by 1 per month instead of freezing at its last healthy value. **Alert at
 //! < 2**: two months of headroom left means the job has been dead for ~11
-//! months — a stalled job plus exhausted headroom is a total write outage.
+//! months, and a stalled job plus exhausted headroom is a total write outage.
 //!
 //! Also purges aged idempotency snapshots (default 30 days), per the schema
 //! contract ("purged by age via the maintenance job").
@@ -76,7 +76,7 @@ async fn run_locked(
         let mut month = from;
         while month <= to {
             let next = add_months(month, 1);
-            // Identifiers are derived from validated dates only — no user input.
+            // Identifiers are derived from validated dates only, no user input.
             let ddl = format!(
                 "CREATE TABLE IF NOT EXISTS {} PARTITION OF {table} \
                  FOR VALUES FROM ('{}+00') TO ('{}+00')",

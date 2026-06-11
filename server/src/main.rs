@@ -5,7 +5,7 @@
 //!   `dronte openapi`           — print the utoipa-generated OpenAPI spec to
 //!                                stdout (the artifact CI diffs against
 //!                                specs/openapi.yaml until v1; see CLAUDE.md)
-//!   `dronte dlq`               — list/replay dead-lettered jobs
+//!   `dronte dlq`               lists and replays dead-lettered jobs
 
 use std::sync::Arc;
 
@@ -113,7 +113,7 @@ async fn serve() -> anyhow::Result<()> {
     // Graceful shutdown, two phases:
     //   1. readiness flips to 503 while the listener KEEPS serving, so load
     //      balancers drain the replica without dropping in-flight requests;
-    //   2. after the grace period the shutdown watch flips — workers stop
+    //   2. after the grace period the shutdown watch flips: workers stop
     //      claiming, SSE streams send a jittered `retry:` and close, the
     //      listener stops accepting.
     let grace = cfg.shutdown_readiness_grace;
@@ -133,7 +133,7 @@ async fn serve() -> anyhow::Result<()> {
         .context("server error")?;
 
     // Phase 3 of the drain: the worker finishes its in-flight sweep within a
-    // deadline. Past it, abort — the open transaction rolls back and the job
+    // deadline. Past it, abort: the open transaction rolls back and the job
     // is re-claimed by the next replica (at-least-once by design).
     if tokio::time::timeout(cfg.shutdown_drain_deadline, &mut worker_handle)
         .await

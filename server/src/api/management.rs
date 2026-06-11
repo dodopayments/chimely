@@ -432,6 +432,7 @@ per subscriber).
         (status = 200, description = "The timeline so far.", body = crate::api::contract::NotificationTimeline),
         (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
         (status = 404, description = "Resource not found in this environment.", body = crate::api::contract::Error),
+        (status = 429, response = crate::api::contract::RateLimited),
     ),
     security(("ApiKeyBearer" = []))
 )]
@@ -440,6 +441,7 @@ pub async fn get_notification_timeline(
     auth: ManagementAuth,
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
+    enforce_api_key_limit(&state, &auth).await?;
     let env = auth.environment_id;
     let id = ids::parse_typeid(ids::NOTIFICATION, &id)
         .ok_or_else(|| ApiError::not_found("no such notification"))?;
