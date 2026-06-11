@@ -8,12 +8,15 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "biome ci .",
     "format": "biome format --write .",
-    "generate": "./scripts/generate.sh"
+    "generate": "./scripts/generate.sh",
+    "conformance": "node scripts/conformance-spec.mjs && tsc -p conformance"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
     "@changesets/cli": "^2.31.0",
+    "@types/react": "^19.2.17",
     "openapi-typescript": "^7.13.0",
+    "react": "^19.2.7",
     "typescript": "^6.0.3"
   }
 }

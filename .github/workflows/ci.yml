@@ -109,6 +109,18 @@ jobs:
       - run: pnpm --filter "./packages/*" build
       - run: pnpm typecheck
       - run: pnpm test
+      # The built .d.ts of each package must satisfy the frozen contract
+      # (specs/sdk-api.d.ts, mechanically renamed so spec and impl
+      # type-check in one program).
+      - name: Contract conformance of built types
+        run: pnpm conformance
+      # Release readiness: a pending changeset exists and both packages are
+      # publishable as built (changesets drives the actual versioned
+      # publish, see release.yml).
+      - name: Release readiness
+        run: |
+          pnpm changeset status
+          pnpm --filter "./packages/*" exec pnpm publish --dry-run --no-git-checks
 
   generated:
     name: generated artifacts fresh
