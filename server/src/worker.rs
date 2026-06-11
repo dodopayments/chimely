@@ -237,10 +237,20 @@ pub async fn process_one(
     }
 }
 
-/// Failure bookkeeping happens OUTSIDE the rolled-back transaction. Retries
-/// back off exponentially with equal jitter; a job exhausting max_attempts
-/// moves to dead_letters in one atomic statement (a parked job is not a
-/// completed job, and it must not live in the hot claim path).
+/// Failure bookkeeping happens OUTSIDE the rolled-back transaction, but
+/// inside ONE transaction of its own: the backoff lands in the same atomic
+/// UPDATE that bumps `attempts`, and the row lock it takes is held until
+/// the park decision commits. A concurrent claim (FOR UPDATE SKIP LOCKED)
+/// therefore skips the row for the whole bookkeeping window, so a failed
+/// job can never be re-claimed before its backoff is in place.
+///
+/// Backoff is exponential with equal jitter, computed in SQL from the
+/// pre-increment attempt count: attempt n sleeps in `[exp/2, exp]` where
+/// `exp = min(cap, base * 2^(n-1))`. The floor keeps a hot failure from
+/// hammering; the jitter keeps a burst of failures from retrying in
+/// lockstep. A job exhausting max_attempts moves to dead_letters instead
+/// (a parked job is not a completed job, and it must not live in the hot
+/// claim path).
 async fn fail_job(
     pool: &PgPool,
     cfg: &Config,
@@ -248,18 +258,31 @@ async fn fail_job(
     id: Uuid,
     err: &anyhow::Error,
 ) -> anyhow::Result<()> {
+    let mut tx = pool.begin().await?;
+    // `attempts` on the right-hand side is the pre-increment value, so
+    // power(2, attempts) is 2^(n-1) for attempt n.
     let row = sqlx::query!(
-        r#"UPDATE jobs SET attempts = attempts + 1, last_error = $3
+        r#"UPDATE jobs SET
+               attempts = attempts + 1,
+               last_error = $3,
+               run_at = now() + make_interval(secs =>
+                   least($5::float8, $4::float8 * power(2::float8, attempts::float8))
+                       * (0.5 + random() * 0.5))
             WHERE environment_id = $1 AND id = $2
             RETURNING job_type, attempts, max_attempts"#,
         env,
         id,
         format!("{err:#}"),
+        cfg.retry_backoff_base.as_secs_f64(),
+        cfg.retry_backoff_cap.as_secs_f64(),
     )
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await?;
     // Raced away (another worker claimed and finished it): nothing to record.
-    let Some(row) = row else { return Ok(()) };
+    let Some(row) = row else {
+        tx.rollback().await?;
+        return Ok(());
+    };
 
     if row.attempts >= row.max_attempts {
         sqlx::query!(
@@ -279,8 +302,9 @@ async fn fail_job(
             env,
             id,
         )
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         metrics::counter!("dronte_jobs_parked_total", "job_type" => row.job_type.clone())
             .increment(1);
         tracing::error!(
@@ -291,30 +315,9 @@ async fn fail_job(
         return Ok(());
     }
 
-    let delay = backoff_delay(cfg, row.attempts);
-    sqlx::query!(
-        r#"UPDATE jobs SET run_at = now() + make_interval(secs => $3)
-            WHERE environment_id = $1 AND id = $2"#,
-        env,
-        id,
-        delay.as_secs_f64(),
-    )
-    .execute(pool)
-    .await?;
+    tx.commit().await?;
     metrics::counter!("dronte_jobs_retried_total", "job_type" => row.job_type).increment(1);
     Ok(())
-}
-
-/// Exponential backoff with equal jitter: attempt n sleeps in
-/// `[exp/2, exp]` where `exp = min(cap, base * 2^(n-1))`. The floor keeps a
-/// hot failure from hammering; the jitter keeps a burst of failures from
-/// retrying in lockstep.
-fn backoff_delay(cfg: &Config, attempt: i32) -> std::time::Duration {
-    let base = cfg.retry_backoff_base.as_secs_f64();
-    let cap = cfg.retry_backoff_cap.as_secs_f64();
-    let exp = (base * 2f64.powi((attempt - 1).max(0))).min(cap);
-    let jitter: f64 = rand::Rng::random_range(&mut rand::rng(), 0.0..=0.5);
-    std::time::Duration::from_secs_f64(exp / 2.0 + exp * jitter)
 }
 
 // =============================================================================
