@@ -1,0 +1,500 @@
+import type { ResolvedBackoff } from './backoff';
+import { backoffDelayMs, resolveBackoff } from './backoff';
+import { DronteError, errorFromResponse, networkError } from './errors';
+import type { components } from './generated/api';
+import { InboxStore } from './store';
+import type {
+  DronteClientConfig,
+  EventSourceLike,
+  InboxItem,
+  InboxItemId,
+  InboxItemSource,
+  InboxSnapshot,
+  Preference,
+  WellKnownPayload,
+} from './types';
+
+type WireInboxItem = components['schemas']['InboxItem'];
+type WireInboxPage = components['schemas']['InboxPage'];
+type WireCounts = components['schemas']['InboxCounts'];
+type WirePreferenceList = components['schemas']['PreferenceList'];
+
+function toItem<TPayload>(wire: WireInboxItem): InboxItem<TPayload> {
+  return {
+    id: wire.id as InboxItemId,
+    source: wire.source,
+    category: wire.category,
+    // Payloads are wire format and pass through verbatim, never case-transformed.
+    payload: wire.payload as TPayload,
+    occurredAt: wire.occurred_at,
+    read: wire.read,
+  };
+}
+
+/**
+ * List order is (occurred_at, id) descending across both sources. RFC 3339
+ * UTC timestamps and UUIDv7-suffixed TypeIDs both compare correctly as
+ * strings within one source of generation.
+ */
+function isOlderThan<T>(item: InboxItem<T>, boundary: InboxItem<T>): boolean {
+  if (item.occurredAt !== boundary.occurredAt) {
+    return item.occurredAt < boundary.occurredAt;
+  }
+  return item.id < boundary.id;
+}
+
+function asDronteError(cause: unknown): DronteError {
+  return cause instanceof DronteError ? cause : networkError(cause);
+}
+
+const defaultCreateEventSource = (url: string): EventSourceLike => {
+  const Ctor = (globalThis as { EventSource?: new (url: string) => EventSourceLike }).EventSource;
+  if (!Ctor) {
+    throw new DronteError(
+      'no EventSource implementation available, pass createEventSource in the client config',
+      { code: 'no_event_source' },
+    );
+  }
+  return new Ctor(url);
+};
+
+/**
+ * The headless inbox. Lifecycle: construct → connect() → use → close().
+ *
+ * Behavioral contract (tested invariants, not implementation details):
+ * - SSE events are HINTS: every hint and every (re)connect triggers a
+ *   conditional (ETag/If-None-Match) REST refetch. Missed hints are
+ *   harmless. A 304 costs nothing. The client never renders from event
+ *   payloads.
+ * - All mutations are OPTIMISTIC: the snapshot updates synchronously, the
+ *   server call follows, and a failure rolls back and surfaces on the
+ *   'error' channel. Void mutations resolve either way. Calls that return
+ *   data (getPreferences, setPreferences) also reject with the DronteError.
+ * - markAllSeen() is what the bell-open gesture calls. It zeroes `unseen`
+ *   without touching read state.
+ */
+export class DronteClient<TPayload = WellKnownPayload> {
+  private readonly config: DronteClientConfig;
+  private readonly baseUrl: string;
+  private readonly pageSize: number;
+  private readonly backoff: ResolvedBackoff;
+  private readonly fetchFn: typeof fetch;
+  private readonly createSource: (url: string) => EventSourceLike;
+  private readonly store = new InboxStore<TPayload>();
+
+  private source: EventSourceLike | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Consecutive stream failures since the last successful open. */
+  private attempts = 0;
+  /** Bumped by connect() and close() so stale stream callbacks become no-ops. */
+  private generation = 0;
+  /** Resume token from the last seen event, replayed as `last_event_id` on reconnect. */
+  private lastEventId: string | null = null;
+  /** One-shot delay override from the server's graceful-close retry directive. */
+  private retryOverrideMs: number | null = null;
+
+  /** Validator of the last 200 first-page response, sent as If-None-Match. */
+  private etag: string | null = null;
+  /** Keyset cursor of the deepest fetched page. */
+  private cursor: string | null = null;
+
+  private refreshing: Promise<void> | null = null;
+  private refreshAgain = false;
+  private fetchingMore: Promise<void> | null = null;
+
+  constructor(config: DronteClientConfig) {
+    this.config = config;
+    this.baseUrl = config.serverUrl.replace(/\/+$/, '');
+    this.pageSize = Math.min(100, Math.max(1, config.pageSize ?? 20));
+    this.backoff = resolveBackoff(config.backoff);
+    this.fetchFn = config.fetchFn ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
+    this.createSource = config.createEventSource ?? defaultCreateEventSource;
+  }
+
+  /** Open the SSE stream and load the first page + counts. Idempotent. */
+  connect(): void {
+    const { status } = this.store.getSnapshot();
+    if (status !== 'idle' && status !== 'closed') {
+      return;
+    }
+    this.generation += 1;
+    this.attempts = 0;
+    this.store.patch({ status: 'connecting' });
+    this.openStream();
+    void this.refresh();
+  }
+
+  /** Close the stream and stop reconnecting. The store remains readable. */
+  close(): void {
+    this.generation += 1;
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.source?.close();
+    this.source = null;
+    this.store.patch({ status: 'closed' });
+  }
+
+  getSnapshot(): InboxSnapshot<TPayload> {
+    return this.store.getSnapshot();
+  }
+
+  /** Subscribe to snapshot changes. Returns the unsubscribe function. */
+  subscribe(listener: () => void): () => void {
+    return this.store.subscribe(listener);
+  }
+
+  /**
+   * Conditional refetch of page one + counts (the hint/reconnect path).
+   * Concurrent calls coalesce: a request arriving mid-flight queues exactly
+   * one rerun so the freshest change is never skipped.
+   */
+  refresh(): Promise<void> {
+    if (this.refreshing) {
+      this.refreshAgain = true;
+      return this.refreshing;
+    }
+    this.refreshing = (async () => {
+      do {
+        this.refreshAgain = false;
+        await this.doRefresh();
+      } while (this.refreshAgain);
+    })().finally(() => {
+      this.refreshing = null;
+    });
+    return this.refreshing;
+  }
+
+  /** Load the next page (keyset cursor managed internally). No-op when !hasMore. */
+  fetchMore(options?: { limit?: number }): Promise<void> {
+    if (!this.store.getSnapshot().hasMore) {
+      return Promise.resolve();
+    }
+    if (this.fetchingMore) {
+      return this.fetchingMore;
+    }
+    this.fetchingMore = this.doFetchMore(options?.limit).finally(() => {
+      this.fetchingMore = null;
+    });
+    return this.fetchingMore;
+  }
+
+  async markRead(item: { id: InboxItemId; source: InboxItemSource }): Promise<void> {
+    const prev = this.store.getSnapshot();
+    const target = prev.items.find((candidate) => candidate.id === item.id);
+    const changed = target !== undefined && !target.read;
+    if (changed) {
+      this.store.patch({
+        items: prev.items.map((candidate) =>
+          candidate.id === item.id ? { ...candidate, read: true } : candidate,
+        ),
+        counts: { ...prev.counts, unread: Math.max(0, prev.counts.unread - 1) },
+      });
+    }
+    const path =
+      item.source === 'notification'
+        ? `/v1/inbox/notifications/${encodeURIComponent(item.id)}/read`
+        : `/v1/inbox/broadcasts/${encodeURIComponent(item.id)}/read`;
+    try {
+      await this.http('POST', path);
+      this.clearError();
+    } catch (cause) {
+      const rollback = changed ? { items: prev.items, counts: prev.counts } : {};
+      this.store.patch({ ...rollback, error: asDronteError(cause) });
+      this.reconcileAfterFailedMutation();
+    }
+  }
+
+  /** Watermark move server-side. Optimistically reads everything locally. */
+  async markAllRead(): Promise<void> {
+    const prev = this.store.getSnapshot();
+    this.store.patch({
+      items: prev.items.map((item) => (item.read ? item : { ...item, read: true })),
+      counts: { ...prev.counts, unread: 0 },
+    });
+    try {
+      const response = await this.http('POST', '/v1/inbox/read-all');
+      const counts = (await response.json()) as WireCounts;
+      this.store.patch({ counts, error: null });
+    } catch (cause) {
+      this.store.patch({ items: prev.items, counts: prev.counts, error: asDronteError(cause) });
+      this.reconcileAfterFailedMutation();
+    }
+  }
+
+  /** The bell-open gesture. Zeroes `unseen` without touching read state. */
+  async markAllSeen(): Promise<void> {
+    const prev = this.store.getSnapshot();
+    if (prev.counts.unseen !== 0) {
+      this.store.patch({ counts: { ...prev.counts, unseen: 0 } });
+    }
+    try {
+      const response = await this.http('POST', '/v1/inbox/seen-all');
+      const counts = (await response.json()) as WireCounts;
+      this.store.patch({ counts, error: null });
+    } catch (cause) {
+      this.store.patch({ counts: prev.counts, error: asDronteError(cause) });
+      this.reconcileAfterFailedMutation();
+    }
+  }
+
+  /** Explicit rows only. A category absent here is enabled. */
+  async getPreferences(): Promise<Preference[]> {
+    const response = await this.http('GET', '/v1/inbox/preferences');
+    const body = (await response.json()) as WirePreferenceList;
+    return body.preferences;
+  }
+
+  /**
+   * Partial upsert. Returns the resulting explicit rows. Category mutes are
+   * applied server-side, so a successful write triggers a conditional
+   * refresh of the list.
+   */
+  async setPreferences(preferences: Preference[]): Promise<Preference[]> {
+    try {
+      const response = await this.http('PUT', '/v1/inbox/preferences', {
+        body: { preferences },
+      });
+      const body = (await response.json()) as WirePreferenceList;
+      this.clearError();
+      void this.refresh();
+      return body.preferences;
+    } catch (cause) {
+      const error = asDronteError(cause);
+      this.store.patch({ error });
+      throw error;
+    }
+  }
+
+  // ----------------------------------------------------------- internals ---
+
+  private clearError(): void {
+    if (this.store.getSnapshot().error !== null) {
+      this.store.patch({ error: null });
+    }
+  }
+
+  /**
+   * A failed optimistic mutation rolls back to a snapshot captured before
+   * the call, which can clobber a refresh that completed in between. The
+   * stored validator would then 304 the stale list back indefinitely.
+   * Dropping it and refetching makes the server authoritative again.
+   */
+  private reconcileAfterFailedMutation(): void {
+    this.etag = null;
+    void this.refresh();
+  }
+
+  private async doRefresh(): Promise<void> {
+    this.store.patch({ isLoading: true });
+    try {
+      const listPath = `/v1/inbox/items?limit=${this.pageSize}`;
+      const [pageResponse, countsResponse] = await Promise.all([
+        this.http('GET', listPath, { ifNoneMatch: this.etag }),
+        this.http('GET', '/v1/inbox/counts'),
+      ]);
+      const patch: Partial<InboxSnapshot<TPayload>> = {
+        counts: (await countsResponse.json()) as WireCounts,
+        isLoading: false,
+        error: null,
+      };
+      if (pageResponse.status === 200) {
+        this.etag = pageResponse.headers.get('ETag');
+        const page = (await pageResponse.json()) as WireInboxPage;
+        Object.assign(patch, this.mergeFirstPage(page));
+      }
+      this.store.patch(patch);
+    } catch (cause) {
+      this.store.patch({ isLoading: false, error: asDronteError(cause) });
+    }
+  }
+
+  /**
+   * Folds a fresh first page into the loaded list. Items older than the
+   * page boundary were fetched via fetchMore and are kept, so a refresh
+   * never collapses the user's scroll position. The kept tail is provably
+   * contiguous with the page only when the page shares at least one item
+   * with the loaded list. A full page with zero overlap means more than a
+   * page of changes arrived while disconnected. Keeping the tail then
+   * would leave a hole that never heals because the stored ETag is
+   * current, so the list resets to the page instead.
+   */
+  private mergeFirstPage(page: WireInboxPage): Partial<InboxSnapshot<TPayload>> {
+    const pageItems = page.items.map((item) => toItem<TPayload>(item));
+    const boundary = pageItems[pageItems.length - 1];
+    if (page.next_cursor === null || boundary === undefined) {
+      // A cursor-less page with no next page is the entire inbox.
+      this.cursor = null;
+      return { items: pageItems, hasMore: false };
+    }
+    const existing = this.store.getSnapshot();
+    const pageIds = new Set(pageItems.map((item) => item.id));
+    const tail = existing.items.filter(
+      (item) => !pageIds.has(item.id) && isOlderThan(item, boundary),
+    );
+    const contiguous = existing.items.some((item) => pageIds.has(item.id));
+    if (tail.length === 0 || !contiguous) {
+      this.cursor = page.next_cursor;
+      return { items: pageItems, hasMore: true };
+    }
+    return { items: [...pageItems, ...tail], hasMore: existing.hasMore };
+  }
+
+  private async doFetchMore(limit?: number): Promise<void> {
+    try {
+      const params = new URLSearchParams({
+        limit: String(Math.min(100, Math.max(1, limit ?? this.pageSize))),
+      });
+      if (this.cursor !== null) {
+        params.set('cursor', this.cursor);
+      }
+      const response = await this.http('GET', `/v1/inbox/items?${params.toString()}`);
+      const page = (await response.json()) as WireInboxPage;
+      const snapshot = this.store.getSnapshot();
+      const loaded = new Set(snapshot.items.map((item) => item.id));
+      const appended = page.items
+        .filter((item) => !loaded.has(item.id as InboxItemId))
+        .map((item) => toItem<TPayload>(item));
+      this.cursor = page.next_cursor;
+      this.store.patch({
+        items: [...snapshot.items, ...appended],
+        hasMore: page.next_cursor !== null,
+        error: null,
+      });
+    } catch (cause) {
+      this.store.patch({ error: asDronteError(cause) });
+    }
+  }
+
+  private async http(
+    method: string,
+    path: string,
+    init?: { ifNoneMatch?: string | null; body?: unknown },
+  ): Promise<Response> {
+    const headers: Record<string, string> = {
+      'X-Dronte-Environment': this.config.environment,
+      'X-Dronte-Subscriber': this.config.subscriberId,
+    };
+    if (this.config.subscriberHash !== undefined) {
+      headers['X-Dronte-Subscriber-Hash'] = this.config.subscriberHash;
+    }
+    if (init?.ifNoneMatch) {
+      headers['If-None-Match'] = init.ifNoneMatch;
+    }
+    let body: string | undefined;
+    if (init?.body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+      body = JSON.stringify(init.body);
+    }
+    let response: Response;
+    try {
+      response = await this.fetchFn(this.baseUrl + path, { method, headers, body });
+    } catch (cause) {
+      throw networkError(cause);
+    }
+    if (!response.ok && response.status !== 304) {
+      throw await errorFromResponse(response);
+    }
+    return response;
+  }
+
+  // ----------------------------------------------------------------- sse ---
+
+  /**
+   * Auth rides query parameters (EventSource cannot set headers). The
+   * reconnect loop recreates the source, which loses the platform's
+   * automatic Last-Event-ID header, so the resume token rides the URL too.
+   */
+  private streamUrl(): string {
+    const params = new URLSearchParams({
+      environment: this.config.environment,
+      subscriber_id: this.config.subscriberId,
+    });
+    if (this.config.subscriberHash !== undefined) {
+      params.set('subscriber_hash', this.config.subscriberHash);
+    }
+    if (this.lastEventId !== null) {
+      params.set('last_event_id', this.lastEventId);
+    }
+    return `${this.baseUrl}/v1/inbox/stream?${params.toString()}`;
+  }
+
+  private openStream(): void {
+    const generation = this.generation;
+    let source: EventSourceLike;
+    try {
+      source = this.createSource(this.streamUrl());
+    } catch {
+      this.handleStreamFailure();
+      return;
+    }
+    this.source = source;
+    source.addEventListener('open', () => {
+      if (generation !== this.generation) {
+        return;
+      }
+      this.attempts = 0;
+      this.retryOverrideMs = null;
+      this.store.patch({ status: 'connected' });
+      // Every (re)connect refetches conditionally. Missed hints are harmless
+      // by construction.
+      void this.refresh();
+    });
+    source.addEventListener('hint', (event) => {
+      if (generation !== this.generation) {
+        return;
+      }
+      if (event.lastEventId) {
+        this.lastEventId = event.lastEventId;
+      }
+      // Hints are hints, never transports. The data is not rendered.
+      void this.refresh();
+    });
+    source.addEventListener('retry', (event) => {
+      if (generation !== this.generation) {
+        return;
+      }
+      const ms = Number(event.data);
+      if (Number.isFinite(ms) && ms >= 0) {
+        this.retryOverrideMs = ms;
+      }
+    });
+    source.addEventListener('error', (event) => {
+      if (generation !== this.generation) {
+        return;
+      }
+      if (event.lastEventId) {
+        this.lastEventId = event.lastEventId;
+      }
+      this.handleStreamFailure();
+    });
+  }
+
+  private handleStreamFailure(): void {
+    this.source?.close();
+    this.source = null;
+    this.attempts += 1;
+    if (this.attempts >= this.backoff.maxAttempts) {
+      this.generation += 1;
+      this.store.patch({
+        status: 'closed',
+        error: new DronteError('stream closed after maxAttempts consecutive failures', {
+          code: 'connection_failed',
+        }),
+      });
+      return;
+    }
+    const delay = this.retryOverrideMs ?? backoffDelayMs(this.attempts, this.backoff);
+    this.retryOverrideMs = null;
+    this.store.patch({ status: 'reconnecting' });
+    const generation = this.generation;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (generation !== this.generation) {
+        return;
+      }
+      this.openStream();
+    }, delay);
+  }
+}
