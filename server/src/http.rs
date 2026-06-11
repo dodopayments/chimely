@@ -1,10 +1,13 @@
 //! Router assembly: the v1 surface, health endpoints, Prometheus metrics,
 //! and the Scalar-rendered API reference at /docs.
 
-use axum::http::StatusCode;
+use std::time::Duration;
+
+use axum::http::{HeaderName, Method, StatusCode, header};
 use axum::routing::{get, post, put};
 use axum::{Router, middleware};
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
+use tower_http::cors::{Any, CorsLayer};
 use utoipa_scalar::Servable as _;
 
 use crate::api::{inbox, management, preferences, sse};
@@ -14,20 +17,27 @@ use crate::{db, openapi};
 pub fn router(state: AppState) -> Router {
     let prometheus = prometheus_handle();
 
-    Router::new()
-        // Management plane
-        .route("/v1/notifications", post(management::create_notifications))
-        .route("/v1/broadcasts", post(management::create_broadcast))
-        .route(
-            "/v1/subscribers/{subscriber_id}",
-            put(management::upsert_subscriber),
-        )
-        .route(
-            "/v1/subscribers/{subscriber_id}/preferences",
-            get(preferences::get_subscriber_preferences)
-                .put(preferences::set_subscriber_preferences),
-        )
-        // Subscriber plane
+    // The subscriber plane is called by the <Inbox /> widget from arbitrary
+    // customer origins, so it is permissively CORS-enabled by design. The
+    // HMAC subscriber hash is the auth boundary, never the Origin. ETag is
+    // exposed explicitly: it is not on the CORS response-header safelist,
+    // and a hidden ETag silently disables the SDK's conditional refetch.
+    // The management plane gets no CORS on purpose. API keys do not belong
+    // in browsers.
+    let widget_cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([Method::GET, Method::POST, Method::PUT])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::IF_NONE_MATCH,
+            HeaderName::from_static("x-dronte-environment"),
+            HeaderName::from_static("x-dronte-subscriber"),
+            HeaderName::from_static("x-dronte-subscriber-hash"),
+        ])
+        .expose_headers([header::ETAG])
+        .max_age(Duration::from_secs(3600));
+
+    let subscriber_plane = Router::new()
         .route("/v1/inbox/items", get(inbox::list_items))
         .route("/v1/inbox/counts", get(inbox::get_counts))
         .route(
@@ -45,6 +55,23 @@ pub fn router(state: AppState) -> Router {
             get(preferences::get_inbox_preferences).put(preferences::set_inbox_preferences),
         )
         .route("/v1/inbox/stream", get(sse::stream))
+        .layer(widget_cors);
+
+    Router::new()
+        // Management plane
+        .route("/v1/notifications", post(management::create_notifications))
+        .route("/v1/broadcasts", post(management::create_broadcast))
+        .route(
+            "/v1/subscribers/{subscriber_id}",
+            put(management::upsert_subscriber),
+        )
+        .route(
+            "/v1/subscribers/{subscriber_id}/preferences",
+            get(preferences::get_subscriber_preferences)
+                .put(preferences::set_subscriber_preferences),
+        )
+        // Subscriber plane (CORS-enabled)
+        .merge(subscriber_plane)
         // Operational plane
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))

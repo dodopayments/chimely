@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO api_keys (environment_id, id, name, key_hash, key_prefix)\n               VALUES ($1, $2, 'dev-bootstrap', $3, $4)\n               ON CONFLICT (environment_id, key_hash) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bytea",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4e7639451e0c32ba14bb2ae4c76f99ade47bd84c08c50817d9799b60f33188ea"
+}

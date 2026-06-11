@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use anyhow::Context;
-use dronte::{config, db, http, openapi, partitions, pubsub, state, telemetry, worker};
+use dronte::{bootstrap, config, db, http, openapi, partitions, pubsub, state, telemetry, worker};
 
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
@@ -46,6 +46,9 @@ async fn serve() -> anyhow::Result<()> {
     partitions::run(&pool, cfg.retention_months, cfg.idempotency_retention_days)
         .await
         .context("boot partition maintenance")?;
+    bootstrap::run(&pool, &cfg)
+        .await
+        .context("dev environment bootstrap")?;
 
     let pubsub = pubsub::build(cfg.redis_url.as_deref(), &pool)
         .await
