@@ -125,12 +125,12 @@ pub async fn stream(
         }
         loop {
             if *shutdown.borrow() {
-                yield Ok(Event::default().retry(retry_after));
+                yield Ok(retry_event(retry_after));
                 break;
             }
             tokio::select! {
                 _ = shutdown.changed() => {
-                    yield Ok(Event::default().retry(retry_after));
+                    yield Ok(retry_event(retry_after));
                     break;
                 }
                 msg = rx.recv() => match msg {
@@ -183,6 +183,19 @@ fn hint_event(reason: &str) -> Event {
         .id(encode_token(Utc::now()))
         .event("hint")
         .data(json!({ "reason": reason }).to_string())
+}
+
+/// Graceful-shutdown frame. The protocol-level `retry:` field serves native
+/// EventSource consumers. The named `retry` event carries the same delay in
+/// milliseconds as data, because the protocol field is invisible to
+/// EventSource listeners and SDK clients run their own reconnect loop. The
+/// named event is additive per the contract: "Unknown future event types
+/// must be ignored by clients."
+fn retry_event(retry_after: std::time::Duration) -> Event {
+    Event::default()
+        .event("retry")
+        .data(retry_after.as_millis().to_string())
+        .retry(retry_after)
 }
 
 /// Opaque resume token, hex-encoded app-clock microseconds. Cross-host clock

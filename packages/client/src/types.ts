@@ -125,10 +125,9 @@ export interface DronteClientConfig {
  * The client listens for named hint events plus 'open' and 'error'.
  * 'error' events carry no data but are what drive the reconnect/backoff
  * loop, so an implementation that never emits them silently breaks
- * reconnection. An implementation that surfaces the server's `retry:`
- * directive does so as a 'retry' event whose data is the delay in
- * milliseconds. The platform EventSource cannot, and that is harmless:
- * the jittered backoff covers it.
+ * reconnection. On graceful shutdown the server also sends a named
+ * 'retry' event whose data is the next delay in milliseconds, which any
+ * EventSource delivers like a hint event.
  */
 export interface EventSourceLike {
   addEventListener(
