@@ -1,9 +1,9 @@
 /**
- * @dronte/client — framework-agnostic headless core.
+ * @dronte/client, the framework-agnostic headless core.
  *
  * The public surface is frozen in specs/sdk-api.d.ts (additive-only from
  * the contract-v1 tag). Wire types under ./generated are produced from the
- * server's exported OpenAPI document — never hand-edit them.
+ * server's exported OpenAPI document. Never hand-edit them.
  */
 
 export { BACKOFF_DEFAULTS } from './backoff';

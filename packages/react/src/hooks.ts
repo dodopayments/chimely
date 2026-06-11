@@ -99,7 +99,7 @@ export function useUnseenCount(): UseCountResult {
 }
 
 export interface UsePreferencesResult {
-  /** Explicit rows only — absence means enabled. */
+  /** Explicit rows only. A category absent here is enabled. */
   preferences: ReadonlyArray<Preference>;
   setPreferences: (preferences: Preference[]) => Promise<void>;
   isLoading: boolean;
