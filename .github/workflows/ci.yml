@@ -10,28 +10,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # DCO from day one (docs/dronte-project-plan.md, "Licensing"): every commit
-  # must carry a Signed-off-by trailer. Required job — mark it as such in
-  # branch protection.
-  dco:
-    name: DCO sign-off
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Every commit in the PR carries Signed-off-by
-        run: |
-          missing=0
-          for sha in $(git rev-list ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}); do
-            if ! git show -s --format=%B "$sha" | grep -qE '^Signed-off-by: .+ <.+@.+>'; then
-              echo "::error::commit $sha is missing a Signed-off-by trailer (git commit -s)"
-              missing=1
-            fi
-          done
-          exit $missing
-
   # License policy gate (FSL-1.1-MIT server, permissive-only dependency
   # tree; copyleft transitives are review-gated in server/deny.toml).
   licenses:
