@@ -110,6 +110,8 @@ async fn spawn_inner(with_redis: bool, require_hash: bool) -> TestApp {
         sse_retry_base: Duration::from_millis(100),
         sse_retry_jitter: Duration::from_millis(100),
         sse_max_connections_per_subscriber: 2,
+        dev_environment: None,
+        dev_api_key: None,
     });
 
     let pubsub = pubsub::build(redis_url.as_deref(), &pool)

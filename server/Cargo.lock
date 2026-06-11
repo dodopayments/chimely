@@ -653,6 +653,7 @@ dependencies = [
  "testcontainers-modules",
  "thiserror",
  "tokio",
+ "tower-http",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",

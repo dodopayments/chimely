@@ -33,6 +33,15 @@ pub struct Config {
     /// environments without subscriber hashes are otherwise an open
     /// connection-exhaustion relay).
     pub sse_max_connections_per_subscriber: usize,
+    /// Dev-quickstart bootstrap (see `bootstrap`). When set, boot upserts an
+    /// environment with this slug and require_subscriber_hash = false.
+    /// Real environment management is the Phase 4 admin UI. Never set this
+    /// in production.
+    pub dev_environment: Option<String>,
+    /// Plaintext management API key upserted into the dev environment, so
+    /// the quickstart curl is copy-pasteable. Ignored without
+    /// `dev_environment`.
+    pub dev_api_key: Option<String>,
 }
 
 impl Config {
@@ -56,6 +65,12 @@ impl Config {
                 "DRONTE_SSE_MAX_CONNS_PER_SUBSCRIBER",
                 8,
             )?,
+            dev_environment: std::env::var("DRONTE_DEV_ENVIRONMENT")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            dev_api_key: std::env::var("DRONTE_DEV_API_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
         })
     }
 }

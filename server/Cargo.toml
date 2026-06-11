@@ -40,6 +40,9 @@ sha2 = "0.10.9"
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "uuid", "chrono", "json", "macros"] }
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+# CORS for the subscriber plane only. The widget calls from arbitrary
+# customer origins; the HMAC hash is the auth boundary, never the Origin.
+tower-http = { version = "0.6.7", features = ["cors"] }
 tracing = "0.1.44"
 tracing-opentelemetry = "0.33.0"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }

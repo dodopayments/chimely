@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO environments\n               (id, slug, name, subscriber_hmac_secret, require_subscriber_hash)\n           VALUES ($1, $2, $2, $3, false)\n           ON CONFLICT (slug) DO UPDATE SET require_subscriber_hash = false\n           RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "environments",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "47cc4a6bc628deed7494f3f24046c88ace67cac0a573aeaf24fd30f234020cab"
+}
