@@ -1,6 +1,7 @@
 packages:
   - packages/*
   - docs
+  - examples/*
 allowBuilds:
   esbuild: true
   sharp: true
