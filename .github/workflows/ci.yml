@@ -126,10 +126,12 @@ jobs:
 
   # REQUIRED (the Phase 1/2 completion criterion, see CLAUDE.md "API
   # contract rules"): the generated spec must equal specs/openapi.yaml,
-  # the frozen convergence target. Mark this job required in branch
-  # protection. After v1 the hand-written spec retires and this gate
-  # becomes oasdiff breaking-change detection against the previous
-  # release.
+  # the frozen convergence target, and the delta stays permanently empty
+  # until the v1 release flips this gate to breaking-change detection
+  # against the last release. Mark this job required in branch protection.
+  # Post-freeze ADDITIVE surface sanctioned by phase specs is stripped from
+  # the generated document before the strict diff — anything not on that
+  # list still fails the gate.
   contract:
     name: contract convergence
     runs-on: ubuntu-latest
@@ -142,6 +144,20 @@ jobs:
           workspaces: server
       - name: Export the generated spec
         run: cargo run --manifest-path server/Cargo.toml -- openapi > /tmp/openapi.gen.yaml
+      - name: Strip sanctioned post-freeze additions (phase-3 status timeline)
+        run: |
+          python3 - <<'EOF'
+          import yaml
+          doc = yaml.safe_load(open('/tmp/openapi.gen.yaml'))
+          # specs/phase-3-hardening.md, deliverable 2: additive endpoint(s).
+          sanctioned_paths = ['/v1/notifications/{id}/timeline']
+          sanctioned_schemas = ['NotificationTimeline', 'TimelineEntry']
+          for path in sanctioned_paths:
+              assert doc['paths'].pop(path, None) is not None, f'{path} missing from generated spec'
+          for schema in sanctioned_schemas:
+              assert doc['components']['schemas'].pop(schema, None) is not None, f'{schema} missing'
+          yaml.safe_dump(doc, open('/tmp/openapi.gen.stripped.yaml', 'w'), sort_keys=False)
+          EOF
       - uses: actions/setup-go@v5
         with:
           go-version: stable
@@ -150,7 +166,7 @@ jobs:
           go install github.com/oasdiff/oasdiff@latest
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Semantic diff against the frozen convergence target
-        run: oasdiff diff specs/openapi.yaml /tmp/openapi.gen.yaml --fail-on-diff
+        run: oasdiff diff specs/openapi.yaml /tmp/openapi.gen.stripped.yaml --fail-on-diff
 
   docker:
     name: docker image

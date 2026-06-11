@@ -1,0 +1,86 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT e.slug AS environment_slug, d.id, d.job_type, d.attempts,\n                  d.last_error, d.parked_at\n             FROM dead_letters d\n             JOIN environments e ON e.id = d.environment_id\n            ORDER BY d.parked_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "environment_slug",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "environments",
+            "name": "slug"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "dead_letters",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "job_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dead_letters",
+            "name": "job_type"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "attempts",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "dead_letters",
+            "name": "attempts"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "last_error",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dead_letters",
+            "name": "last_error"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "parked_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "dead_letters",
+            "name": "parked_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f3fb0d526498a54b17d75c213ddeeadc404e432dcdd510d88e0c754c3fdabdac"
+}

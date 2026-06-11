@@ -12,6 +12,9 @@
 use std::borrow::Cow;
 
 use serde_json::json;
+use utoipa::openapi::content::ContentBuilder;
+use utoipa::openapi::header::HeaderBuilder;
+use utoipa::openapi::response::ResponseBuilder;
 use utoipa::openapi::schema::{
     AdditionalProperties, ArrayBuilder, ObjectBuilder, OneOfBuilder, Schema, SchemaFormat,
     SchemaType, Type,
@@ -332,6 +335,71 @@ contract_schema!(
             ArrayBuilder::new().items(Ref::from_schema_name("Preference")),
         )
         .required("preferences")
+        .into()
+);
+
+/// The reusable 429 from specs/openapi.yaml `components.responses` — paths
+/// reference it (`$ref`), exactly like the frozen contract does.
+pub struct RateLimited;
+
+impl utoipa::ToResponse<'_> for RateLimited {
+    fn response() -> (&'static str, RefOr<utoipa::openapi::Response>) {
+        (
+            "RateLimited",
+            ResponseBuilder::new()
+                .description("Per-API-key (management) or per-subscriber (widget) rate limit.")
+                // lowercase: kin-openapi (the oasdiff loader) normalizes
+                // header names to lowercase; matching avoids a phantom
+                // casing diff.
+                .header(
+                    "retry-after",
+                    HeaderBuilder::new()
+                        .schema(ObjectBuilder::new().schema_type(Type::Integer))
+                        .build(),
+                )
+                .content(
+                    "application/json",
+                    ContentBuilder::new()
+                        .schema(Some(Ref::from_schema_name("Error")))
+                        .build(),
+                )
+                .build()
+                .into(),
+        )
+    }
+}
+
+contract_schema!(
+    TimelineEntry,
+    ObjectBuilder::new()
+        .property(
+            "status",
+            string()
+                .enum_values(Some(["created", "delivered_hint", "seen", "read"]))
+                .description(Some(
+                    "Statuses appear as they happen; unknown future statuses must be ignored by clients.",
+                )),
+        )
+        .property("occurred_at", date_time())
+        .required("status")
+        .required("occurred_at")
+        .into()
+);
+
+contract_schema!(
+    NotificationTimeline,
+    ObjectBuilder::new()
+        .property("id", Ref::from_schema_name("NotificationId"))
+        .property("subscriber_id", string())
+        .property(
+            "timeline",
+            ArrayBuilder::new()
+                .items(Ref::from_schema_name("TimelineEntry"))
+                .description(Some("Append-only; ordered by `occurred_at`.")),
+        )
+        .required("id")
+        .required("subscriber_id")
+        .required("timeline")
         .into()
 );
 

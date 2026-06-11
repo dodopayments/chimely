@@ -254,6 +254,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/notifications/{id}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Status timeline for one notification
+         * @description The append-only delivery timeline — the "did it send?" answer.
+         *     Statuses appear as they happen: `created` (accepted and durable),
+         *     `delivered_hint` (a real-time hint announcing it was published),
+         *     `seen` and `read` (subscriber actions; watermark moves apply them
+         *     asynchronously, so a just-clicked "mark all read" may take a moment
+         *     to appear here). Entries are ordered by `occurred_at`. Unknown future
+         *     statuses must be ignored by clients.
+         *
+         *     Broadcasts have no per-recipient timeline (they are never materialized
+         *     per subscriber).
+         */
+        get: operations["getNotificationTimeline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/subscribers/{subscriber_id}": {
         parameters: {
             query?: never;
@@ -381,6 +410,12 @@ export interface components {
          * @example notif_01h455vb4pex5vsknk084sn02q
          */
         NotificationId: string;
+        NotificationTimeline: {
+            id: components["schemas"]["NotificationId"];
+            subscriber_id: string;
+            /** @description Append-only; ordered by `occurred_at`. */
+            timeline: components["schemas"]["TimelineEntry"][];
+        };
         /**
          * @description Customer-defined JSON, delivered to the widget verbatim — the server
          *     never reads it (no templates, no interpretation). Max 16 KiB serialized.
@@ -432,6 +467,15 @@ export interface components {
              */
             created_at: string;
             subscriber_id: string;
+        };
+        TimelineEntry: {
+            /** Format: date-time */
+            occurred_at: string;
+            /**
+             * @description Statuses appear as they happen; unknown future statuses must be ignored by clients.
+             * @enum {string}
+             */
+            status: "created" | "delivered_hint" | "seen" | "read";
         };
     };
     responses: {
@@ -900,6 +944,46 @@ export interface operations {
                 };
             };
             429: components["responses"]["RateLimited"];
+        };
+    };
+    getNotificationTimeline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["NotificationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The timeline so far. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationTimeline"];
+                };
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Resource not found in this environment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     upsertSubscriber: {

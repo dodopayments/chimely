@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT status, min(occurred_at) AS \"occurred_at!\"\n             FROM notification_status_log\n            WHERE environment_id = $1 AND notification_id = $2\n            GROUP BY status\n            ORDER BY 2, 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "notification_status_log",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "occurred_at!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "6373344c09c7c545094f8ddf565190187b4b91a0b8bc2f1c3fd1557179d12259"
+}

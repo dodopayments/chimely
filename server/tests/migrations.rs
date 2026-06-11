@@ -44,13 +44,14 @@ async fn sql_typeid_helpers_match_the_rust_implementation() {
     assert_eq!(parsed.to_string(), "01890a5d-ac96-774b-bcce-b302099a8057");
 }
 
-async fn partition_names(pool: &sqlx::PgPool) -> Vec<String> {
+async fn partition_names(pool: &sqlx::PgPool, parent: &str) -> Vec<String> {
     sqlx::query_scalar(
         "SELECT c.relname FROM pg_inherits i
            JOIN pg_class c ON c.oid = i.inhrelid
-          WHERE i.inhparent = 'notifications'::regclass
+          WHERE i.inhparent = $1::regclass
           ORDER BY c.relname",
     )
+    .bind(parent)
     .fetch_all(pool)
     .await
     .expect("listing partitions")
@@ -59,42 +60,92 @@ async fn partition_names(pool: &sqlx::PgPool) -> Vec<String> {
 #[tokio::test]
 async fn partitions_cover_retention_through_thirteen_months_out() {
     let app = support::spawn().await;
-    let names = partition_names(&app.pool).await;
-    // [now - retention, now + 13] inclusive.
-    assert_eq!(
-        names.len() as u32,
-        support::RETENTION_MONTHS + 13 + 1,
-        "{names:?}"
-    );
+    for parent in partitions::PARTITIONED_TABLES {
+        let names = partition_names(&app.pool, parent).await;
+        // [now - retention, now + 13] inclusive.
+        assert_eq!(
+            names.len() as u32,
+            support::RETENTION_MONTHS + 13 + 1,
+            "{parent}: {names:?}"
+        );
 
-    let now = Utc::now();
-    let current = format!("notifications_{:04}_{:02}", now.year(), now.month());
-    let horizon = now + Months::new(13);
-    let last = format!("notifications_{:04}_{:02}", horizon.year(), horizon.month());
-    assert!(names.contains(&current), "missing current month: {names:?}");
-    assert!(names.contains(&last), "missing 13-month horizon: {names:?}");
+        let now = Utc::now();
+        let current = format!("{parent}_{:04}_{:02}", now.year(), now.month());
+        let horizon = now + Months::new(13);
+        let last = format!("{parent}_{:04}_{:02}", horizon.year(), horizon.month());
+        assert!(names.contains(&current), "missing current month: {names:?}");
+        assert!(names.contains(&last), "missing 13-month horizon: {names:?}");
+    }
 }
 
 #[tokio::test]
 async fn retention_detaches_and_drops_expired_partitions() {
     let app = support::spawn().await;
-    let before = partition_names(&app.pool).await.len();
+    let mut before = Vec::new();
+    for parent in partitions::PARTITIONED_TABLES {
+        before.push(partition_names(&app.pool, parent).await.len());
+    }
     // Re-run with a tighter retention window: the older partitions must be
-    // DETACHed + DROPped, the rest untouched.
+    // DETACHed + DROPped on every partitioned table, the rest untouched.
     partitions::run(&app.pool, 2, 30)
         .await
         .expect("maintenance with retention=2");
-    let names = partition_names(&app.pool).await;
-    assert_eq!(names.len() as u32, 2 + 13 + 1);
-    assert!(names.len() < before);
+    for (parent, before) in partitions::PARTITIONED_TABLES.iter().zip(before) {
+        let names = partition_names(&app.pool, parent).await;
+        assert_eq!(names.len() as u32, 2 + 13 + 1, "{parent}");
+        assert!(names.len() < before);
 
-    let now = Utc::now();
-    let dropped = now - Months::new(3);
-    let dropped = format!("notifications_{:04}_{:02}", dropped.year(), dropped.month());
-    assert!(
-        !names.contains(&dropped),
-        "expired partition survived: {names:?}"
-    );
+        let now = Utc::now();
+        let dropped = now - Months::new(3);
+        let dropped = format!("{parent}_{:04}_{:02}", dropped.year(), dropped.month());
+        assert!(
+            !names.contains(&dropped),
+            "expired partition survived: {names:?}"
+        );
+    }
+}
+
+/// W4: a stalled maintenance job must page LONG before headroom exhausts.
+/// `remaining_at` recomputes headroom from pg_inherits at any clock, which
+/// is exactly what the sampler exports — simulate the stall by asking what
+/// the gauge reads months from now with no maintenance run in between.
+#[tokio::test]
+async fn stalled_maintenance_decays_the_partitions_gauge_into_the_alert() {
+    let app = support::spawn().await;
+    let mut conn = app.pool.acquire().await.unwrap();
+    let now: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT now()")
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+
+    for parent in partitions::PARTITIONED_TABLES {
+        let healthy = partitions::remaining_at(&mut conn, parent, now)
+            .await
+            .unwrap();
+        assert_eq!(healthy, 13, "{parent}: full headroom after maintenance");
+
+        // The job dies today. Month by month the gauge decays by exactly 1.
+        for months_stalled in 1..=13i64 {
+            let later = now + Months::new(months_stalled as u32);
+            let remaining = partitions::remaining_at(&mut conn, parent, later)
+                .await
+                .unwrap();
+            assert_eq!(
+                remaining,
+                13 - months_stalled,
+                "{parent} at +{months_stalled}mo"
+            );
+        }
+
+        // Alert threshold is < 2 (see partitions.rs): it fires at +12
+        // months with a FULL month of pre-created headroom still left —
+        // well before the +13-month write outage.
+        let at_alert = partitions::remaining_at(&mut conn, parent, now + Months::new(12))
+            .await
+            .unwrap();
+        assert!(at_alert < 2, "alert fires");
+        assert!(at_alert >= 1, "and headroom remains when it does");
+    }
 }
 
 #[tokio::test]

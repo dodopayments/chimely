@@ -20,7 +20,7 @@ async-trait = "0.1.89"
 axum = "0.8"
 base64 = "0.22.1"
 chrono = { version = "0.4.42", default-features = false, features = ["clock", "serde", "std"] }
-fred = { version = "10.1.0", features = ["subscriber-client"] }
+fred = { version = "10.1.0", features = ["subscriber-client", "i-scripts", "sha-1"] }
 form_urlencoded = "1.2.2"
 futures = "0.3.31"
 hex = "0.4.3"

@@ -468,6 +468,50 @@ paths:
           $ref: '#/components/responses/RateLimited'
       security:
       - ApiKeyBearer: []
+  /v1/notifications/{id}/timeline:
+    get:
+      tags:
+      - management
+      summary: Status timeline for one notification
+      description: |
+        The append-only delivery timeline — the "did it send?" answer.
+        Statuses appear as they happen: `created` (accepted and durable),
+        `delivered_hint` (a real-time hint announcing it was published),
+        `seen` and `read` (subscriber actions; watermark moves apply them
+        asynchronously, so a just-clicked "mark all read" may take a moment
+        to appear here). Entries are ordered by `occurred_at`. Unknown future
+        statuses must be ignored by clients.
+
+        Broadcasts have no per-recipient timeline (they are never materialized
+        per subscriber).
+      operationId: getNotificationTimeline
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/NotificationId'
+      responses:
+        '200':
+          description: The timeline so far.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationTimeline'
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Resource not found in this environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - ApiKeyBearer: []
   /v1/subscribers/{subscriber_id}:
     put:
       tags:
@@ -760,6 +804,22 @@ components:
       description: 'TypeID: `notif_` + UUIDv7 suffix (Crockford base32).'
       example: notif_01h455vb4pex5vsknk084sn02q
       pattern: ^notif_[0-7][0-9a-hjkmnp-tv-z]{25}$
+    NotificationTimeline:
+      type: object
+      required:
+      - id
+      - subscriber_id
+      - timeline
+      properties:
+        id:
+          $ref: '#/components/schemas/NotificationId'
+        subscriber_id:
+          type: string
+        timeline:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimelineEntry'
+          description: Append-only; ordered by `occurred_at`.
     Payload:
       type: object
       description: |
@@ -836,6 +896,23 @@ components:
           description: Governs broadcast visibility for this subscriber.
         subscriber_id:
           type: string
+    TimelineEntry:
+      type: object
+      required:
+      - status
+      - occurred_at
+      properties:
+        occurred_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          description: Statuses appear as they happen; unknown future statuses must be ignored by clients.
+          enum:
+          - created
+          - delivered_hint
+          - seen
+          - read
   responses:
     BadRequest:
       description: Validation error.

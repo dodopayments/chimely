@@ -5,23 +5,28 @@
 //! Fairness: each sweep claims at most ONE job per environment with pending
 //! work, then moves to the next environment — a broadcast burst from
 //! 'dashboard-prod' cannot starve 'mobile-prod' real-time jobs. Large jobs
-//! cooperate with the same rule: `deliver` processes one `progress_cursor`
-//! chunk per claim and commits, so even a huge fan-out yields between chunks.
+//! cooperate with the same rule: `deliver` and `timeline` process one
+//! `progress_cursor` chunk per claim and commit, so even a huge fan-out
+//! yields between chunks.
 //!
 //! Exactly-once side effects are keyed by job deletion: the deliver job's
-//! counter bumps commit in the SAME transaction that deletes (or
-//! cursor-advances) the job row. Hints are at-least-once by design (refetch
-//! triggers, not transports).
+//! counter bumps and every timeline append commit in the SAME transaction
+//! that deletes (or cursor-advances) the job row. Hints are at-least-once by
+//! design (refetch triggers, not transports).
+//!
+//! Failed jobs retry with jittered exponential backoff; a job exhausting
+//! max_attempts moves to dead_letters for replay (`dlq`).
 
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use tracing::Instrument as _;
 use uuid::Uuid;
 
 use crate::config::Config;
-use crate::jobs::{TYPE_COUNTER_REBUILD, TYPE_DELIVER, TYPE_HINT};
+use crate::jobs::{TYPE_COUNTER_REBUILD, TYPE_DELIVER, TYPE_HINT, TYPE_TIMELINE};
 use crate::pubsub::{Hint, PubSub};
-use crate::{ids, jobs};
+use crate::{ids, jobs, telemetry, timeline};
 
 /// Rows per deliver-chunk transaction: never one giant transaction, never N
 /// tiny rows.
@@ -68,18 +73,42 @@ pub async fn run(
 
 /// One fair pass: at most one job per environment with due work. Returns the
 /// number of jobs touched (tests drive this directly).
+///
+/// Environment discovery is a loose index scan (recursive CTE over
+/// jobs_claim_idx): one index probe per distinct environment. A plain
+/// DISTINCT would scan the whole backlog on EVERY sweep, and with one claim
+/// per environment per sweep that makes draining a deep single-environment
+/// backlog quadratic.
 pub async fn sweep_once(pool: &PgPool, pubsub: &dyn PubSub, cfg: &Config) -> anyhow::Result<u64> {
-    let envs: Vec<Uuid> =
-        sqlx::query_scalar!(r#"SELECT DISTINCT environment_id FROM jobs WHERE run_at <= now()"#)
-            .fetch_all(pool)
-            .await?;
+    let envs = sqlx::query!(
+        r#"WITH RECURSIVE pending AS (
+               (SELECT environment_id FROM jobs WHERE run_at <= now()
+                 ORDER BY environment_id LIMIT 1)
+               UNION ALL
+               SELECT (SELECT j.environment_id FROM jobs j
+                        WHERE j.environment_id > p.environment_id
+                          AND j.run_at <= now()
+                        ORDER BY j.environment_id LIMIT 1)
+                 FROM pending p
+                WHERE p.environment_id IS NOT NULL)
+           SELECT p.environment_id AS "environment_id!", e.slug
+             FROM pending p JOIN environments e ON e.id = p.environment_id"#
+    )
+    .fetch_all(pool)
+    .await?;
     let mut processed = 0;
     for env in envs {
-        match process_one(pool, pubsub, cfg, env).await {
-            Ok(true) => processed += 1,
+        match process_one(pool, pubsub, cfg, env.environment_id).await {
+            Ok(true) => {
+                processed += 1;
+                metrics::counter!("dronte_jobs_processed_total", "environment" => env.slug)
+                    .increment(1);
+            }
             Ok(false) => {}
             Err(err) => {
-                tracing::error!(error = ?err, environment = %env, "job processing failed");
+                tracing::error!(error = ?err, environment = %env.environment_id, "job processing failed");
+                metrics::counter!("dronte_jobs_failed_total", "environment" => env.slug)
+                    .increment(1);
             }
         }
     }
@@ -98,7 +127,7 @@ pub async fn process_one(
     let mut tx = pool.begin().await?;
     let job = sqlx::query!(
         r#"SELECT environment_id, id, job_type, payload, attempts, max_attempts,
-                  progress_cursor
+                  progress_cursor, run_at, created_at
              FROM jobs
             WHERE environment_id = $1 AND run_at <= now()
             ORDER BY run_at
@@ -112,44 +141,63 @@ pub async fn process_one(
         return Ok(false);
     };
 
-    let outcome = match job.job_type.as_str() {
-        TYPE_HINT => {
-            // Coalesce exact-duplicate pending hints first: a burst of N
-            // creates for one subscriber enqueues N identical jobs, and one
-            // publish (or one deferred trailing publish) covers them all —
-            // debounce means at most one hint per subscriber per window,
-            // never one publish per row. SKIP LOCKED: a duplicate claimed by
-            // another worker is left alone (it will publish or coalesce on
-            // its own), because a blocking DELETE here is an AB-BA deadlock
-            // between two workers holding each other's duplicates.
-            sqlx::query!(
-                r#"DELETE FROM jobs
-                    WHERE (environment_id, id) IN (
-                        SELECT environment_id, id FROM jobs
-                         WHERE environment_id = $1 AND job_type = 'hint'
-                           AND id <> $2 AND payload = $3
-                         FOR UPDATE SKIP LOCKED)"#,
-                env,
-                job.id,
-                &job.payload,
-            )
-            .execute(&mut *tx)
-            .await?;
-            process_hint(pubsub, cfg, env, &job.payload).await
+    // Claim-to-due latency, the fairness signal: a starved environment shows
+    // an unbounded wait here long before users notice late hints.
+    let wait = (Utc::now() - job.run_at).num_milliseconds().max(0) as f64 / 1000.0;
+    metrics::histogram!("dronte_job_wait_seconds", "job_type" => job.job_type.clone()).record(wait);
+
+    // The span joins the trace that enqueued the job (traceparent rides in
+    // the payload), so one trace covers ingest -> outbox -> worker -> hint.
+    let span = tracing::info_span!(
+        "job.process",
+        job.id = %ids::typeid(ids::JOB, job.id),
+        job.job_type = %job.job_type,
+        environment.id = %env,
+    );
+    if let Some(traceparent) = job.payload.get("_traceparent").and_then(Value::as_str) {
+        telemetry::set_remote_parent(&span, traceparent);
+    }
+
+    let outcome = async {
+        match job.job_type.as_str() {
+            TYPE_HINT => {
+                process_hint(
+                    &mut tx,
+                    pubsub,
+                    cfg,
+                    env,
+                    job.id,
+                    &job.payload,
+                    job.created_at,
+                )
+                .await
+            }
+            TYPE_DELIVER => {
+                process_deliver(
+                    &mut tx,
+                    env,
+                    job.id,
+                    &job.payload,
+                    job.progress_cursor.as_ref(),
+                )
+                .await
+            }
+            TYPE_COUNTER_REBUILD => process_counter_rebuild(&mut tx, env, &job.payload).await,
+            TYPE_TIMELINE => {
+                process_timeline(
+                    &mut tx,
+                    env,
+                    job.id,
+                    &job.payload,
+                    job.progress_cursor.as_ref(),
+                )
+                .await
+            }
+            other => Err(anyhow::anyhow!("unknown job type: {other}")),
         }
-        TYPE_DELIVER => {
-            process_deliver(
-                &mut tx,
-                env,
-                job.id,
-                &job.payload,
-                job.progress_cursor.as_ref(),
-            )
-            .await
-        }
-        TYPE_COUNTER_REBUILD => process_counter_rebuild(&mut tx, env, &job.payload).await,
-        other => Err(anyhow::anyhow!("unknown job type: {other}")),
-    };
+    }
+    .instrument(span)
+    .await;
 
     match outcome {
         Ok(Outcome::Done) => {
@@ -183,32 +231,90 @@ pub async fn process_one(
         }
         Err(err) => {
             tx.rollback().await?;
-            fail_job(pool, env, job.id, &err).await?;
+            fail_job(pool, cfg, env, job.id, &err).await?;
             Err(err)
         }
     }
 }
 
-/// Failure bookkeeping happens OUTSIDE the rolled-back transaction. Exhausted
-/// jobs are parked at run_at = 'infinity' (kept for the Phase 3 DLQ replay
-/// tooling). Real retry/backoff policy is also Phase 3.
-async fn fail_job(pool: &PgPool, env: Uuid, id: Uuid, err: &anyhow::Error) -> anyhow::Result<()> {
-    sqlx::query!(
-        r#"UPDATE jobs SET
-               attempts = attempts + 1,
-               last_error = $3,
-               run_at = CASE
-                   WHEN attempts + 1 >= max_attempts THEN 'infinity'::timestamptz
-                   ELSE now() + make_interval(secs => 5.0 * (attempts + 1))
-               END
-         WHERE environment_id = $1 AND id = $2"#,
+/// Failure bookkeeping happens OUTSIDE the rolled-back transaction. Retries
+/// back off exponentially with equal jitter; a job exhausting max_attempts
+/// moves to dead_letters in one atomic statement (a parked job is not a
+/// completed job, and it must not live in the hot claim path).
+async fn fail_job(
+    pool: &PgPool,
+    cfg: &Config,
+    env: Uuid,
+    id: Uuid,
+    err: &anyhow::Error,
+) -> anyhow::Result<()> {
+    let row = sqlx::query!(
+        r#"UPDATE jobs SET attempts = attempts + 1, last_error = $3
+            WHERE environment_id = $1 AND id = $2
+            RETURNING job_type, attempts, max_attempts"#,
         env,
         id,
         format!("{err:#}"),
     )
+    .fetch_optional(pool)
+    .await?;
+    // Raced away (another worker claimed and finished it): nothing to record.
+    let Some(row) = row else { return Ok(()) };
+
+    if row.attempts >= row.max_attempts {
+        sqlx::query!(
+            r#"WITH parked AS (
+                   DELETE FROM jobs
+                    WHERE environment_id = $1 AND id = $2
+                      AND attempts >= max_attempts
+                    RETURNING environment_id, id, job_type, payload, attempts,
+                              max_attempts, last_error, progress_cursor, created_at)
+               INSERT INTO dead_letters
+                      (environment_id, id, job_type, payload, attempts,
+                       max_attempts, last_error, progress_cursor, created_at)
+               SELECT environment_id, id, job_type, payload, attempts,
+                      max_attempts, COALESCE(last_error, ''), progress_cursor,
+                      created_at
+                 FROM parked"#,
+            env,
+            id,
+        )
+        .execute(pool)
+        .await?;
+        metrics::counter!("dronte_jobs_parked_total", "job_type" => row.job_type.clone())
+            .increment(1);
+        tracing::error!(
+            environment = %env, job = %id, job_type = %row.job_type,
+            attempts = row.attempts, error = ?err,
+            "job exhausted max_attempts; parked in dead_letters"
+        );
+        return Ok(());
+    }
+
+    let delay = backoff_delay(cfg, row.attempts);
+    sqlx::query!(
+        r#"UPDATE jobs SET run_at = now() + make_interval(secs => $3)
+            WHERE environment_id = $1 AND id = $2"#,
+        env,
+        id,
+        delay.as_secs_f64(),
+    )
     .execute(pool)
     .await?;
+    metrics::counter!("dronte_jobs_retried_total", "job_type" => row.job_type).increment(1);
     Ok(())
+}
+
+/// Exponential backoff with equal jitter: attempt n sleeps in
+/// `[exp/2, exp]` where `exp = min(cap, base * 2^(n-1))`. The floor keeps a
+/// hot failure from hammering; the jitter keeps a burst of failures from
+/// retrying in lockstep.
+fn backoff_delay(cfg: &Config, attempt: i32) -> std::time::Duration {
+    let base = cfg.retry_backoff_base.as_secs_f64();
+    let cap = cfg.retry_backoff_cap.as_secs_f64();
+    let exp = (base * 2f64.powi((attempt - 1).max(0))).min(cap);
+    let jitter: f64 = rand::Rng::random_range(&mut rand::rng(), 0.0..=0.5);
+    std::time::Duration::from_secs_f64(exp / 2.0 + exp * jitter)
 }
 
 // =============================================================================
@@ -219,11 +325,20 @@ async fn fail_job(pool: &PgPool, env: Uuid, id: Uuid, err: &anyhow::Error) -> an
 /// broadcast case). Debounce is per key: at most one published hint per
 /// subscriber (or per environment for env-wide) per window. Suppressed keys
 /// are deferred to the window's end, never dropped.
+///
+/// `notification_ids` in the payload are the direct notifications this hint
+/// announces. Their `delivered_hint` timeline rows are appended in this same
+/// claim transaction, so the append commits if and only if the job row's
+/// deletion (or its deferred-payload rewrite) does — exactly once.
+#[allow(clippy::too_many_arguments)]
 async fn process_hint(
+    tx: &mut sqlx::PgConnection,
     pubsub: &dyn PubSub,
     cfg: &Config,
     env: Uuid,
+    job_id: Uuid,
     payload: &Value,
+    job_created_at: DateTime<Utc>,
 ) -> anyhow::Result<Outcome> {
     let reason = payload["reason"]
         .as_str()
@@ -233,11 +348,50 @@ async fn process_hint(
         Value::Null => None,
         v => Some(serde_json::from_value(v.clone())?),
     };
+    let mut notification_ids: Vec<Uuid> = match &payload["notification_ids"] {
+        Value::Null => Vec::new(),
+        v => serde_json::from_value(v.clone())?,
+    };
+
+    // Coalesce pending hints for the same targets and reason first: a burst
+    // of N creates for one subscriber enqueues N hint jobs, and one publish
+    // (or one deferred trailing publish) covers them all — debounce means at
+    // most one hint per subscriber per window, never one publish per row.
+    // Their notification id sets merge into this job so no delivered_hint
+    // row is lost. SKIP LOCKED: a duplicate claimed by another worker is
+    // left alone (it will publish or coalesce on its own), because a
+    // blocking DELETE here is an AB-BA deadlock between two workers holding
+    // each other's duplicates.
+    let match_key = json!({ "reason": &reason, "subscriber_ids": payload["subscriber_ids"] });
+    let absorbed: Vec<Option<Value>> = sqlx::query_scalar!(
+        r#"DELETE FROM jobs
+            WHERE (environment_id, id) IN (
+                SELECT environment_id, id FROM jobs
+                 WHERE environment_id = $1 AND job_type = 'hint'
+                   AND id <> $2
+                   AND (payload - 'notification_ids' - '_traceparent') = $3
+                 FOR UPDATE SKIP LOCKED)
+            RETURNING payload->'notification_ids' AS ids"#,
+        env,
+        job_id,
+        match_key,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    for ids in absorbed.into_iter().flatten() {
+        if !ids.is_null() {
+            let more: Vec<Uuid> = serde_json::from_value(ids)?;
+            notification_ids.extend(more);
+        }
+    }
+    notification_ids.sort_unstable();
+    notification_ids.dedup();
 
     let targets: Vec<Option<Uuid>> = match subscriber_ids {
         None => vec![None],
         Some(subs) => subs.into_iter().map(Some).collect(),
     };
+    let mut published: Vec<Uuid> = Vec::new();
     let mut deferred: Vec<Uuid> = Vec::new();
     let mut deferred_env_wide = false;
     for target in targets {
@@ -246,6 +400,7 @@ async fn process_hint(
             None => format!("{env}:*"),
         };
         if pubsub.try_acquire_debounce(&key, cfg.hint_debounce).await? {
+            let started = std::time::Instant::now();
             pubsub
                 .publish(&Hint {
                     environment_id: env,
@@ -253,6 +408,15 @@ async fn process_hint(
                     reason: reason.clone(),
                 })
                 .await?;
+            metrics::histogram!("dronte_hint_publish_duration_seconds")
+                .record(started.elapsed().as_secs_f64());
+            // Enqueue-to-publish lag: the end-to-end hint latency a
+            // subscriber experiences (queue wait + debounce included).
+            let lag = (Utc::now() - job_created_at).num_milliseconds().max(0) as f64 / 1000.0;
+            metrics::histogram!("dronte_hint_delivery_lag_seconds").record(lag);
+            if let Some(sub) = target {
+                published.push(sub);
+            }
         } else {
             match target {
                 Some(sub) => deferred.push(sub),
@@ -261,15 +425,34 @@ async fn process_hint(
         }
     }
 
+    timeline::append_delivered(tx, env, &notification_ids, &published).await?;
+
     if deferred.is_empty() && !deferred_env_wide {
         return Ok(Outcome::Done);
     }
+    // Only the still-unpublished ids ride in the deferred payload; the
+    // published ones got their timeline rows above, in this transaction.
+    let remaining = if deferred_env_wide {
+        Value::Null
+    } else {
+        let ids = timeline::ids_for_subscribers(tx, env, &notification_ids, &deferred).await?;
+        if ids.is_empty() {
+            Value::Null
+        } else {
+            json!(ids)
+        }
+    };
+    let mut deferred_payload = json!({
+        "reason": reason,
+        "subscriber_ids": if deferred_env_wide { Value::Null } else { json!(deferred) },
+        "notification_ids": remaining,
+    });
+    if let Some(traceparent) = payload.get("_traceparent") {
+        deferred_payload["_traceparent"] = traceparent.clone();
+    }
     Ok(Outcome::Defer {
         run_at: Utc::now() + cfg.hint_debounce,
-        payload: Some(json!({
-            "reason": reason,
-            "subscriber_ids": if deferred_env_wide { Value::Null } else { json!(deferred) },
-        })),
+        payload: Some(deferred_payload),
     })
 }
 
@@ -369,8 +552,64 @@ async fn process_deliver(
     )
     .fetch_all(&mut *tx)
     .await?;
-    jobs::enqueue_hint(tx, env, &subscribers, "notification").await?;
+    jobs::enqueue_hint(tx, env, &subscribers, "notification", &all_ids).await?;
     Ok(Outcome::Done)
+}
+
+// =============================================================================
+// timeline — watermark-window status appends (chunked, resumable)
+// =============================================================================
+
+/// Appends `status` rows for the visible notifications inside a watermark
+/// move's `(from, to]` window, one keyset chunk per claim. occurred_at is
+/// the move time (`to`) carried in the payload, so a replayed chunk writes
+/// byte-identical rows.
+async fn process_timeline(
+    tx: &mut sqlx::PgConnection,
+    env: Uuid,
+    job_id: Uuid,
+    payload: &Value,
+    cursor: Option<&Value>,
+) -> anyhow::Result<Outcome> {
+    let subscriber: Uuid = serde_json::from_value(payload["subscriber_id"].clone())?;
+    let status = match payload["status"].as_str() {
+        Some(s @ (timeline::STATUS_READ | timeline::STATUS_SEEN)) => s,
+        other => return Err(anyhow::anyhow!("invalid timeline status: {other:?}")),
+    };
+    let from: DateTime<Utc> = serde_json::from_value(payload["from"].clone())?;
+    let to: DateTime<Utc> = serde_json::from_value(payload["to"].clone())?;
+
+    // The counters-row lock serializes this job's NOT EXISTS guard with the
+    // per-item read path, which appends under the same lock.
+    sqlx::query!(
+        r#"SELECT 1 AS one FROM subscriber_counters
+            WHERE environment_id = $1 AND subscriber_id = $2 FOR UPDATE"#,
+        env,
+        subscriber,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let cursor = cursor.and_then(|c| {
+        Some((
+            serde_json::from_value(c["after_ts"].clone()).ok()?,
+            serde_json::from_value(c["after_id"].clone()).ok()?,
+        ))
+    });
+    match timeline::append_window_chunk(tx, env, subscriber, status, from, to, to, cursor).await? {
+        None => Ok(Outcome::Done),
+        Some((after_ts, after_id)) => {
+            sqlx::query!(
+                r#"UPDATE jobs SET progress_cursor = $3 WHERE environment_id = $1 AND id = $2"#,
+                env,
+                job_id,
+                json!({ "after_ts": after_ts, "after_id": after_id }),
+            )
+            .execute(&mut *tx)
+            .await?;
+            Ok(Outcome::Continue)
+        }
+    }
 }
 
 // =============================================================================
@@ -441,7 +680,7 @@ async fn process_counter_rebuild(
     )
     .execute(&mut *tx)
     .await?;
-    jobs::enqueue_hint(tx, env, &[subscriber], "read_state").await?;
+    jobs::enqueue_hint(tx, env, &[subscriber], "read_state", &[]).await?;
     Ok(Outcome::Done)
 }
 
