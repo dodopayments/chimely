@@ -328,8 +328,8 @@ fn backoff_delay(cfg: &Config, attempt: i32) -> std::time::Duration {
 ///
 /// `notification_ids` in the payload are the direct notifications this hint
 /// announces. Their `delivered_hint` timeline rows are appended in this same
-/// claim transaction, so the append commits if and only if the job row's
-/// deletion (or its deferred-payload rewrite) does — exactly once.
+/// claim transaction, so the append commits exactly once: if and only if the
+/// job row's deletion (or its deferred-payload rewrite) commits.
 #[allow(clippy::too_many_arguments)]
 async fn process_hint(
     tx: &mut sqlx::PgConnection,
@@ -355,7 +355,7 @@ async fn process_hint(
 
     // Coalesce pending hints for the same targets and reason first: a burst
     // of N creates for one subscriber enqueues N hint jobs, and one publish
-    // (or one deferred trailing publish) covers them all — debounce means at
+    // (or one deferred trailing publish) covers them all. Debounce means at
     // most one hint per subscriber per window, never one publish per row.
     // Their notification id sets merge into this job so no delivered_hint
     // row is lost. SKIP LOCKED: a duplicate claimed by another worker is
@@ -557,7 +557,7 @@ async fn process_deliver(
 }
 
 // =============================================================================
-// timeline — watermark-window status appends (chunked, resumable)
+// timeline: watermark-window status appends (chunked, resumable)
 // =============================================================================
 
 /// Appends `status` rows for the visible notifications inside a watermark

@@ -2,7 +2,7 @@
 -- log (specs/phase-3-hardening.md, deliverables 1 and 2).
 
 -- =============================================================================
--- dead_letters — jobs that exhausted max_attempts, parked for replay. A
+-- dead_letters: jobs that exhausted max_attempts, parked for replay. A
 -- separate table on purpose: jobs are deleted on completion and the jobs
 -- table stays near-empty at steady state, so parked rows must not live in
 -- the hot claim path. A parked job is not a completed job; replay moves the
@@ -24,7 +24,7 @@ CREATE TABLE dead_letters (
 );
 
 -- =============================================================================
--- notification_status_log — append-only status timeline per DIRECT
+-- notification_status_log: append-only status timeline per DIRECT
 -- notification (created -> delivered_hint -> seen -> read). Broadcasts are
 -- never materialized per subscriber and therefore have no per-recipient
 -- timeline. Rows are only ever INSERTed; no UPDATE ever touches a row.

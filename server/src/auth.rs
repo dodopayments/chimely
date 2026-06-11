@@ -30,7 +30,7 @@ pub const QUERY_SUBSCRIBER_HASH: &str = "subscriber_hash";
 /// A management-plane caller. Resolving it authenticates the request.
 pub struct ManagementAuth {
     pub environment_id: Uuid,
-    /// The api_keys row that authenticated — the rate-limit bucket key.
+    /// The api_keys row that authenticated. It keys the rate-limit bucket.
     pub api_key_id: Uuid,
 }
 

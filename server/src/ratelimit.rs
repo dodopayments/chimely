@@ -1,13 +1,13 @@
 //! Rate limiting: a token bucket per key, evaluated atomically in Redis Lua
-//! so N replicas share ONE bucket (cross-replica correctness — the script
-//! reads the Redis clock via TIME, so replica clock skew cannot double-fill
-//! a bucket).
+//! so N replicas share ONE bucket. Cross-replica correctness holds because
+//! the script reads the Redis clock via TIME, so replica clock skew cannot
+//! double-fill a bucket.
 //!
 //! Redis is the hint/cache plane: a Redis outage must never take the API
 //! down, so the limiter FAILS OPEN on Redis errors (logged + counted). In
-//! Redis-less mode an in-process bucket applies — correct for the
-//! single-binary dev path, per-replica (more permissive, never stricter)
-//! when several replicas run without Redis.
+//! Redis-less mode an in-process bucket applies. That is correct for the
+//! single-binary dev path and degrades to per-replica buckets (more
+//! permissive, never stricter) when several replicas run without Redis.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -53,13 +53,13 @@ pub async fn enforce(
 }
 
 // =============================================================================
-// Redis (fred) — the cross-replica implementation
+// Redis (fred), the cross-replica implementation
 // =============================================================================
 
 /// Atomic refill-and-take. State is a hash {tokens, ts}; the clock is Redis
 /// TIME (one clock for all replicas; Redis >= 5 replicates script EFFECTS,
 /// so the non-determinism is safe). Returns {allowed, retry_after_seconds}.
-/// The key expires once a full bucket's refill has elapsed twice — an idle
+/// The key expires once a full bucket's refill has elapsed twice. An idle
 /// bucket reappears full, which is exactly the steady state.
 const TOKEN_BUCKET_LUA: &str = r#"
 local rate = tonumber(ARGV[1])
@@ -149,12 +149,24 @@ impl RateLimiter for RedisRateLimiter {
 }
 
 // =============================================================================
-// In-process fallback (Redis-less mode) — single-node semantics
+// In-process fallback (Redis-less mode), single-node semantics
 // =============================================================================
+
+/// One bucket carries its OWN rate and burst. API-key and subscriber
+/// buckets share this map with different parameters, so the GC must
+/// evaluate each bucket's refill against the values it was created with,
+/// never the current caller's.
+#[derive(Clone, Copy)]
+struct Bucket {
+    tokens: f64,
+    sampled_at: Instant,
+    rate_per_sec: f64,
+    burst: f64,
+}
 
 #[derive(Default)]
 pub struct LocalRateLimiter {
-    buckets: Mutex<HashMap<String, (f64, Instant)>>,
+    buckets: Mutex<HashMap<String, Bucket>>,
 }
 
 #[async_trait::async_trait]
@@ -165,26 +177,42 @@ impl RateLimiter for LocalRateLimiter {
         }
         let mut buckets = self.buckets.lock().expect("rate limiter lock");
         let now = Instant::now();
-        // Opportunistic GC: drop buckets that have fully refilled.
+        // Opportunistic GC: drop buckets that have fully refilled (per their
+        // own parameters; a dropped bucket reappears full, the steady state).
         if buckets.len() > 10_000 {
-            buckets.retain(|_, (tokens, ts)| {
-                *tokens + now.duration_since(*ts).as_secs_f64() * rate_per_sec < burst
+            buckets.retain(|_, b| {
+                b.tokens + now.duration_since(b.sampled_at).as_secs_f64() * b.rate_per_sec < b.burst
             });
         }
-        let (tokens, ts) = buckets
-            .entry(key.to_owned())
-            .or_insert((burst, now))
-            .to_owned();
-        let tokens = burst.min(tokens + now.duration_since(ts).as_secs_f64() * rate_per_sec);
-        if tokens >= 1.0 {
-            buckets.insert(key.to_owned(), (tokens - 1.0, now));
-            Decision::Allowed
+        let bucket = *buckets.entry(key.to_owned()).or_insert(Bucket {
+            tokens: burst,
+            sampled_at: now,
+            rate_per_sec,
+            burst,
+        });
+        let tokens = burst.min(
+            bucket.tokens + now.duration_since(bucket.sampled_at).as_secs_f64() * rate_per_sec,
+        );
+        let (tokens, decision) = if tokens >= 1.0 {
+            (tokens - 1.0, Decision::Allowed)
         } else {
-            buckets.insert(key.to_owned(), (tokens, now));
-            Decision::Limited {
-                retry_after: Duration::from_secs_f64((1.0 - tokens) / rate_per_sec),
-            }
-        }
+            (
+                tokens,
+                Decision::Limited {
+                    retry_after: Duration::from_secs_f64((1.0 - tokens) / rate_per_sec),
+                },
+            )
+        };
+        buckets.insert(
+            key.to_owned(),
+            Bucket {
+                tokens,
+                sampled_at: now,
+                rate_per_sec,
+                burst,
+            },
+        );
+        decision
     }
 }
 
@@ -210,6 +238,29 @@ mod tests {
             limiter.check("k", 1000.0, 3.0).await,
             Decision::Allowed
         ));
+    }
+
+    #[tokio::test]
+    async fn gc_judges_each_bucket_by_its_own_parameters() {
+        let limiter = LocalRateLimiter::default();
+        // A nearly-full API-key-shaped bucket: spend one token of a big burst.
+        assert!(matches!(
+            limiter.check("api-key", 50.0, 200.0).await,
+            Decision::Allowed
+        ));
+        // Flood subscriber-shaped buckets past the GC threshold so the NEXT
+        // subscriber check (rate=10, burst=50) runs the GC. With the
+        // caller's parameters applied to every bucket, the API-key bucket
+        // (199 tokens >= burst 50) would be dropped and reborn full.
+        for i in 0..10_001 {
+            limiter.check(&format!("sub-{i}"), 10.0, 50.0).await;
+        }
+        let buckets = limiter.buckets.lock().expect("lock");
+        let bucket = buckets.get("api-key").expect("survives the GC");
+        assert!(
+            bucket.tokens < 200.0,
+            "bucket must keep its spent state, not be reborn full"
+        );
     }
 
     #[tokio::test]

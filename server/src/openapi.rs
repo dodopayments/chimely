@@ -153,8 +153,8 @@ pub fn api_doc() -> utoipa::openapi::OpenApi {
     );
 
     // Reusable error responses (components.responses). Paths inline
-    // equivalent responses — references resolve identically. RateLimited is
-    // registered through the derive (contract::RateLimited) because paths
+    // equivalent responses, which references resolve identically. RateLimited
+    // is registered through the derive (contract::RateLimited) because paths
     // $ref it, exactly like the frozen spec.
     let error_content = || {
         ContentBuilder::new()

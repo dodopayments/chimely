@@ -338,7 +338,7 @@ contract_schema!(
         .into()
 );
 
-/// The reusable 429 from specs/openapi.yaml `components.responses` — paths
+/// The reusable 429 from specs/openapi.yaml `components.responses`. Paths
 /// reference it (`$ref`), exactly like the frozen contract does.
 pub struct RateLimited;
 

@@ -1,4 +1,4 @@
-//! Phase 3: graceful shutdown — readiness flips BEFORE the listener closes
+//! Phase 3: graceful shutdown. Readiness flips BEFORE the listener closes
 //! (load balancers drain first), in-flight requests finish, SSE closes with
 //! a retry directive (covered in sse.rs), workers stop claiming.
 
@@ -78,8 +78,8 @@ async fn workers_stop_claiming_on_shutdown_and_leave_jobs_for_successors() {
         .expect("worker loop exits promptly on shutdown")
         .unwrap();
 
-    // Work enqueued after the stop is untouched — the next replica's
-    // workers (or a restart) claim it; nothing is lost or half-done.
+    // Work enqueued after the stop is untouched: the next replica's
+    // workers (or a restart) claim it, and nothing is lost or half-done.
     app.create_notification("usr_w", "after-stop").await;
     assert!(
         app.job_count(app.env.id).await >= 1,

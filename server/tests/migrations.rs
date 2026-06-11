@@ -107,7 +107,7 @@ async fn retention_detaches_and_drops_expired_partitions() {
 
 /// W4: a stalled maintenance job must page LONG before headroom exhausts.
 /// `remaining_at` recomputes headroom from pg_inherits at any clock, which
-/// is exactly what the sampler exports — simulate the stall by asking what
+/// is exactly what the sampler exports. Simulate the stall by asking what
 /// the gauge reads months from now with no maintenance run in between.
 #[tokio::test]
 async fn stalled_maintenance_decays_the_partitions_gauge_into_the_alert() {
@@ -138,7 +138,7 @@ async fn stalled_maintenance_decays_the_partitions_gauge_into_the_alert() {
         }
 
         // Alert threshold is < 2 (see partitions.rs): it fires at +12
-        // months with a FULL month of pre-created headroom still left —
+        // months with a FULL month of pre-created headroom still left,
         // well before the +13-month write outage.
         let at_alert = partitions::remaining_at(&mut conn, parent, now + Months::new(12))
             .await

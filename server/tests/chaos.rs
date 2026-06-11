@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 /// Kill a worker mid-job AFTER a partial side effect committed: the first
 /// chunk lands, the crash rolls back the second, and the successor resumes
-/// from the cursor — at-least-once replay, zero double-applied effects.
+/// from the cursor. At-least-once replay, zero double-applied effects.
 #[tokio::test]
 async fn worker_killed_after_partial_chunks_resumes_without_double_effects() {
     let app = support::spawn().await;
@@ -103,7 +103,7 @@ async fn worker_killed_after_partial_chunks_resumes_without_double_effects() {
 }
 
 /// Kill the server mid-SSE-stream: the client reconnects to a SURVIVING
-/// replica with Last-Event-ID and refetches — no missed state, by
+/// replica with Last-Event-ID and refetches. No state is missed, by
 /// construction (hints are refetch triggers, not transports).
 #[tokio::test]
 async fn server_killed_mid_sse_stream_reconnects_to_replica_without_missed_state() {
@@ -291,9 +291,9 @@ async fn redis_full_outage_delays_hints_loses_nothing_and_counters_recover() {
     assert_eq!(res.status(), 200, "Redis down must not fail readiness");
 
     // Counters stay recomputable from Postgres alone while Redis is dark.
-    // Park the pending hint jobs out of the sweep's way first — claiming
-    // one would just burn the 5s publish timeout; they are retried after
-    // recovery below.
+    // Park the pending hint jobs out of the sweep's way first, since
+    // claiming one would just burn the 5s publish timeout. They are retried
+    // after recovery below.
     sqlx::query(
         "UPDATE jobs SET run_at = now() + interval '10 minutes'
           WHERE environment_id = $1 AND job_type = 'hint'",
