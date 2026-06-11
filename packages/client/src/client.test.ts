@@ -401,6 +401,41 @@ describe('optimistic read state', () => {
     expect(client.getSnapshot().error?.code).toBe('internal');
   });
 
+  test('concurrent markAllRead and markAllSeen do not clobber each other', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    stub.addNotification();
+    let releaseSeenAll = (): void => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseSeenAll = resolve;
+    });
+    const client = makeClient(stub, {
+      fetchFn: async (input, init) => {
+        if (String(input).includes('/seen-all')) {
+          await gate;
+        }
+        return stub.fetchFn(input, init);
+      },
+    });
+    await connectAndLoad(client, stub);
+    expect(client.getSnapshot().counts).toEqual({ unread: 2, unseen: 2 });
+
+    // The seen-all request hangs before reaching the server, so the
+    // read-all response is computed while unseen is still 2 server-side.
+    const seenPromise = client.markAllSeen();
+    expect(client.getSnapshot().counts.unseen).toBe(0);
+    await client.markAllRead();
+
+    // The stale unseen in the read-all response must not undo the
+    // optimistic zero of the still-in-flight markAllSeen.
+    expect(client.getSnapshot().counts).toEqual({ unread: 0, unseen: 0 });
+
+    releaseSeenAll();
+    await seenPromise;
+    expect(client.getSnapshot().counts).toEqual({ unread: 0, unseen: 0 });
+    expect(client.getSnapshot().error).toBeNull();
+  });
+
   test('a failed mutation that raced a refresh reconciles instead of resurrecting the stale list', async () => {
     const stub = createStubServer();
     const first = stub.addNotification();

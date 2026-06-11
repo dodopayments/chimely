@@ -50,6 +50,65 @@ async fn dev_bootstrap_seeds_an_environment_and_key_idempotently() {
     assert_eq!(res.status(), 201);
 }
 
+/// Tested invariant (risk: env-var misconfiguration in production): the
+/// bootstrap never modifies an environment it did not create. A slug
+/// collision with an environment that requires subscriber hashes must not
+/// downgrade that requirement on restart.
+#[tokio::test]
+async fn dev_bootstrap_leaves_an_existing_environment_untouched() {
+    let app = support::spawn().await;
+    let mut cfg = (*app.cfg).clone();
+    cfg.dev_environment = Some(app.env.slug.clone());
+    cfg.dev_api_key = Some("dev-secret-key".into());
+
+    let before: (String, bool) = sqlx::query_as(
+        "SELECT subscriber_hmac_secret, require_subscriber_hash
+         FROM environments WHERE slug = $1",
+    )
+    .bind(&app.env.slug)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert!(before.1, "the support environment requires hashes");
+
+    dronte::bootstrap::run(&app.pool, &cfg)
+        .await
+        .expect("bootstrap against an existing environment succeeds");
+
+    let after: (String, bool) = sqlx::query_as(
+        "SELECT subscriber_hmac_secret, require_subscriber_hash
+         FROM environments WHERE slug = $1",
+    )
+    .bind(&app.env.slug)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert!(after.1, "require_subscriber_hash must not be downgraded");
+    assert_eq!(after.0, before.0, "the HMAC secret must not rotate");
+}
+
+#[tokio::test]
+async fn dev_bootstrap_truncates_the_key_prefix_on_a_char_boundary() {
+    let app = support::spawn().await;
+    let mut cfg = (*app.cfg).clone();
+    cfg.dev_environment = Some("demo-utf8".into());
+    // Byte 14 falls inside the two-byte é. A fixed byte slice would panic.
+    cfg.dev_api_key = Some("abcdefghijklmé-secret".into());
+
+    dronte::bootstrap::run(&app.pool, &cfg)
+        .await
+        .expect("a multi-byte key must not panic the bootstrap");
+
+    let prefix: String = sqlx::query_scalar(
+        "SELECT key_prefix FROM api_keys WHERE name = 'dev-bootstrap'
+         AND environment_id = (SELECT id FROM environments WHERE slug = 'demo-utf8')",
+    )
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(prefix, "abcdefghijklm");
+}
+
 #[tokio::test]
 async fn subscriber_plane_is_cors_enabled_for_the_widget() {
     let app = support::spawn_dev_mode().await;

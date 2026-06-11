@@ -11,3 +11,22 @@ export const navigation = {
     }
   },
 };
+
+/**
+ * action_url is customer-supplied data stored verbatim by the server.
+ * Following it blindly lets a `javascript:` (or `data:`, or custom-scheme)
+ * URI execute in the embedding page's origin on item click. Only targets
+ * that resolve to http(s) may navigate. Relative URLs resolve against the
+ * embedding page and stay same-origin, so they pass.
+ */
+export function isSafeActionUrl(url: string): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  try {
+    const target = new URL(url, window.location.href);
+    return target.protocol === 'https:' || target.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}

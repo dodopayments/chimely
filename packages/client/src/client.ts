@@ -156,13 +156,18 @@ export class DronteClient<TPayload = WellKnownPayload> {
       return this.refreshing;
     }
     this.refreshing = (async () => {
-      do {
-        this.refreshAgain = false;
-        await this.doRefresh();
-      } while (this.refreshAgain);
-    })().finally(() => {
-      this.refreshing = null;
-    });
+      try {
+        do {
+          this.refreshAgain = false;
+          await this.doRefresh();
+        } while (this.refreshAgain);
+      } finally {
+        // Cleared inside the body, not via promise.finally, so no caller
+        // can observe a refreshing that already exited its rerun loop. In
+        // that one-microtask gap a coalesce request would be dropped.
+        this.refreshing = null;
+      }
+    })();
     return this.refreshing;
   }
 
@@ -216,7 +221,13 @@ export class DronteClient<TPayload = WellKnownPayload> {
     try {
       const response = await this.http('POST', '/v1/inbox/read-all');
       const counts = (await response.json()) as WireCounts;
-      this.store.patch({ counts, error: null });
+      // Only the field this mutation owns is applied. The response was
+      // computed before a concurrent markAllSeen may have landed, so its
+      // unseen value would clobber that mutation's optimistic zero.
+      this.store.patch({
+        counts: { ...this.store.getSnapshot().counts, unread: counts.unread },
+        error: null,
+      });
     } catch (cause) {
       this.store.patch({ items: prev.items, counts: prev.counts, error: asDronteError(cause) });
       this.reconcileAfterFailedMutation();
@@ -232,7 +243,12 @@ export class DronteClient<TPayload = WellKnownPayload> {
     try {
       const response = await this.http('POST', '/v1/inbox/seen-all');
       const counts = (await response.json()) as WireCounts;
-      this.store.patch({ counts, error: null });
+      // Field-scoped for the same reason as markAllRead: a stale unread
+      // here must not clobber a concurrent markAllRead.
+      this.store.patch({
+        counts: { ...this.store.getSnapshot().counts, unseen: counts.unseen },
+        error: null,
+      });
     } catch (cause) {
       this.store.patch({ counts: prev.counts, error: asDronteError(cause) });
       this.reconcileAfterFailedMutation();

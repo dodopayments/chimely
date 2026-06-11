@@ -23,25 +23,49 @@ pub async fn run(pool: &PgPool, cfg: &Config) -> anyhow::Result<()> {
          Unset DRONTE_DEV_ENVIRONMENT in production."
     );
 
-    // The HMAC secret only matters on first insert. The conflict arm must
-    // not rotate it: hashes computed against it would silently break.
+    // An existing environment is never modified. Rotating its HMAC secret
+    // would silently break hashes computed against it, and downgrading
+    // require_subscriber_hash would disable auth on an environment this
+    // bootstrap does not own.
     let hmac_secret = format!("whsec_{}", ids::new_uuid().as_simple());
-    let environment_id = sqlx::query_scalar!(
+    let inserted = sqlx::query_scalar!(
         r#"INSERT INTO environments
                (id, slug, name, subscriber_hmac_secret, require_subscriber_hash)
            VALUES ($1, $2, $2, $3, false)
-           ON CONFLICT (slug) DO UPDATE SET require_subscriber_hash = false
+           ON CONFLICT (slug) DO NOTHING
            RETURNING id"#,
         ids::new_uuid(),
         slug,
         hmac_secret,
     )
-    .fetch_one(pool)
+    .fetch_optional(pool)
     .await?;
+    let environment_id = match inserted {
+        Some(id) => id,
+        None => {
+            let existing = sqlx::query!(
+                "SELECT id, require_subscriber_hash FROM environments WHERE slug = $1",
+                slug,
+            )
+            .fetch_one(pool)
+            .await?;
+            if existing.require_subscriber_hash {
+                tracing::warn!(
+                    environment = slug,
+                    "DEV bootstrap: this environment already exists and requires \
+                     subscriber hashes. Leaving it unchanged. The widget needs a \
+                     subscriberHash to connect."
+                );
+            }
+            existing.id
+        }
+    };
 
     if let Some(key) = cfg.dev_api_key.as_deref() {
         let key_hash = sha2::Sha256::digest(key.as_bytes()).to_vec();
-        let key_prefix = &key[..key.len().min(14)];
+        // Display prefix only. Slicing at a fixed byte offset would panic
+        // when byte 14 falls inside a multi-byte character.
+        let key_prefix = &key[..key.floor_char_boundary(14)];
         sqlx::query!(
             r#"INSERT INTO api_keys (environment_id, id, name, key_hash, key_prefix)
                VALUES ($1, $2, 'dev-bootstrap', $3, $4)

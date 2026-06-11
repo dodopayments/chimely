@@ -32,6 +32,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter "./packages/*" build
+      # The publish path must never outrun the gates. CI covers PRs, but
+      # this workflow runs on push to main, which branch protection alone
+      # does not make test-clean.
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm conformance
       - name: Version PR or publish
         uses: changesets/action@v1
         with:
