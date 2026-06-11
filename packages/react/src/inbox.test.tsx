@@ -167,6 +167,38 @@ describe('item click behavior', () => {
     expect(readRequest?.status).toBe(204);
   });
 
+  test('a javascript: action_url marks read but never navigates', async () => {
+    const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {});
+    const stub = createStubServer();
+    const item = stub.addNotification({
+      payload: { title: 'hostile', action_url: 'javascript:alert(1)' },
+    });
+    await renderInbox(stub);
+    fireEvent.click(bell());
+
+    fireEvent.click(screen.getByText('hostile'));
+    await waitFor(() => {
+      expect(stub.requestsFor(`/v1/inbox/notifications/${item.id}/read`)).toHaveLength(1);
+    });
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  test('a relative action_url navigates (it resolves same-origin)', async () => {
+    const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {});
+    const stub = createStubServer();
+    const item = stub.addNotification({
+      payload: { title: 'relative', action_url: '/invoices/42' },
+    });
+    await renderInbox(stub);
+    fireEvent.click(bell());
+
+    fireEvent.click(screen.getByText('relative'));
+    await waitFor(() => {
+      expect(stub.requestsFor(`/v1/inbox/notifications/${item.id}/read`)).toHaveLength(1);
+    });
+    expect(assign).toHaveBeenCalledWith('/invoices/42');
+  });
+
   test('onItemClick returning false suppresses the default behavior', async () => {
     const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {});
     const stub = createStubServer();

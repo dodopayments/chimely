@@ -7,7 +7,7 @@ import { DronteContext, useDronteClient } from './context';
 import { useNotifications, usePreferences, useUnseenCount } from './hooks';
 import type { InboxLocalization } from './localization';
 import { mergeLocalization } from './localization';
-import { navigation } from './navigation';
+import { isSafeActionUrl, navigation } from './navigation';
 import { ensureStyles } from './styles';
 
 /** Named slots for classNames overrides. This union only ever widens. */
@@ -274,7 +274,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
     }
     void markRead({ id: item.id, source: item.source }).then(() => {
       const url = (item.payload as Partial<WellKnownPayload>).action_url;
-      if (typeof url === 'string' && url.length > 0) {
+      if (typeof url === 'string' && url.length > 0 && isSafeActionUrl(url)) {
         navigation.assign(url);
       }
     });
