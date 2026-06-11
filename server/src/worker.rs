@@ -655,7 +655,9 @@ async fn process_counter_rebuild(
                               AND p.enabled = false)
                       AND NOT EXISTS (SELECT 1 FROM jobs j
                             CROSS JOIN LATERAL jsonb_array_elements_text(
-                                j.payload->'notification_ids') WITH ORDINALITY AS t(nid, idx)
+                                CASE WHEN jsonb_typeof(j.payload->'notification_ids') = 'array'
+                                     THEN j.payload->'notification_ids' END)
+                                WITH ORDINALITY AS t(nid, idx)
                             WHERE j.environment_id = $1 AND j.job_type = 'deliver'
                               AND t.nid = n.id::text
                               AND (t.idx - 1) >=
@@ -671,7 +673,9 @@ async fn process_counter_rebuild(
                               AND p.enabled = false)
                       AND NOT EXISTS (SELECT 1 FROM jobs j
                             CROSS JOIN LATERAL jsonb_array_elements_text(
-                                j.payload->'notification_ids') WITH ORDINALITY AS t(nid, idx)
+                                CASE WHEN jsonb_typeof(j.payload->'notification_ids') = 'array'
+                                     THEN j.payload->'notification_ids' END)
+                                WITH ORDINALITY AS t(nid, idx)
                             WHERE j.environment_id = $1 AND j.job_type = 'deliver'
                               AND t.nid = n.id::text
                               AND (t.idx - 1) >=

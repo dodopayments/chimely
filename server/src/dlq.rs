@@ -41,25 +41,33 @@ pub async fn list(pool: &PgPool) -> anyhow::Result<Vec<DeadLetter>> {
     .await?)
 }
 
-/// Replay one parked job by id. Returns false if no such dead letter.
-pub async fn replay(pool: &PgPool, id: Uuid) -> anyhow::Result<bool> {
-    let moved = replay_where(pool, Some(id)).await?;
+/// Replay one parked job by id, optionally pinned to one environment
+/// (environment_id is part of every key; an unscoped id match would reach
+/// across environments). Returns false if no such dead letter.
+pub async fn replay(pool: &PgPool, id: Uuid, environment: Option<Uuid>) -> anyhow::Result<bool> {
+    let moved = replay_where(pool, Some(id), environment).await?;
     Ok(moved > 0)
 }
 
-/// Replay every parked job. Returns the number moved.
-pub async fn replay_all(pool: &PgPool) -> anyhow::Result<u64> {
-    replay_where(pool, None).await
+/// Replay every parked job, optionally only one environment's. Returns the
+/// number moved.
+pub async fn replay_all(pool: &PgPool, environment: Option<Uuid>) -> anyhow::Result<u64> {
+    replay_where(pool, None, environment).await
 }
 
 /// The DELETE and the INSERT are one statement, so a replay can neither lose
 /// the job nor duplicate it. attempts resets to 0 (a replay grants a fresh
 /// budget); last_error stays for forensics until the job next succeeds.
-async fn replay_where(pool: &PgPool, id: Option<Uuid>) -> anyhow::Result<u64> {
+async fn replay_where(
+    pool: &PgPool,
+    id: Option<Uuid>,
+    environment: Option<Uuid>,
+) -> anyhow::Result<u64> {
     let moved = sqlx::query!(
         r#"WITH revived AS (
                DELETE FROM dead_letters
-                WHERE $1::uuid IS NULL OR id = $1
+                WHERE ($1::uuid IS NULL OR id = $1)
+                  AND ($2::uuid IS NULL OR environment_id = $2)
                 RETURNING environment_id, id, job_type, payload, max_attempts,
                           last_error, progress_cursor, created_at)
            INSERT INTO jobs (environment_id, id, job_type, payload, run_at,
@@ -69,9 +77,19 @@ async fn replay_where(pool: &PgPool, id: Option<Uuid>) -> anyhow::Result<u64> {
                   max_attempts, last_error, progress_cursor, created_at
              FROM revived"#,
         id,
+        environment,
     )
     .execute(pool)
     .await?
     .rows_affected();
     Ok(moved)
+}
+
+/// Resolve an environment slug for the CLI's `--env` flag.
+pub async fn environment_by_slug(pool: &PgPool, slug: &str) -> anyhow::Result<Option<Uuid>> {
+    Ok(
+        sqlx::query_scalar!("SELECT id FROM environments WHERE slug = $1", slug)
+            .fetch_optional(pool)
+            .await?,
+    )
 }

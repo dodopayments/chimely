@@ -154,6 +154,28 @@ async fn dlq_command(args: Vec<String>) -> anyhow::Result<()> {
         .await
         .context("connecting to Postgres")?;
 
+    // `--env <slug>` pins replay to one environment. environment_id is part
+    // of every key; an unscoped id match would reach across environments.
+    let mut args = args;
+    let environment = match args.iter().position(|a| a == "--env") {
+        Some(i) if i + 1 < args.len() => {
+            args.remove(i);
+            let slug = args.remove(i);
+            match dlq::environment_by_slug(&pool, &slug).await? {
+                Some(id) => Some(id),
+                None => {
+                    eprintln!("no such environment: {slug}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Some(_) => {
+            eprintln!("usage: dronte dlq replay <job_id|--all> [--env <slug>]");
+            std::process::exit(2);
+        }
+        None => None,
+    };
+
     match args.first().map(String::as_str) {
         Some("list") => {
             let letters = dlq::list(&pool).await?;
@@ -176,7 +198,7 @@ async fn dlq_command(args: Vec<String>) -> anyhow::Result<()> {
         }
         Some("replay") => match args.get(1).map(String::as_str) {
             Some("--all") => {
-                let moved = dlq::replay_all(&pool).await?;
+                let moved = dlq::replay_all(&pool, environment).await?;
                 println!("replayed {moved} job(s)");
                 Ok(())
             }
@@ -184,7 +206,7 @@ async fn dlq_command(args: Vec<String>) -> anyhow::Result<()> {
                 let id = ids::parse_typeid(ids::JOB, id)
                     .or_else(|| id.parse().ok())
                     .context("expected a job_… TypeID or a raw UUID")?;
-                if dlq::replay(&pool, id).await? {
+                if dlq::replay(&pool, id, environment).await? {
                     println!("replayed {}", ids::typeid(ids::JOB, id));
                 } else {
                     eprintln!("no such dead letter");
@@ -193,12 +215,12 @@ async fn dlq_command(args: Vec<String>) -> anyhow::Result<()> {
                 Ok(())
             }
             None => {
-                eprintln!("usage: dronte dlq replay <job_id|--all>");
+                eprintln!("usage: dronte dlq replay <job_id|--all> [--env <slug>]");
                 std::process::exit(2);
             }
         },
         _ => {
-            eprintln!("usage: dronte dlq [list|replay <job_id|--all>]");
+            eprintln!("usage: dronte dlq [list|replay <job_id|--all> [--env <slug>]]");
             std::process::exit(2);
         }
     }

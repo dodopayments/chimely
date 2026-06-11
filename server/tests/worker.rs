@@ -368,7 +368,9 @@ async fn dead_letter_replay_reruns_the_job_exactly_once() {
     assert_eq!(unread, 0, "parked job applied no effects");
 
     // Replay grants a fresh attempt budget and re-enqueues NOW.
-    let replayed = dronte::dlq::replay_all(&app.pool).await.unwrap();
+    let replayed = dronte::dlq::replay_all(&app.pool, Some(app.env.id))
+        .await
+        .unwrap();
     assert_eq!(replayed, 1);
     assert_eq!(app.dead_letter_count().await, 0);
     app.drain_jobs().await;

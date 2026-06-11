@@ -166,7 +166,9 @@ pub async fn counter_drift(pool: &PgPool, sample_size: i64) -> anyhow::Result<(i
                         AND n.visible_at > s.read_watermark
                         AND NOT EXISTS (SELECT 1 FROM jobs j
                               CROSS JOIN LATERAL jsonb_array_elements_text(
-                                  j.payload->'notification_ids') WITH ORDINALITY AS t(nid, idx)
+                                  CASE WHEN jsonb_typeof(j.payload->'notification_ids') = 'array'
+                                       THEN j.payload->'notification_ids' END)
+                                  WITH ORDINALITY AS t(nid, idx)
                               WHERE j.environment_id = s.environment_id
                                 AND j.job_type = 'deliver'
                                 AND t.nid = n.id::text
@@ -180,7 +182,9 @@ pub async fn counter_drift(pool: &PgPool, sample_size: i64) -> anyhow::Result<(i
                         AND n.visible_at > s.seen_watermark
                         AND NOT EXISTS (SELECT 1 FROM jobs j
                               CROSS JOIN LATERAL jsonb_array_elements_text(
-                                  j.payload->'notification_ids') WITH ORDINALITY AS t(nid, idx)
+                                  CASE WHEN jsonb_typeof(j.payload->'notification_ids') = 'array'
+                                       THEN j.payload->'notification_ids' END)
+                                  WITH ORDINALITY AS t(nid, idx)
                               WHERE j.environment_id = s.environment_id
                                 AND j.job_type = 'deliver'
                                 AND t.nid = n.id::text

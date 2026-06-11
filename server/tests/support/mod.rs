@@ -599,7 +599,9 @@ impl TestApp {
         // parked unless a test asserted dead letters on purpose.
         let orphans: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM jobs j
-             CROSS JOIN LATERAL jsonb_array_elements_text(j.payload->'notification_ids') AS t(nid)
+             CROSS JOIN LATERAL jsonb_array_elements_text(
+                 CASE WHEN jsonb_typeof(j.payload->'notification_ids') = 'array'
+                      THEN j.payload->'notification_ids' END) AS t(nid)
              WHERE j.job_type = 'deliver'
                AND NOT EXISTS (SELECT 1 FROM notifications n
                      WHERE n.environment_id = j.environment_id AND n.id = t.nid::uuid)",
