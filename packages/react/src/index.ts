@@ -1,5 +1,5 @@
 /**
- * @dronte/react — hooks + <Inbox /> on top of @dronte/client.
+ * @dronte/react, the hooks and <Inbox /> on top of @dronte/client.
  *
  * The public surface is frozen in specs/sdk-api.d.ts (additive-only from
  * the contract-v1 tag). Zero styling dependencies: plain CSS custom
