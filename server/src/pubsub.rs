@@ -141,7 +141,14 @@ impl RedisPubSub {
 impl PubSub for RedisPubSub {
     async fn publish(&self, hint: &Hint) -> anyhow::Result<()> {
         let payload = serde_json::to_string(hint)?;
-        let _: i64 = self.client.publish(HINT_CHANNEL, payload).await?;
+        let receivers: i64 = self.client.publish(HINT_CHANNEL, payload).await?;
+        // Every healthy replica holds exactly one subscription, so zero
+        // receivers is always the degraded window right after a Redis
+        // recovery, before any fan-in subscriber has reattached. A
+        // fire-and-forget publish there would LOSE the hint. Failing the
+        // job instead retries it via fail_job, which turns the loss into
+        // the delay the contract allows.
+        anyhow::ensure!(receivers > 0, "hint published to zero receivers");
         Ok(())
     }
 
