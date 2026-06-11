@@ -66,9 +66,25 @@ async fn redis_loss_delays_hints_but_loses_nothing_and_keeps_readiness() {
         "hint job must persist through the outage"
     );
 
-    // Restore Redis; make any backed-off retries due immediately.
+    // Restore Redis and wait until the app's own client answers again. A
+    // fixed sleep flakes under machine load: fred's reconnect backoff slot
+    // can exceed the 5s command timeout, stacking job retries past the
+    // assertion window below.
     redis.start().await.expect("restarting redis");
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    for attempt in 0u32.. {
+        match app
+            .pubsub
+            .try_acquire_debounce(
+                &format!("recovery-probe-{attempt}"),
+                Duration::from_millis(1),
+            )
+            .await
+        {
+            Ok(_) => break,
+            Err(_) if attempt < 12 => tokio::time::sleep(Duration::from_millis(250)).await,
+            Err(err) => panic!("hint plane did not recover: {err:#}"),
+        }
+    }
     sqlx::query("UPDATE jobs SET run_at = now() WHERE environment_id = $1")
         .bind(app.env.id)
         .execute(&app.pool)
