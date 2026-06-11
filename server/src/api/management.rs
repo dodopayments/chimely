@@ -21,7 +21,7 @@ use crate::auth::ManagementAuth;
 use crate::error::ApiError;
 use crate::extract::ApiJson;
 use crate::state::AppState;
-use crate::{api, ids, jobs};
+use crate::{api, ids, jobs, ratelimit, timeline};
 
 pub const MAX_PAYLOAD_BYTES: usize = 16 * 1024;
 /// `deliver_at` cap. Partition pre-creation headroom covers it.
@@ -63,6 +63,7 @@ Need more than 100 recipients? That's a broadcast.
         (status = 200, description = "Idempotent replay — original response echoed, nothing re-created.", body = crate::api::contract::CreateNotificationsResponse),
         (status = 400, description = "Validation error.", body = crate::api::contract::Error),
         (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (status = 429, response = crate::api::contract::RateLimited),
     ),
     security(("ApiKeyBearer" = []))
 )]
@@ -71,6 +72,7 @@ pub async fn create_notifications(
     auth: ManagementAuth,
     ApiJson(req): ApiJson<CreateNotificationsRequest>,
 ) -> Result<Response, ApiError> {
+    enforce_api_key_limit(&state, &auth).await?;
     let env = auth.environment_id;
     let recipients = validate_recipients(&req)?;
     let category = validate_category(&req.category)?;
@@ -188,6 +190,9 @@ async fn create_notifications_txn(
     )
     .execute(&mut *tx)
     .await?;
+    // 'created' is appended for scheduled notifications too: created means
+    // accepted-and-durable, not visible.
+    timeline::append(&mut tx, env, &notif_ids, timeline::STATUS_CREATED).await?;
 
     if deliver_at.is_none() {
         // Conditional increment — the guard against the mark-all-read race:
@@ -205,7 +210,7 @@ async fn create_notifications_txn(
         )
         .execute(&mut *tx)
         .await?;
-        jobs::enqueue_hint(&mut tx, env, &internal, "notification").await?;
+        jobs::enqueue_hint(&mut tx, env, &internal, "notification", &notif_ids).await?;
     } else {
         // Scheduled: counters NOT bumped at create — the deliver job bumps
         // them in the same txn that deletes the job row (exactly-once key).
@@ -260,6 +265,7 @@ created at or after that subscriber's `created_at`.
         (status = 200, description = "Idempotent replay.", body = crate::api::contract::Broadcast),
         (status = 400, description = "Validation error.", body = crate::api::contract::Error),
         (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (status = 429, response = crate::api::contract::RateLimited),
     ),
     security(("ApiKeyBearer" = []))
 )]
@@ -268,6 +274,7 @@ pub async fn create_broadcast(
     auth: ManagementAuth,
     ApiJson(req): ApiJson<CreateBroadcastRequest>,
 ) -> Result<Response, ApiError> {
+    enforce_api_key_limit(&state, &auth).await?;
     let env = auth.environment_id;
     let category = validate_category(&req.category)?.to_owned();
     let payload = validate_payload(req.payload)?;
@@ -292,7 +299,7 @@ pub async fn create_broadcast(
         )
         .fetch_one(&mut *tx)
         .await?;
-        jobs::enqueue_hint(&mut tx, env, &[], "broadcast").await?;
+        jobs::enqueue_hint(&mut tx, env, &[], "broadcast", &[]).await?;
         let snapshot = json!({
             "id": ids::typeid(ids::BROADCAST, id),
             "category": category,
@@ -403,9 +410,94 @@ pub async fn upsert_subscriber(
     .into_response())
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/notifications/{id}/timeline",
+    tag = "management",
+    operation_id = "getNotificationTimeline",
+    summary = "Status timeline for one notification",
+    description = r#"The append-only delivery timeline — the "did it send?" answer.
+Statuses appear as they happen: `created` (accepted and durable),
+`delivered_hint` (a real-time hint announcing it was published),
+`seen` and `read` (subscriber actions; watermark moves apply them
+asynchronously, so a just-clicked "mark all read" may take a moment
+to appear here). Entries are ordered by `occurred_at`. Unknown future
+statuses must be ignored by clients.
+
+Broadcasts have no per-recipient timeline (they are never materialized
+per subscriber).
+"#,
+    params(("id" = crate::api::contract::NotificationId, Path)),
+    responses(
+        (status = 200, description = "The timeline so far.", body = crate::api::contract::NotificationTimeline),
+        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (status = 404, description = "Resource not found in this environment.", body = crate::api::contract::Error),
+    ),
+    security(("ApiKeyBearer" = []))
+)]
+pub async fn get_notification_timeline(
+    State(state): State<AppState>,
+    auth: ManagementAuth,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    let env = auth.environment_id;
+    let id = ids::parse_typeid(ids::NOTIFICATION, &id)
+        .ok_or_else(|| ApiError::not_found("no such notification"))?;
+
+    let subscriber = sqlx::query_scalar!(
+        r#"SELECT s.subscriber_id FROM notifications n
+             JOIN subscribers s ON s.environment_id = n.environment_id
+                               AND s.id = n.subscriber_id
+            WHERE n.environment_id = $1 AND n.id = $2"#,
+        env,
+        id,
+    )
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::from)?
+    .ok_or_else(|| ApiError::not_found("no such notification"))?;
+
+    // min() per status is a defensive read-time dedupe; writers already
+    // guarantee at most one row per (notification, status).
+    let rows = sqlx::query!(
+        r#"SELECT status, min(occurred_at) AS "occurred_at!"
+             FROM notification_status_log
+            WHERE environment_id = $1 AND notification_id = $2
+            GROUP BY status
+            ORDER BY 2, 1"#,
+        env,
+        id,
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok(Json(json!({
+        "id": ids::typeid(ids::NOTIFICATION, id),
+        "subscriber_id": subscriber,
+        "timeline": rows
+            .into_iter()
+            .map(|r| json!({ "status": r.status, "occurred_at": api::format_ts(r.occurred_at) }))
+            .collect::<Vec<_>>(),
+    }))
+    .into_response())
+}
+
 // =============================================================================
 // Shared validation + idempotency plumbing
 // =============================================================================
+
+/// Management-plane token bucket, one bucket per API key shared across every
+/// replica (the Redis Lua bucket is the cross-replica source of truth).
+async fn enforce_api_key_limit(state: &AppState, auth: &ManagementAuth) -> Result<(), ApiError> {
+    ratelimit::enforce(
+        state.ratelimit.as_ref(),
+        &format!("key:{}", auth.api_key_id),
+        state.cfg.api_key_rate_per_sec,
+        state.cfg.api_key_rate_burst,
+    )
+    .await
+}
 
 fn validate_recipients(req: &CreateNotificationsRequest) -> Result<Vec<String>, ApiError> {
     let list = match (&req.subscriber_id, &req.subscriber_ids) {

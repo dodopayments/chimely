@@ -24,7 +24,7 @@ use crate::auth::SubscriberAuth;
 use crate::error::ApiError;
 use crate::extract::ApiQuery;
 use crate::state::AppState;
-use crate::{ids, jobs};
+use crate::{ids, jobs, ratelimit, timeline};
 
 pub const DEFAULT_PAGE_SIZE: i64 = 20;
 pub const MAX_PAGE_SIZE: i64 = 100;
@@ -100,6 +100,7 @@ per-user data and must never be cached by shared proxies.
             )),
         (status = 304, description = "Not modified (If-None-Match matched)."),
         (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (status = 429, response = crate::api::contract::RateLimited),
     ),
     security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
 )]
@@ -109,6 +110,15 @@ pub async fn list_items(
     ApiQuery(params): ApiQuery<ListParams>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
+    // One bucket per subscriber, shared across replicas (widget refetch
+    // storms are the load this guards against).
+    ratelimit::enforce(
+        state.ratelimit.as_ref(),
+        &format!("sub:{}:{}", auth.environment_id, auth.subscriber_id),
+        state.cfg.subscriber_rate_per_sec,
+        state.cfg.subscriber_rate_burst,
+    )
+    .await?;
     let limit = params.limit.unwrap_or(DEFAULT_PAGE_SIZE);
     if !(1..=MAX_PAGE_SIZE).contains(&limit) {
         return Err(ApiError::bad_request("limit must be between 1 and 100"));
@@ -399,11 +409,18 @@ pub async fn mark_notification_read(
         .execute(&mut *tx)
         .await
         .map_err(ApiError::from)?;
+        // The 'read' timeline row commits with the read_at flip; the guard
+        // inside append runs under the counters lock taken above, so the
+        // watermark timeline job can never double-append it.
+        timeline::append(&mut tx, auth.environment_id, &[id], timeline::STATUS_READ)
+            .await
+            .map_err(ApiError::from)?;
         jobs::enqueue_hint(
             &mut tx,
             auth.environment_id,
             &[auth.subscriber_id],
             "read_state",
+            &[],
         )
         .await
         .map_err(ApiError::from)?;
@@ -494,6 +511,7 @@ pub async fn mark_broadcast_read(
                 auth.environment_id,
                 &[auth.subscriber_id],
                 "read_state",
+                &[],
             )
             .await
             .map_err(ApiError::from)?;
@@ -524,20 +542,45 @@ pub async fn mark_all_read(
     auth: SubscriberAuth,
 ) -> Result<Json<InboxCounts>, ApiError> {
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    // Lock first; the old watermark bounds the timeline job's window below.
+    let old_watermark = sqlx::query_scalar!(
+        r#"SELECT read_watermark FROM subscriber_counters
+            WHERE environment_id = $1 AND subscriber_id = $2 FOR UPDATE"#,
+        auth.environment_id,
+        auth.subscriber_id,
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(ApiError::from)?;
     // Mark-all-read is a one-row watermark upsert, never a bulk UPDATE over
     // notification rows (MVCC bloat on the hottest write path).
-    sqlx::query!(
+    let new_watermark = sqlx::query_scalar!(
         r#"UPDATE subscriber_counters SET
                read_watermark = now(),
                unread_direct_count = 0,
                updated_at = now()
-         WHERE environment_id = $1 AND subscriber_id = $2"#,
+         WHERE environment_id = $1 AND subscriber_id = $2
+         RETURNING read_watermark"#,
         auth.environment_id,
         auth.subscriber_id,
     )
-    .execute(&mut *tx)
+    .fetch_one(&mut *tx)
     .await
     .map_err(ApiError::from)?;
+    if new_watermark > old_watermark {
+        // Timeline rows for the (old, new] window append asynchronously in
+        // chunks; the request path stays O(1).
+        jobs::enqueue_timeline(
+            &mut tx,
+            auth.environment_id,
+            auth.subscriber_id,
+            timeline::STATUS_READ,
+            old_watermark,
+            new_watermark,
+        )
+        .await
+        .map_err(ApiError::from)?;
+    }
     // GC exception rows at or below the new watermark — they are redundant.
     sqlx::query!(
         r#"DELETE FROM broadcast_reads
@@ -554,6 +597,7 @@ pub async fn mark_all_read(
         auth.environment_id,
         &[auth.subscriber_id],
         "read_state",
+        &[],
     )
     .await
     .map_err(ApiError::from)?;
@@ -580,24 +624,47 @@ pub async fn mark_all_seen(
     auth: SubscriberAuth,
 ) -> Result<Json<InboxCounts>, ApiError> {
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    let old_watermark = sqlx::query_scalar!(
+        r#"SELECT seen_watermark FROM subscriber_counters
+            WHERE environment_id = $1 AND subscriber_id = $2 FOR UPDATE"#,
+        auth.environment_id,
+        auth.subscriber_id,
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(ApiError::from)?;
     // Seen state is watermark-ONLY: no per-item seen, no exceptions table.
-    sqlx::query!(
+    let new_watermark = sqlx::query_scalar!(
         r#"UPDATE subscriber_counters SET
                seen_watermark = now(),
                unseen_direct_count = 0,
                updated_at = now()
-         WHERE environment_id = $1 AND subscriber_id = $2"#,
+         WHERE environment_id = $1 AND subscriber_id = $2
+         RETURNING seen_watermark"#,
         auth.environment_id,
         auth.subscriber_id,
     )
-    .execute(&mut *tx)
+    .fetch_one(&mut *tx)
     .await
     .map_err(ApiError::from)?;
+    if new_watermark > old_watermark {
+        jobs::enqueue_timeline(
+            &mut tx,
+            auth.environment_id,
+            auth.subscriber_id,
+            timeline::STATUS_SEEN,
+            old_watermark,
+            new_watermark,
+        )
+        .await
+        .map_err(ApiError::from)?;
+    }
     jobs::enqueue_hint(
         &mut tx,
         auth.environment_id,
         &[auth.subscriber_id],
         "read_state",
+        &[],
     )
     .await
     .map_err(ApiError::from)?;

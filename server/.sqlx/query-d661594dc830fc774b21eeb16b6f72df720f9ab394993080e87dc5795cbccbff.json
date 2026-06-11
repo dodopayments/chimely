@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE subscriber_counters SET\n               seen_watermark = now(),\n               unseen_direct_count = 0,\n               updated_at = now()\n         WHERE environment_id = $1 AND subscriber_id = $2\n         RETURNING seen_watermark",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "seen_watermark",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "subscriber_counters",
+            "name": "seen_watermark"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d661594dc830fc774b21eeb16b6f72df720f9ab394993080e87dc5795cbccbff"
+}

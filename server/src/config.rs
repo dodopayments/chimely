@@ -42,6 +42,29 @@ pub struct Config {
     /// the quickstart curl is copy-pasteable. Ignored without
     /// `dev_environment`.
     pub dev_api_key: Option<String>,
+    /// First retry delay for a failed job. Attempt n waits roughly
+    /// `base * 2^(n-1)`, equal-jittered, capped below.
+    pub retry_backoff_base: Duration,
+    /// Ceiling for the exponential retry delay.
+    pub retry_backoff_cap: Duration,
+    /// Cadence of the metrics sampler (queue depth, counter drift, dead
+    /// letters, partition headroom).
+    pub metrics_sample_interval: Duration,
+    /// Subscribers recounted per drift sample, most recently active first.
+    pub counter_drift_sample_size: i64,
+    /// Management-plane token bucket, per API key. Rate is tokens added per
+    /// second; burst is the bucket capacity. Zero rate disables the limit.
+    pub api_key_rate_per_sec: f64,
+    pub api_key_rate_burst: f64,
+    /// Subscriber-plane token bucket, per subscriber. Zero rate disables.
+    pub subscriber_rate_per_sec: f64,
+    pub subscriber_rate_burst: f64,
+    /// How long /readyz reports 503 before the listener actually closes, so
+    /// load balancers drain the replica first.
+    pub shutdown_readiness_grace: Duration,
+    /// In-flight job drain budget after claiming stops. Past it the worker
+    /// is aborted; at-least-once semantics make the rollback safe.
+    pub shutdown_drain_deadline: Duration,
 }
 
 impl Config {
@@ -71,6 +94,31 @@ impl Config {
             dev_api_key: std::env::var("DRONTE_DEV_API_KEY")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            retry_backoff_base: Duration::from_millis(parse_var(
+                "DRONTE_RETRY_BACKOFF_BASE_MS",
+                5_000,
+            )?),
+            retry_backoff_cap: Duration::from_millis(parse_var(
+                "DRONTE_RETRY_BACKOFF_CAP_MS",
+                900_000,
+            )?),
+            metrics_sample_interval: Duration::from_millis(parse_var(
+                "DRONTE_METRICS_SAMPLE_MS",
+                15_000,
+            )?),
+            counter_drift_sample_size: parse_var("DRONTE_COUNTER_DRIFT_SAMPLE_SIZE", 50)?,
+            api_key_rate_per_sec: parse_var("DRONTE_API_KEY_RATE_PER_SEC", 50.0)?,
+            api_key_rate_burst: parse_var("DRONTE_API_KEY_RATE_BURST", 200.0)?,
+            subscriber_rate_per_sec: parse_var("DRONTE_SUBSCRIBER_RATE_PER_SEC", 10.0)?,
+            subscriber_rate_burst: parse_var("DRONTE_SUBSCRIBER_RATE_BURST", 50.0)?,
+            shutdown_readiness_grace: Duration::from_millis(parse_var(
+                "DRONTE_SHUTDOWN_GRACE_MS",
+                5_000,
+            )?),
+            shutdown_drain_deadline: Duration::from_millis(parse_var(
+                "DRONTE_SHUTDOWN_DRAIN_DEADLINE_MS",
+                30_000,
+            )?),
         })
     }
 }

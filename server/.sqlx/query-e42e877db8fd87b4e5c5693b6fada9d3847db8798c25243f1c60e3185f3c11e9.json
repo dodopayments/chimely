@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT seen_watermark FROM subscriber_counters\n            WHERE environment_id = $1 AND subscriber_id = $2 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "seen_watermark",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "subscriber_counters",
+            "name": "seen_watermark"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e42e877db8fd87b4e5c5693b6fada9d3847db8798c25243f1c60e3185f3c11e9"
+}

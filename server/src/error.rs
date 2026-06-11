@@ -51,6 +51,16 @@ impl ApiError {
             retry_after_seconds: Some(retry_after_seconds),
         }
     }
+
+    pub fn rate_limited(retry_after: std::time::Duration) -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            code: "rate_limited",
+            message: "rate limit exceeded".to_owned(),
+            // Ceil to a whole second; Retry-After: 0 invites an instant retry.
+            retry_after_seconds: Some((retry_after.as_secs_f64().ceil() as u64).max(1)),
+        }
+    }
 }
 
 impl IntoResponse for ApiError {

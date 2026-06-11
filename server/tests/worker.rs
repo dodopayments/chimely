@@ -264,7 +264,7 @@ async fn counter_rebuild_recounts_one_subscriber_mute_aware() {
 }
 
 #[tokio::test]
-async fn failing_jobs_back_off_and_park_at_max_attempts() {
+async fn failing_jobs_back_off_with_jitter_then_park_in_dead_letters() {
     let app = support::spawn().await;
     let mut conn = app.pool.acquire().await.unwrap();
     // counter_rebuild with a malformed payload always errors.
@@ -278,29 +278,45 @@ async fn failing_jobs_back_off_and_park_at_max_attempts() {
     .await
     .unwrap();
     drop(conn);
-    sqlx::query("UPDATE jobs SET max_attempts = 2 WHERE environment_id = $1")
+    sqlx::query("UPDATE jobs SET max_attempts = 3 WHERE environment_id = $1")
         .bind(app.env.id)
         .execute(&app.pool)
         .await
         .unwrap();
 
-    // Attempt 1: error → attempts=1, backed off into the future.
-    assert!(
-        worker::process_one(&app.pool, app.pubsub.as_ref(), &app.cfg, app.env.id)
-            .await
-            .is_err()
-    );
-    let (attempts, last_error): (i32, Option<String>) =
-        sqlx::query_as("SELECT attempts, last_error FROM jobs WHERE environment_id = $1")
+    // Attempts 1 and 2: error → attempts += 1, jittered exponential backoff
+    // in run_at, always strictly in the future and under the cap.
+    for attempt in 1..=2i32 {
+        sqlx::query("UPDATE jobs SET run_at = now() WHERE environment_id = $1")
             .bind(app.env.id)
-            .fetch_one(&app.pool)
+            .execute(&app.pool)
             .await
             .unwrap();
-    assert_eq!(attempts, 1);
-    assert!(last_error.is_some());
+        assert!(
+            worker::process_one(&app.pool, app.pubsub.as_ref(), &app.cfg, app.env.id)
+                .await
+                .is_err()
+        );
+        let (attempts, last_error, backoff_ms): (i32, Option<String>, f64) = sqlx::query_as(
+            "SELECT attempts, last_error,
+                    (extract(epoch FROM (run_at - now())) * 1000)::float8
+               FROM jobs WHERE environment_id = $1",
+        )
+        .bind(app.env.id)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+        assert_eq!(attempts, attempt);
+        assert!(last_error.is_some());
+        assert!(backoff_ms > 0.0, "attempt {attempt} must back off");
+        assert!(
+            backoff_ms <= app.cfg.retry_backoff_cap.as_millis() as f64,
+            "backoff stays under the cap"
+        );
+    }
 
-    // Force it due again; attempt 2 exhausts max_attempts → parked at
-    // 'infinity' for Phase 3 DLQ replay, NOT deleted, NOT claimable.
+    // Attempt 3 exhausts max_attempts → the row MOVES to dead_letters: not
+    // claimable, not status-flagged in place, jobs table left empty.
     sqlx::query("UPDATE jobs SET run_at = now() WHERE environment_id = $1")
         .bind(app.env.id)
         .execute(&app.pool)
@@ -311,20 +327,58 @@ async fn failing_jobs_back_off_and_park_at_max_attempts() {
             .await
             .is_err()
     );
-    let parked: bool =
-        sqlx::query_scalar("SELECT run_at = 'infinity' FROM jobs WHERE environment_id = $1")
+    assert_eq!(app.job_count(app.env.id).await, 0, "no parked row in jobs");
+    let (attempts, last_error): (i32, String) =
+        sqlx::query_as("SELECT attempts, last_error FROM dead_letters WHERE environment_id = $1")
             .bind(app.env.id)
             .fetch_one(&app.pool)
             .await
             .unwrap();
-    assert!(parked, "exhausted job parked at infinity");
+    assert_eq!(attempts, 3);
+    assert!(last_error.contains("not-a-uuid") || !last_error.is_empty());
     assert_eq!(
         worker::sweep_once(&app.pool, app.pubsub.as_ref(), &app.cfg)
             .await
             .unwrap(),
         0,
-        "parked jobs are not claimable"
+        "dead letters are not claimable"
     );
+}
+
+#[tokio::test]
+async fn dead_letter_replay_reruns_the_job_exactly_once() {
+    let app = support::spawn().await;
+    // A real deliver job, parked as an operator would find it after an
+    // exhausting outage: move it to dead_letters wholesale.
+    create_due_scheduled(&app, "usr_dlq", 2).await;
+    sqlx::query(
+        "WITH moved AS (DELETE FROM jobs WHERE environment_id = $1 RETURNING *)
+         INSERT INTO dead_letters (environment_id, id, job_type, payload, attempts,
+                                   max_attempts, last_error, progress_cursor, created_at)
+         SELECT environment_id, id, job_type, payload, 10, 10, 'simulated outage',
+                progress_cursor, created_at
+           FROM moved",
+    )
+    .bind(app.env.id)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(app.dead_letter_count().await, 1);
+    let (unread, _, _) = app.counter_row("usr_dlq_0").await;
+    assert_eq!(unread, 0, "parked job applied no effects");
+
+    // Replay grants a fresh attempt budget and re-enqueues NOW.
+    let replayed = dronte::dlq::replay_all(&app.pool).await.unwrap();
+    assert_eq!(replayed, 1);
+    assert_eq!(app.dead_letter_count().await, 0);
+    app.drain_jobs().await;
+
+    for i in 0..2 {
+        let (unread, _, _) = app.counter_row(&format!("usr_dlq_{i}")).await;
+        assert_eq!(unread, 1, "replay applied effects exactly once");
+    }
+    assert_eq!(app.job_count(app.env.id).await, 0);
+    app.assert_consistent().await;
 }
 
 /// C1(a) regression: a row can be VISIBLE (deliver_at passed) while still

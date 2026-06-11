@@ -30,6 +30,8 @@ pub const QUERY_SUBSCRIBER_HASH: &str = "subscriber_hash";
 /// A management-plane caller. Resolving it authenticates the request.
 pub struct ManagementAuth {
     pub environment_id: Uuid,
+    /// The api_keys row that authenticated — the rate-limit bucket key.
+    pub api_key_id: Uuid,
 }
 
 impl FromRequestParts<AppState> for ManagementAuth {
@@ -73,6 +75,7 @@ impl FromRequestParts<AppState> for ManagementAuth {
 
         Ok(Self {
             environment_id: row.environment_id,
+            api_key_id: row.id,
         })
     }
 }

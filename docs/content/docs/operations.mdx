@@ -1,0 +1,136 @@
+---
+title: Operations
+description: Metrics, alerts, dead-letter replay, graceful shutdown, rate limits, and measured capacity.
+---
+
+Everything on this page is enforced by the Phase 3 chaos suite
+(`server/tests/chaos.rs`): killing any process at any moment, losing Redis
+entirely, flooding one environment, or replaying any job must not lose
+data, drift a counter, or starve a neighbor.
+
+## Metrics
+
+`GET /metrics` (Prometheus text format). Gauges marked *sampled* are
+recomputed from Postgres on a fixed cadence (`DRONTE_METRICS_SAMPLE_MS`,
+default 15s) — they survive restarts and cannot freeze when a subsystem
+stalls.
+
+| Metric | Kind | Meaning |
+|---|---|---|
+| `dronte_queue_depth{environment,job_type}` | gauge, sampled | All pending job rows |
+| `dronte_queue_due{environment,job_type}` | gauge, sampled | Jobs past `run_at` |
+| `dronte_job_wait_seconds{job_type}` | histogram | Due-to-claim latency (the fairness signal) |
+| `dronte_jobs_processed_total{environment}` | counter | Completed claims |
+| `dronte_jobs_failed_total{environment}` | counter | Failed claims (will retry) |
+| `dronte_jobs_retried_total{job_type}` | counter | Backoff reschedules |
+| `dronte_jobs_parked_total{job_type}` | counter | Moves into `dead_letters` |
+| `dronte_dead_letters{job_type}` | gauge, sampled | Parked jobs awaiting replay |
+| `dronte_hint_publish_duration_seconds` | histogram | Pub/sub round trip |
+| `dronte_hint_delivery_lag_seconds` | histogram | Enqueue-to-publish lag (includes queue wait + debounce) |
+| `dronte_sse_connections` | gauge | Open SSE streams on this replica |
+| `dronte_counter_drift_unread` / `_unseen` | gauge, sampled | Σ&#124;recount − maintained&#124; over recently-active subscribers |
+| `dronte_partitions_remaining{table}` | gauge, sampled | Pre-created future partitions |
+| `dronte_rate_limited_total` | counter | Requests answered 429 |
+| `dronte_rate_limit_errors_total` | counter | Limiter fail-opens (Redis unreachable) |
+
+## Alerts
+
+- **`dronte_partitions_remaining < 2`** — the partition-maintenance job has
+  been dead for ~11 months; with headroom exhausted, inserts fail loudly
+  (there is deliberately no DEFAULT partition). The gauge decays by one per
+  month while the job is stalled, so this alert fires with a full month of
+  pre-created headroom still left.
+- **`dronte_counter_drift_unread > 0` (sustained)** — a counter-maintenance
+  bug. Transient nonzero readings right after a preference flip resolve as
+  soon as the enqueued `counter_rebuild` lands.
+- **`dronte_dead_letters > 0`** — jobs exhausted `max_attempts` and need an
+  operator (see below).
+- **`dronte_job_wait_seconds` p99 growing without a matching queue-depth
+  flood** — claim starvation; check for a stuck worker.
+
+## Dead-letter replay
+
+A job that exhausts `max_attempts` (default 10) moves to the
+`dead_letters` table with its `last_error` and `progress_cursor` — the jobs
+table itself stays near-empty (completed work leaves no row; parked work
+does not live in the hot claim path).
+
+```bash
+dronte dlq list                 # one line per parked job
+dronte dlq replay job_01h4…     # replay one (fresh attempt budget, runs now)
+dronte dlq replay --all
+```
+
+Replay re-enqueues the original row (same id, payload, and cursor), so a
+chunked fan-out resumes where it died and side effects apply exactly once.
+
+## Graceful shutdown
+
+On SIGTERM/SIGINT, in order:
+
+1. `/readyz` flips to 503 while the listener keeps serving
+   (`DRONTE_SHUTDOWN_GRACE_MS`, default 5000) so load balancers drain the
+   replica without dropping in-flight requests.
+2. The listener stops accepting; SSE streams receive a jittered `retry:`
+   directive and close (no reconnect stampede); workers stop claiming.
+3. In-flight jobs get `DRONTE_SHUTDOWN_DRAIN_DEADLINE_MS` (default 30000)
+   to finish. Past the deadline the worker is aborted — the open
+   transaction rolls back and the job is re-claimed elsewhere
+   (at-least-once by design, side effects keyed by job deletion).
+
+## Rate limits
+
+Token buckets, enforced atomically in Redis Lua so N replicas share one
+bucket (the bucket reads the Redis clock — replica clock skew cannot
+double-fill it). 429 responses carry `Retry-After`. On Redis loss the
+limiter **fails open**: Redis is the hint/cache plane and must never
+reject traffic Postgres can serve. In Redis-less mode an in-process bucket
+applies per replica.
+
+| Knob | Default | Applies to |
+|---|---|---|
+| `DRONTE_API_KEY_RATE_PER_SEC` / `_BURST` | 50 / 200 | per API key: `POST /v1/notifications`, `POST /v1/broadcasts` |
+| `DRONTE_SUBSCRIBER_RATE_PER_SEC` / `_BURST` | 10 / 50 | per subscriber: `GET /v1/inbox/items` |
+
+A rate of `0` disables the limit.
+
+## Retry backoff
+
+Failed jobs reschedule with equal-jittered exponential backoff: attempt
+*n* waits in `[exp/2, exp]` where
+`exp = min(DRONTE_RETRY_BACKOFF_CAP_MS, DRONTE_RETRY_BACKOFF_BASE_MS × 2^(n−1))`
+(defaults 5s base, 15min cap).
+
+## Retention
+
+Monthly partitions on `notifications` and `notification_status_log` are
+pre-created 13 months ahead (covering the `deliver_at` cap) and dropped
+(DETACH + DROP) past `DRONTE_RETENTION_MONTHS` (default 12). Idempotency
+snapshots are purged after `DRONTE_IDEMPOTENCY_RETENTION_DAYS` (default
+30).
+
+## Measured capacity
+
+The jobs table is an inbox work queue, not Kafka. The nightly
+`sustained_jobs_churn_stays_bounded_under_autovacuum` chaos run measures
+the sustained rate on whatever box it runs on and asserts that
+delete-on-complete plus the table's aggressive autovacuum settings
+(fillfactor 50, threshold 500, no cost delay) keep dead tuples and table
+size bounded at that rate.
+
+Reference measurement (Apple M-series dev box, Postgres 15 in a
+container, 4 workers, Redis-less, June 2026): a 20,000-job
+single-environment backlog of one-statement jobs drained at **~600
+jobs/sec sustained**; dead tuples peaked between vacuum passes and
+settled to 0 with the table at 0 KiB afterwards. Notes for reading that
+number:
+
+- It is the **worst case**: a single environment gets one claim per
+  fairness sweep, so per-environment throughput is sweep-bound. Aggregate
+  throughput scales with the number of environments that have pending
+  work.
+- One *job* is not one *notification*: deliver jobs process 500
+  notification rows per claim, so row throughput during fan-outs is
+  hundreds of times higher.
+- Run the nightly lane on your own hardware for your number; the log line
+  is `sustained churn: … jobs/sec`.

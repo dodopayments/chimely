@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO notification_status_log\n               (environment_id, notification_id, status, occurred_at)\n           SELECT $1, n.id, $4, now()\n             FROM notifications n\n            WHERE n.environment_id = $1 AND n.id = ANY($2)\n              AND n.subscriber_id = ANY($3)\n              AND NOT EXISTS (\n                  SELECT 1 FROM notification_status_log l\n                   WHERE l.environment_id = $1 AND l.notification_id = n.id\n                     AND l.status = $4)\n           ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cc1ce50aefb6211b2c15e26fe2599ff8a7973eb612e1da06450c14903a39c343"
+}

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.subscriber_id FROM notifications n\n             JOIN subscribers s ON s.environment_id = n.environment_id\n                               AND s.id = n.subscriber_id\n            WHERE n.environment_id = $1 AND n.id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "subscriber_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "subscribers",
+            "name": "subscriber_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d6b522879020ee773813feef798ab983e69099d1632b37891493026150263667"
+}

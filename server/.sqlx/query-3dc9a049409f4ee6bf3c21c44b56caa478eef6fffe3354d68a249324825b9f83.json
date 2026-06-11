@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT environment_id, id, job_type, payload, attempts, max_attempts,\n                  progress_cursor\n             FROM jobs\n            WHERE environment_id = $1 AND run_at <= now()\n            ORDER BY run_at\n            LIMIT 1\n            FOR UPDATE SKIP LOCKED",
+  "query": "SELECT environment_id, id, job_type, payload, attempts, max_attempts,\n                  progress_cursor, run_at, created_at\n             FROM jobs\n            WHERE environment_id = $1 AND run_at <= now()\n            ORDER BY run_at\n            LIMIT 1\n            FOR UPDATE SKIP LOCKED",
   "describe": {
     "columns": [
       {
@@ -79,6 +79,28 @@
             "name": "progress_cursor"
           }
         }
+      },
+      {
+        "ordinal": 7,
+        "name": "run_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "run_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jobs",
+            "name": "created_at"
+          }
+        }
       }
     ],
     "parameters": {
@@ -93,8 +115,10 @@
       false,
       false,
       false,
-      true
+      true,
+      false,
+      false
     ]
   },
-  "hash": "3c37767031eac8caefffcc9cee0460f2a17259d0e6235a86e191e4e069c0f438"
+  "hash": "3dc9a049409f4ee6bf3c21c44b56caa478eef6fffe3354d68a249324825b9f83"
 }

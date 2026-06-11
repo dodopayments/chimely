@@ -8,11 +8,10 @@
 
 use utoipa::OpenApi;
 use utoipa::openapi::content::ContentBuilder;
-use utoipa::openapi::header::HeaderBuilder;
 use utoipa::openapi::response::ResponseBuilder;
 use utoipa::openapi::schema::{ObjectBuilder, Type};
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, SecurityScheme};
-use utoipa::openapi::{Ref, RefOr, ServerBuilder};
+use utoipa::openapi::{Ref, ServerBuilder};
 
 /// Verbatim from specs/openapi.yaml `info.description`.
 const INFO_DESCRIPTION: &str = r#"Two planes, one binary:
@@ -64,6 +63,7 @@ conventional status codes. 429 carries `Retry-After`.
     paths(
         crate::api::management::create_notifications,
         crate::api::management::create_broadcast,
+        crate::api::management::get_notification_timeline,
         crate::api::management::upsert_subscriber,
         crate::api::preferences::get_subscriber_preferences,
         crate::api::preferences::set_subscriber_preferences,
@@ -77,23 +77,28 @@ conventional status codes. 429 carries `Retry-After`.
         crate::api::preferences::set_inbox_preferences,
         crate::api::sse::stream,
     ),
-    components(schemas(
-        crate::api::contract::NotificationId,
-        crate::api::contract::BroadcastId,
-        crate::api::contract::Payload,
-        crate::api::contract::Error,
-        crate::api::contract::CreateNotificationsRequest,
-        crate::api::contract::CreateNotificationsResponse,
-        crate::api::contract::CreateBroadcastRequest,
-        crate::api::contract::Broadcast,
-        crate::api::contract::Subscriber,
-        crate::api::contract::InboxItem,
-        crate::api::contract::InboxPage,
-        crate::api::contract::InboxCounts,
-        crate::api::contract::Preference,
-        crate::api::contract::PreferenceList,
-        crate::api::contract::PreferenceWriteList,
-    ))
+    components(
+        schemas(
+            crate::api::contract::NotificationId,
+            crate::api::contract::BroadcastId,
+            crate::api::contract::Payload,
+            crate::api::contract::Error,
+            crate::api::contract::CreateNotificationsRequest,
+            crate::api::contract::CreateNotificationsResponse,
+            crate::api::contract::CreateBroadcastRequest,
+            crate::api::contract::Broadcast,
+            crate::api::contract::Subscriber,
+            crate::api::contract::InboxItem,
+            crate::api::contract::InboxPage,
+            crate::api::contract::InboxCounts,
+            crate::api::contract::Preference,
+            crate::api::contract::PreferenceList,
+            crate::api::contract::PreferenceWriteList,
+            crate::api::contract::TimelineEntry,
+            crate::api::contract::NotificationTimeline,
+        ),
+        responses(crate::api::contract::RateLimited)
+    )
 )]
 pub struct ApiDoc;
 
@@ -148,8 +153,9 @@ pub fn api_doc() -> utoipa::openapi::OpenApi {
     );
 
     // Reusable error responses (components.responses). Paths inline
-    // equivalent responses — references resolve identically; RateLimited is
-    // declared now and wired to endpoints with Phase 3 rate limiting.
+    // equivalent responses — references resolve identically. RateLimited is
+    // registered through the derive (contract::RateLimited) because paths
+    // $ref it, exactly like the frozen spec.
     let error_content = || {
         ContentBuilder::new()
             .schema(Some(Ref::from_schema_name("Error")))
@@ -179,23 +185,6 @@ pub fn api_doc() -> utoipa::openapi::OpenApi {
             .build()
             .into(),
     );
-    components.responses.insert(
-        "RateLimited".to_owned(),
-        ResponseBuilder::new()
-            .description("Per-API-key (management) or per-subscriber (widget) rate limit.")
-            // lowercase: kin-openapi (the oasdiff loader) normalizes header
-            // names to lowercase; matching avoids a phantom casing diff.
-            .header(
-                "retry-after",
-                HeaderBuilder::new()
-                    .schema(ObjectBuilder::new().schema_type(Type::Integer))
-                    .build(),
-            )
-            .content("application/json", error_content())
-            .build()
-            .into(),
-    );
-
     fixups(&mut doc);
     doc
 }
@@ -258,30 +247,6 @@ fn fixups(doc: &mut utoipa::openapi::OpenApi) {
         && let Some(body) = put.request_body.as_mut()
     {
         body.required = Some(Required::False);
-    }
-
-    // The contract documents 429 on both create endpoints and the hottest
-    // read. The limiter behavior itself is Phase 3 (Redis Lua token bucket).
-    // The reusable RateLimited response is declared in api_doc above.
-    let rate_limited = || RefOr::Ref(Ref::from_response_name("RateLimited"));
-    if let Some(item) = doc.paths.paths.get_mut("/v1/notifications")
-        && let Some(post) = item.post.as_mut()
-    {
-        post.responses
-            .responses
-            .insert("429".into(), rate_limited());
-    }
-    if let Some(item) = doc.paths.paths.get_mut("/v1/broadcasts")
-        && let Some(post) = item.post.as_mut()
-    {
-        post.responses
-            .responses
-            .insert("429".into(), rate_limited());
-    }
-    if let Some(item) = doc.paths.paths.get_mut("/v1/inbox/items")
-        && let Some(get) = item.get.as_mut()
-    {
-        get.responses.responses.insert("429".into(), rate_limited());
     }
 }
 
@@ -402,6 +367,25 @@ mod tests {
     }
 
     #[test]
+    fn rate_limited_responses_reference_the_shared_component() {
+        let doc = api_doc();
+        for (path, has_429) in [
+            ("/v1/notifications", true),
+            ("/v1/broadcasts", true),
+            ("/v1/inbox/items", true),
+            ("/v1/inbox/counts", false),
+        ] {
+            let item = doc.paths.paths.get(path).expect(path);
+            let op = item.post.as_ref().or(item.get.as_ref()).expect("operation");
+            assert_eq!(
+                op.responses.responses.contains_key("429"),
+                has_429,
+                "429 on {path}"
+            );
+        }
+    }
+
+    #[test]
     fn declares_both_planes_as_tags() {
         let doc = api_doc();
         let tags: Vec<String> = doc
@@ -418,6 +402,7 @@ mod tests {
         let doc = api_doc();
         for path in [
             "/v1/notifications",
+            "/v1/notifications/{id}/timeline",
             "/v1/broadcasts",
             "/v1/subscribers/{subscriber_id}",
             "/v1/subscribers/{subscriber_id}/preferences",

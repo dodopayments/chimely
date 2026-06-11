@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE pending AS (\n               (SELECT environment_id FROM jobs WHERE run_at <= now()\n                 ORDER BY environment_id LIMIT 1)\n               UNION ALL\n               SELECT (SELECT j.environment_id FROM jobs j\n                        WHERE j.environment_id > p.environment_id\n                          AND j.run_at <= now()\n                        ORDER BY j.environment_id LIMIT 1)\n                 FROM pending p\n                WHERE p.environment_id IS NOT NULL)\n           SELECT p.environment_id AS \"environment_id!\", e.slug\n             FROM pending p JOIN environments e ON e.id = p.environment_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "environment_id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "slug",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "environments",
+            "name": "slug"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      false
+    ]
+  },
+  "hash": "bd20368668e4a459cd48434315dcf91ed19c1d5601965cd941b49c8489a11028"
+}

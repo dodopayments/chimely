@@ -1,15 +1,19 @@
 //! Dronte — in-app notification inbox infrastructure.
 //!
-//! Single binary, two entrypoints:
+//! Single binary, three entrypoints:
 //!   `dronte serve`   (default) — API plane + workers
 //!   `dronte openapi`           — print the utoipa-generated OpenAPI spec to
 //!                                stdout (the artifact CI diffs against
 //!                                specs/openapi.yaml until v1; see CLAUDE.md)
+//!   `dronte dlq`               — list/replay dead-lettered jobs
 
 use std::sync::Arc;
 
 use anyhow::Context;
-use dronte::{bootstrap, config, db, http, openapi, partitions, pubsub, state, telemetry, worker};
+use dronte::{
+    bootstrap, config, db, dlq, http, ids, metrics_sampler, openapi, partitions, pubsub, ratelimit,
+    state, telemetry, worker,
+};
 
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
@@ -29,8 +33,16 @@ fn main() -> anyhow::Result<()> {
                 .context("building tokio runtime")?
                 .block_on(serve())
         }
+        Some("dlq") => {
+            telemetry::init()?;
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .context("building tokio runtime")?
+                .block_on(dlq_command(args.collect()))
+        }
         Some(other) => {
-            eprintln!("unknown subcommand: {other}\nusage: dronte [serve|openapi]");
+            eprintln!("unknown subcommand: {other}\nusage: dronte [serve|openapi|dlq]");
             std::process::exit(2);
         }
     }
@@ -53,19 +65,26 @@ async fn serve() -> anyhow::Result<()> {
     let pubsub = pubsub::build(cfg.redis_url.as_deref(), &pool)
         .await
         .context("connecting the hint plane")?;
+    let ratelimit = ratelimit::build(cfg.redis_url.as_deref())
+        .await
+        .context("connecting the rate limiter")?;
     if cfg.redis_url.is_none() {
         tracing::warn!(
             "Redis-less mode: hints ride Postgres LISTEN/NOTIFY on a dedicated direct \
-             connection. Transaction-mode PgBouncer breaks LISTEN — DATABASE_URL must \
-             point at Postgres directly (or a session-mode pooler)."
+             connection (transaction-mode PgBouncer breaks LISTEN — DATABASE_URL must \
+             point at Postgres directly or a session-mode pooler), and rate limits are \
+             per-replica, not cross-replica."
         );
     }
 
+    let (draining_tx, draining_rx) = tokio::sync::watch::channel(false);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let app_state = state::AppState::new(
         pool.clone(),
         cfg.clone(),
         pubsub.clone(),
+        ratelimit,
+        draining_rx,
         shutdown_rx.clone(),
     );
 
@@ -74,7 +93,12 @@ async fn serve() -> anyhow::Result<()> {
         cfg.retention_months,
         cfg.idempotency_retention_days,
     ));
-    let worker_handle = tokio::spawn(worker::run(
+    tokio::spawn(metrics_sampler::run(
+        pool.clone(),
+        cfg.clone(),
+        shutdown_rx.clone(),
+    ));
+    let mut worker_handle = tokio::spawn(worker::run(
         pool.clone(),
         pubsub,
         cfg.clone(),
@@ -86,11 +110,19 @@ async fn serve() -> anyhow::Result<()> {
         .with_context(|| format!("binding {}", cfg.listen_addr))?;
     tracing::info!(addr = %cfg.listen_addr, "dronte listening");
 
-    // Graceful shutdown: flip the watch (workers stop claiming; SSE streams
-    // send a jittered `retry:` and close), then stop accepting.
+    // Graceful shutdown, two phases:
+    //   1. readiness flips to 503 while the listener KEEPS serving, so load
+    //      balancers drain the replica without dropping in-flight requests;
+    //   2. after the grace period the shutdown watch flips — workers stop
+    //      claiming, SSE streams send a jittered `retry:` and close, the
+    //      listener stops accepting.
+    let grace = cfg.shutdown_readiness_grace;
     let mut shutdown_rx_for_serve = shutdown_rx.clone();
     tokio::spawn(async move {
         shutdown_signal().await;
+        draining_tx.send(true).ok();
+        tracing::info!(grace = ?grace, "draining: readiness now 503; listener closes after grace");
+        tokio::time::sleep(grace).await;
         shutdown_tx.send(true).ok();
     });
     axum::serve(listener, http::router(app_state))
@@ -100,8 +132,76 @@ async fn serve() -> anyhow::Result<()> {
         .await
         .context("server error")?;
 
-    worker_handle.await.ok();
+    // Phase 3 of the drain: the worker finishes its in-flight sweep within a
+    // deadline. Past it, abort — the open transaction rolls back and the job
+    // is re-claimed by the next replica (at-least-once by design).
+    if tokio::time::timeout(cfg.shutdown_drain_deadline, &mut worker_handle)
+        .await
+        .is_err()
+    {
+        tracing::warn!(
+            deadline = ?cfg.shutdown_drain_deadline,
+            "worker drain deadline exceeded; aborting in-flight job (replay-safe)"
+        );
+        worker_handle.abort();
+    }
     Ok(())
+}
+
+async fn dlq_command(args: Vec<String>) -> anyhow::Result<()> {
+    let cfg = config::Config::from_env()?;
+    let pool = db::connect(&cfg.database_url)
+        .await
+        .context("connecting to Postgres")?;
+
+    match args.first().map(String::as_str) {
+        Some("list") => {
+            let letters = dlq::list(&pool).await?;
+            if letters.is_empty() {
+                println!("dead-letter queue is empty");
+                return Ok(());
+            }
+            for l in letters {
+                println!(
+                    "{}\t{}\t{}\tattempts={}\tparked_at={}\t{}",
+                    l.typeid(),
+                    l.environment_slug,
+                    l.job_type,
+                    l.attempts,
+                    l.parked_at.to_rfc3339(),
+                    l.last_error.lines().next().unwrap_or(""),
+                );
+            }
+            Ok(())
+        }
+        Some("replay") => match args.get(1).map(String::as_str) {
+            Some("--all") => {
+                let moved = dlq::replay_all(&pool).await?;
+                println!("replayed {moved} job(s)");
+                Ok(())
+            }
+            Some(id) => {
+                let id = ids::parse_typeid(ids::JOB, id)
+                    .or_else(|| id.parse().ok())
+                    .context("expected a job_… TypeID or a raw UUID")?;
+                if dlq::replay(&pool, id).await? {
+                    println!("replayed {}", ids::typeid(ids::JOB, id));
+                } else {
+                    eprintln!("no such dead letter");
+                    std::process::exit(1);
+                }
+                Ok(())
+            }
+            None => {
+                eprintln!("usage: dronte dlq replay <job_id|--all>");
+                std::process::exit(2);
+            }
+        },
+        _ => {
+            eprintln!("usage: dronte dlq [list|replay <job_id|--all>]");
+            std::process::exit(2);
+        }
+    }
 }
 
 async fn shutdown_signal() {

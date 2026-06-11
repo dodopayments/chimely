@@ -1,0 +1,33 @@
+name: nightly chaos
+
+# The chaos suite's sustained-load scenario (autovacuum churn) is #[ignore]d
+# in the PR lane (specs/phase-3-hardening.md allows "nightly or labeled if
+# too slow for every PR"). This lane runs EVERYTHING, ignored tests included.
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  chaos:
+    name: full suite incl. sustained-load chaos
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    env:
+      SQLX_OFFLINE: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - run: cargo nextest run --run-ignored all

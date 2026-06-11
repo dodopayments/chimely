@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH parked AS (\n                   DELETE FROM jobs\n                    WHERE environment_id = $1 AND id = $2\n                      AND attempts >= max_attempts\n                    RETURNING environment_id, id, job_type, payload, attempts,\n                              max_attempts, last_error, progress_cursor, created_at)\n               INSERT INTO dead_letters\n                      (environment_id, id, job_type, payload, attempts,\n                       max_attempts, last_error, progress_cursor, created_at)\n               SELECT environment_id, id, job_type, payload, attempts,\n                      max_attempts, COALESCE(last_error, ''), progress_cursor,\n                      created_at\n                 FROM parked",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6462a577945d10665def9bbb362379046119c0ba7adde2ea2e201c576036d829"
+}

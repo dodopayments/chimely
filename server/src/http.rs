@@ -60,6 +60,10 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         // Management plane
         .route("/v1/notifications", post(management::create_notifications))
+        .route(
+            "/v1/notifications/{id}/timeline",
+            get(management::get_notification_timeline),
+        )
         .route("/v1/broadcasts", post(management::create_broadcast))
         .route(
             "/v1/subscribers/{subscriber_id}",
@@ -103,9 +107,14 @@ async fn healthz() -> &'static str {
 
 /// Readiness gates on Postgres reachable + migrations applied. Redis is the
 /// hint/cache plane, degraded-OK and deliberately not readiness-fatal.
+/// During shutdown, readiness flips to 503 BEFORE the listener closes so
+/// load balancers stop routing here while in-flight requests still finish.
 async fn readyz(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Result<&'static str, StatusCode> {
+    if *state.draining.borrow() {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
     match db::ready(&state.pool).await {
         Ok(true) => Ok("ok"),
         Ok(false) => Err(StatusCode::SERVICE_UNAVAILABLE),
@@ -119,15 +128,22 @@ async fn readyz(
 /// Access log with credential scrubbing. `subscriber_hash` is a query-string
 /// credential on the SSE endpoint (EventSource cannot set headers) and must
 /// never reach log lines. This is a tested invariant.
+///
+/// The handler runs inside an `http.request` span: jobs enqueued by the
+/// handler carry this span's context through the outbox, so the whole
+/// ingest -> outbox -> worker -> hint flow lands in one trace.
 async fn access_log(
     req: axum::extract::Request,
     next: middleware::Next,
 ) -> axum::response::Response {
+    use tracing::Instrument as _;
+
     let method = req.method().clone();
     let path = req.uri().path().to_owned();
     let query = req.uri().query().map(scrub_query);
     let started = std::time::Instant::now();
-    let response = next.run(req).await;
+    let span = tracing::info_span!("http.request", %method, %path);
+    let response = next.run(req).instrument(span).await;
     tracing::info!(
         target: "dronte::access",
         %method,

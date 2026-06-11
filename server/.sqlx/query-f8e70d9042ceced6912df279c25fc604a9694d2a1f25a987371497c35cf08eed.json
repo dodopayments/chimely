@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM jobs\n            WHERE (environment_id, id) IN (\n                SELECT environment_id, id FROM jobs\n                 WHERE environment_id = $1 AND job_type = 'hint'\n                   AND id <> $2\n                   AND (payload - 'notification_ids' - '_traceparent') = $3\n                 FOR UPDATE SKIP LOCKED)\n            RETURNING payload->'notification_ids' AS ids",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ids",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f8e70d9042ceced6912df279c25fc604a9694d2a1f25a987371497c35cf08eed"
+}

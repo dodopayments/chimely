@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO notification_status_log\n               (environment_id, notification_id, status, occurred_at)\n           SELECT $1, t.nid, $3, now()\n             FROM unnest($2::uuid[]) AS t(nid)\n            WHERE NOT EXISTS (\n                SELECT 1 FROM notification_status_log l\n                 WHERE l.environment_id = $1 AND l.notification_id = t.nid\n                   AND l.status = $3)\n           ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ed4e741f3005de5cf997eaf714f3a9ef1c4a1210a11bfee1c1491cb37da8924d"
+}

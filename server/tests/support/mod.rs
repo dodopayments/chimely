@@ -16,7 +16,7 @@ use dronte::auth::compute_subscriber_hash;
 use dronte::config::Config;
 use dronte::pubsub::PubSub;
 use dronte::state::AppState;
-use dronte::{db, http, ids, partitions, pubsub, worker};
+use dronte::{db, http, ids, partitions, pubsub, ratelimit, worker};
 use reqwest::header::{HeaderMap, HeaderValue};
 use sha2::Digest as _;
 use sqlx::PgPool;
@@ -35,6 +35,8 @@ pub struct TestApp {
     pub client: reqwest::Client,
     pub cfg: Arc<Config>,
     pub pubsub: Arc<dyn PubSub>,
+    pub ratelimit: Arc<dyn ratelimit::RateLimiter>,
+    pub draining_tx: tokio::sync::watch::Sender<bool>,
     pub shutdown_tx: tokio::sync::watch::Sender<bool>,
     pub env: TestEnvironment,
     pub redis: Option<ContainerAsync<RedisImage>>,
@@ -50,19 +52,28 @@ pub struct TestEnvironment {
 }
 
 pub async fn spawn() -> TestApp {
-    spawn_inner(false, true).await
+    spawn_inner(false, true, |_| {}).await
 }
 
 pub async fn spawn_with_redis() -> TestApp {
-    spawn_inner(true, true).await
+    spawn_inner(true, true, |_| {}).await
 }
 
 /// `require_hash = false` ⇒ a dev-mode environment (quickstart path).
 pub async fn spawn_dev_mode() -> TestApp {
-    spawn_inner(false, false).await
+    spawn_inner(false, false, |_| {}).await
 }
 
-async fn spawn_inner(with_redis: bool, require_hash: bool) -> TestApp {
+/// Custom config knobs (rate limits, backoff, shutdown timings).
+pub async fn spawn_configured(with_redis: bool, configure: impl FnOnce(&mut Config)) -> TestApp {
+    spawn_inner(with_redis, true, configure).await
+}
+
+async fn spawn_inner(
+    with_redis: bool,
+    require_hash: bool,
+    configure: impl FnOnce(&mut Config),
+) -> TestApp {
     // postgres:15 on purpose — the schema contract targets Postgres >=15, so
     // tests pin the floor (a query needing 16+ features must fail here).
     let pg = PostgresImage::default()
@@ -98,7 +109,7 @@ async fn spawn_inner(with_redis: bool, require_hash: bool) -> TestApp {
         .await
         .expect("partition maintenance");
 
-    let cfg = Arc::new(Config {
+    let mut cfg = Config {
         database_url,
         redis_url: redis_url.clone(),
         listen_addr: "127.0.0.1:0".into(),
@@ -112,16 +123,36 @@ async fn spawn_inner(with_redis: bool, require_hash: bool) -> TestApp {
         sse_max_connections_per_subscriber: 2,
         dev_environment: None,
         dev_api_key: None,
-    });
+        retry_backoff_base: Duration::from_millis(40),
+        retry_backoff_cap: Duration::from_millis(500),
+        metrics_sample_interval: Duration::from_millis(200),
+        counter_drift_sample_size: 100,
+        // Rate limits default OFF in tests; rate-limit tests opt in via
+        // spawn_configured.
+        api_key_rate_per_sec: 0.0,
+        api_key_rate_burst: 0.0,
+        subscriber_rate_per_sec: 0.0,
+        subscriber_rate_burst: 0.0,
+        shutdown_readiness_grace: Duration::from_millis(150),
+        shutdown_drain_deadline: Duration::from_secs(5),
+    };
+    configure(&mut cfg);
+    let cfg = Arc::new(cfg);
 
     let pubsub = pubsub::build(redis_url.as_deref(), &pool)
         .await
         .expect("pubsub");
+    let ratelimit = ratelimit::build(redis_url.as_deref())
+        .await
+        .expect("ratelimit");
+    let (draining_tx, draining_rx) = tokio::sync::watch::channel(false);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let state = AppState::new(
         pool.clone(),
         cfg.clone(),
         pubsub.clone(),
+        ratelimit.clone(),
+        draining_rx,
         shutdown_rx.clone(),
     );
 
@@ -146,6 +177,8 @@ async fn spawn_inner(with_redis: bool, require_hash: bool) -> TestApp {
         client: reqwest::Client::new(),
         cfg,
         pubsub,
+        ratelimit,
+        draining_tx,
         shutdown_tx,
         env: TestEnvironment {
             id: Uuid::nil(),
@@ -420,6 +453,182 @@ impl TestApp {
         .await
         .expect("counter row")
     }
+
+    pub async fn dead_letter_count(&self) -> i64 {
+        sqlx::query_scalar("SELECT count(*) FROM dead_letters")
+            .fetch_one(&self.pool)
+            .await
+            .expect("dead letter count")
+    }
+
+    /// Status rows for one notification, oldest first.
+    pub async fn timeline_rows(&self, notification: Uuid) -> Vec<(String, DateTime<Utc>)> {
+        sqlx::query_as(
+            "SELECT status, occurred_at FROM notification_status_log
+              WHERE environment_id = $1 AND notification_id = $2
+              ORDER BY occurred_at, status",
+        )
+        .bind(self.env.id)
+        .bind(notification)
+        .fetch_all(&self.pool)
+        .await
+        .expect("timeline rows")
+    }
+
+    /// GET /v1/notifications/{id}/timeline (management plane).
+    pub async fn timeline_api(&self, id: &str) -> reqwest::Response {
+        self.client
+            .get(format!("{}/v1/notifications/{id}/timeline", self.base))
+            .bearer_auth(&self.env.api_key)
+            .send()
+            .await
+            .expect("timeline request")
+    }
+
+    /// A second server replica over the SAME Postgres (and Redis, if any):
+    /// its own hint-plane and rate-limiter connections, router, listener,
+    /// and shutdown switches. Cross-replica behavior (shared rate-limit
+    /// buckets, SSE reconnect against a surviving replica) is tested
+    /// against this.
+    pub async fn spawn_replica(&self) -> Replica {
+        let pubsub = pubsub::build(self.cfg.redis_url.as_deref(), &self.pool)
+            .await
+            .expect("replica pubsub");
+        let ratelimit = ratelimit::build(self.cfg.redis_url.as_deref())
+            .await
+            .expect("replica ratelimit");
+        let (draining_tx, draining_rx) = tokio::sync::watch::channel(false);
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let state = AppState::new(
+            self.pool.clone(),
+            self.cfg.clone(),
+            pubsub.clone(),
+            ratelimit,
+            draining_rx,
+            shutdown_rx.clone(),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("replica bind");
+        let addr = listener.local_addr().expect("replica addr");
+        let mut serve_shutdown = shutdown_rx;
+        tokio::spawn(async move {
+            axum::serve(listener, http::router(state))
+                .with_graceful_shutdown(async move {
+                    serve_shutdown.changed().await.ok();
+                })
+                .await
+                .ok();
+        });
+        Replica {
+            base: format!("http://{addr}"),
+            pubsub,
+            draining_tx,
+            shutdown_tx,
+        }
+    }
+
+    /// The chaos suite's final consistency sweep (specs/phase-3-hardening.md,
+    /// acceptance criteria): recounted counters == maintained counters, the
+    /// API list == a recomputed merge of both sources, no orphaned or parked
+    /// jobs, partitions cover the horizon.
+    pub async fn assert_consistent(&self) {
+        // Counter drift across EVERY subscriber, not a sample.
+        let (unread_drift, unseen_drift) =
+            dronte::metrics_sampler::counter_drift(&self.pool, i64::MAX)
+                .await
+                .expect("counter drift");
+        assert_eq!(
+            (unread_drift, unseen_drift),
+            (0, 0),
+            "sampled recount diverged from maintained counters"
+        );
+
+        // The API list must equal the recomputed two-source merge.
+        let subscribers: Vec<String> =
+            sqlx::query_scalar("SELECT subscriber_id FROM subscribers WHERE environment_id = $1")
+                .bind(self.env.id)
+                .fetch_all(&self.pool)
+                .await
+                .expect("subscribers");
+        for external in subscribers {
+            let expected: Vec<(String, Uuid)> = sqlx::query_as(
+                "WITH me AS (SELECT id, created_at FROM subscribers
+                              WHERE environment_id = $1 AND subscriber_id = $2)
+                 SELECT kind, id FROM (
+                     SELECT 'notification' AS kind, n.id, n.visible_at AS occurred_at
+                       FROM notifications n, me
+                      WHERE n.environment_id = $1 AND n.subscriber_id = me.id
+                        AND n.visible_at <= now()
+                        AND NOT EXISTS (SELECT 1 FROM preferences p
+                              WHERE p.environment_id = $1 AND p.subscriber_id = me.id
+                                AND p.category = n.category AND p.channel = 'in_app'
+                                AND p.enabled = false)
+                     UNION ALL
+                     SELECT 'broadcast', b.id, b.created_at
+                       FROM broadcasts b, me
+                      WHERE b.environment_id = $1 AND b.created_at >= me.created_at
+                        AND NOT EXISTS (SELECT 1 FROM preferences p
+                              WHERE p.environment_id = $1 AND p.subscriber_id = me.id
+                                AND p.category = b.category AND p.channel = 'in_app'
+                                AND p.enabled = false)
+                 ) merged ORDER BY occurred_at DESC, id DESC",
+            )
+            .bind(self.env.id)
+            .bind(&external)
+            .fetch_all(&self.pool)
+            .await
+            .expect("merge recompute");
+            let expected_ids: Vec<String> = expected
+                .into_iter()
+                .map(|(kind, id)| match kind.as_str() {
+                    "notification" => ids::typeid(ids::NOTIFICATION, id),
+                    _ => ids::typeid(ids::BROADCAST, id),
+                })
+                .collect();
+            let listed: Vec<String> = self
+                .list_all_items(&external, 100)
+                .await
+                .into_iter()
+                .map(|item| item["id"].as_str().expect("item id").to_owned())
+                .collect();
+            assert_eq!(listed, expected_ids, "list != merge for {external}");
+        }
+
+        // No orphaned deliver jobs (payload ids must exist) and nothing
+        // parked unless a test asserted dead letters on purpose.
+        let orphans: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM jobs j
+             CROSS JOIN LATERAL jsonb_array_elements_text(j.payload->'notification_ids') AS t(nid)
+             WHERE j.job_type = 'deliver'
+               AND NOT EXISTS (SELECT 1 FROM notifications n
+                     WHERE n.environment_id = j.environment_id AND n.id = t.nid::uuid)",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .expect("orphan check");
+        assert_eq!(orphans, 0, "deliver jobs referencing missing notifications");
+
+        // Partition headroom for every partitioned table.
+        let mut conn = self.pool.acquire().await.expect("conn");
+        let now: DateTime<Utc> = sqlx::query_scalar("SELECT now()")
+            .fetch_one(&mut *conn)
+            .await
+            .expect("db now");
+        for table in partitions::PARTITIONED_TABLES {
+            let remaining = partitions::remaining_at(&mut conn, table, now)
+                .await
+                .expect("remaining_at");
+            assert!(remaining >= 12, "{table} headroom shrank: {remaining}");
+        }
+    }
+}
+
+pub struct Replica {
+    pub base: String,
+    pub pubsub: Arc<dyn PubSub>,
+    pub draining_tx: tokio::sync::watch::Sender<bool>,
+    pub shutdown_tx: tokio::sync::watch::Sender<bool>,
 }
 
 /// A live SSE connection with line-level access to frames.
@@ -430,10 +639,20 @@ pub struct SseStream {
 
 impl SseStream {
     pub async fn connect(app: &TestApp, subscriber: &str, last_event_id: Option<&str>) -> Self {
+        Self::connect_to(&app.base, app, subscriber, last_event_id).await
+    }
+
+    /// Connect against an arbitrary base URL (a second replica).
+    pub async fn connect_to(
+        base: &str,
+        app: &TestApp,
+        subscriber: &str,
+        last_event_id: Option<&str>,
+    ) -> Self {
         let hash = compute_subscriber_hash(&app.env.hmac_secret, subscriber);
         let url = format!(
-            "{}/v1/inbox/stream?environment={}&subscriber_id={subscriber}&subscriber_hash={hash}",
-            app.base, app.env.slug,
+            "{base}/v1/inbox/stream?environment={}&subscriber_id={subscriber}&subscriber_hash={hash}",
+            app.env.slug,
         );
         let mut req = app.client.get(url);
         if let Some(id) = last_event_id {

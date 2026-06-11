@@ -261,7 +261,7 @@ pub async fn write(
         )
         .await
         .map_err(ApiError::from)?;
-        jobs::enqueue_hint(&mut tx, env, &[subscriber], "preferences")
+        jobs::enqueue_hint(&mut tx, env, &[subscriber], "preferences", &[])
             .await
             .map_err(ApiError::from)?;
     }
