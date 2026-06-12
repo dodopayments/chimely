@@ -199,14 +199,29 @@ async fn create_notifications_txn(
         // both paths write the counters row (row lock serializes them) and
         // the condition makes the serialization order irrelevant. now() =
         // this txn's visible_at. One row per subscriber (recipients dedup'd).
+        // The mute guard keeps the counter in step with the list arm so an
+        // item created into an already-muted category is not counted (the
+        // list hides it). A later preference flip still recounts via
+        // counter_rebuild, so muting an existing category stays exact too.
         sqlx::query!(
             r#"UPDATE subscriber_counters c SET
-                   unread_direct_count = c.unread_direct_count + (now() > c.read_watermark)::int,
-                   unseen_direct_count = c.unseen_direct_count + (now() > c.seen_watermark)::int,
+                   unread_direct_count = c.unread_direct_count + (now() > c.read_watermark
+                       AND NOT EXISTS (SELECT 1 FROM preferences p
+                             WHERE p.environment_id = c.environment_id
+                               AND p.subscriber_id  = c.subscriber_id
+                               AND p.category = $3 AND p.channel = 'in_app'
+                               AND p.enabled = false))::int,
+                   unseen_direct_count = c.unseen_direct_count + (now() > c.seen_watermark
+                       AND NOT EXISTS (SELECT 1 FROM preferences p
+                             WHERE p.environment_id = c.environment_id
+                               AND p.subscriber_id  = c.subscriber_id
+                               AND p.category = $3 AND p.channel = 'in_app'
+                               AND p.enabled = false))::int,
                    updated_at = now()
              WHERE c.environment_id = $1 AND c.subscriber_id = ANY($2)"#,
             env,
             &internal,
+            category,
         )
         .execute(&mut *tx)
         .await?;

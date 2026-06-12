@@ -504,9 +504,12 @@ async fn process_deliver(
         .await?;
         // The conditional bump mirrors the immediate-insert rule, evaluated
         // at deliver time: a row already marked read (visible while the
-        // worker lagged) or below a moved watermark must not be counted.
-        // mark_notification_read skips its decrement for rows still owned by
-        // this job, so this bump is the single bookkeeper for them.
+        // worker lagged), below a moved watermark, or in a muted category must
+        // not be counted. mark_notification_read skips its decrement for rows
+        // still owned by this job, so this bump is the single bookkeeper for
+        // them. The mute guard matches the immediate-insert increment so a
+        // scheduled notification delivered into a muted category is not
+        // counted (the list hides it).
         sqlx::query!(
             r#"UPDATE subscriber_counters c SET
                    unread_direct_count = c.unread_direct_count + (
@@ -515,13 +518,23 @@ async fn process_deliver(
                           AND n.subscriber_id  = c.subscriber_id
                           AND n.id = ANY($2)
                           AND n.read_at IS NULL
-                          AND n.visible_at > c.read_watermark)::int,
+                          AND n.visible_at > c.read_watermark
+                          AND NOT EXISTS (SELECT 1 FROM preferences p
+                                WHERE p.environment_id = n.environment_id
+                                  AND p.subscriber_id  = n.subscriber_id
+                                  AND p.category = n.category AND p.channel = 'in_app'
+                                  AND p.enabled = false))::int,
                    unseen_direct_count = c.unseen_direct_count + (
                        SELECT count(*) FROM notifications n
                         WHERE n.environment_id = c.environment_id
                           AND n.subscriber_id  = c.subscriber_id
                           AND n.id = ANY($2)
-                          AND n.visible_at > c.seen_watermark)::int,
+                          AND n.visible_at > c.seen_watermark
+                          AND NOT EXISTS (SELECT 1 FROM preferences p
+                                WHERE p.environment_id = n.environment_id
+                                  AND p.subscriber_id  = n.subscriber_id
+                                  AND p.category = n.category AND p.channel = 'in_app'
+                                  AND p.enabled = false))::int,
                    updated_at = now()
              WHERE c.environment_id = $1
                AND c.subscriber_id IN (

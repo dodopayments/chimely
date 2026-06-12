@@ -683,6 +683,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Malformed cursor or out-of-range limit. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description Missing/invalid API key or subscriber hash. */
             401: {
                 headers: {
