@@ -589,11 +589,21 @@ pub async fn mark_all_read(
     .map_err(ApiError::from)?;
     // Mark-all-read is a one-row watermark upsert, never a bulk UPDATE over
     // notification rows (MVCC bloat on the hottest write path).
+    //
+    // clock_timestamp() (NOT now()) is evaluated while this statement holds the
+    // counters row lock taken above, so the watermark is the instant the move
+    // actually takes effect, not the transaction's BEGIN. now() is pinned at
+    // BEGIN, before the FOR UPDATE, so a direct insert or deliver bump that
+    // committed its +1 in the BEGIN->FOR UPDATE gap would land ABOVE a
+    // now()-watermark while unread_direct_count = 0 zeroed it — unread in the
+    // list but uncounted, permanent two-source drift. With clock_timestamp()
+    // read under the lock, any such row's visible_at precedes this instant, so
+    // it is correctly covered by the watermark (read) instead of clobbered.
     let new_watermark = sqlx::query_scalar!(
         r#"UPDATE subscriber_counters SET
-               read_watermark = now(),
+               read_watermark = clock_timestamp(),
                unread_direct_count = 0,
-               updated_at = now()
+               updated_at = clock_timestamp()
          WHERE environment_id = $1 AND subscriber_id = $2
          RETURNING read_watermark"#,
         auth.environment_id,
@@ -617,12 +627,17 @@ pub async fn mark_all_read(
         .map_err(ApiError::from)?;
     }
     // GC exception rows at or below the new watermark — they are redundant.
+    // Bind the watermark we just installed (not now()/clock_timestamp() again):
+    // it must match the watermark exactly so this never deletes an exception
+    // row ABOVE the watermark, which would resurrect an individually-read
+    // broadcast as unread.
     sqlx::query!(
         r#"DELETE FROM broadcast_reads
             WHERE environment_id = $1 AND subscriber_id = $2
-              AND broadcast_created_at <= now()"#,
+              AND broadcast_created_at <= $3"#,
         auth.environment_id,
         auth.subscriber_id,
+        new_watermark,
     )
     .execute(&mut *tx)
     .await
@@ -669,11 +684,15 @@ pub async fn mark_all_seen(
     .await
     .map_err(ApiError::from)?;
     // Seen state is watermark-ONLY: no per-item seen, no exceptions table.
+    // clock_timestamp() read under the lock taken above, not now() pinned at
+    // BEGIN: the symmetric fix to mark_all_read. A create or deliver bump that
+    // commits its unseen +1 in the BEGIN->FOR UPDATE gap would otherwise be
+    // zeroed while sitting above a stale seen_watermark.
     let new_watermark = sqlx::query_scalar!(
         r#"UPDATE subscriber_counters SET
-               seen_watermark = now(),
+               seen_watermark = clock_timestamp(),
                unseen_direct_count = 0,
-               updated_at = now()
+               updated_at = clock_timestamp()
          WHERE environment_id = $1 AND subscriber_id = $2
          RETURNING seen_watermark"#,
         auth.environment_id,
