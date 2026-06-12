@@ -156,7 +156,10 @@ jobs:
           # spec under-declares. The generated/served spec and @dronte/client
           # keep them (schemathesis verifies annotation==handler); the strict
           # convergence diff excludes them until the frozen spec retires at v1.
-          sanctioned_responses = [('/v1/inbox/items', 'get', '400')]
+          sanctioned_responses = [
+              ('/v1/inbox/items', 'get', '400'),
+              ('/v1/subscribers/{subscriber_id}', 'put', '400'),
+          ]
           for path in sanctioned_paths:
               assert doc['paths'].pop(path, None) is not None, f'{path} missing from generated spec'
           for schema in sanctioned_schemas:

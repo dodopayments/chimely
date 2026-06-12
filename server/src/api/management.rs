@@ -364,6 +364,10 @@ sees (`broadcast.created_at >= subscriber.created_at`).
     params(("subscriber_id" = String, Path, max_length = 255, description = "Customer-provided subscriber id (e.g. `usr_42`).")),
     responses(
         (status = 200, description = "Upserted.", body = crate::api::contract::Subscriber),
+        // The handler rejects an out-of-range subscriber_id (empty or > 255
+        // chars) with 400; declaring it keeps the annotation honest about the
+        // status the handler returns and gives @dronte/client a 400 branch.
+        (status = 400, description = "Validation error.", body = crate::api::contract::Error),
         (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
     ),
     security(("ApiKeyBearer" = []))
