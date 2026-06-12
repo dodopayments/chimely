@@ -206,6 +206,12 @@ paths:
                 $ref: '#/components/schemas/InboxPage'
         '304':
           description: Not modified (If-None-Match matched).
+        '400':
+          description: Malformed cursor or out-of-range limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
           description: Missing/invalid API key or subscriber hash.
           content:

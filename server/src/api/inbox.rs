@@ -99,6 +99,12 @@ per-user data and must never be cached by shared proxies.
                 ("Cache-Control" = String, description = "Always `private, max-age=0`."),
             )),
         (status = 304, description = "Not modified (If-None-Match matched)."),
+        // The handler rejects an out-of-range `limit` and a malformed `cursor`,
+        // and the query extractor rejects a non-integer `limit`, all with 400.
+        // The frozen 3.0 spec (specs/openapi.yaml) under-declares this, so the
+        // contract CI job sanctions-strips it before oasdiff (see ci.yml); the
+        // generated/served spec and @dronte/client stay honest about it.
+        (status = 400, description = "Malformed cursor or out-of-range limit.", body = crate::api::contract::Error),
         (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
         (status = 429, response = crate::api::contract::RateLimited),
     ),
@@ -254,10 +260,19 @@ pub async fn get_counts(
     Ok(Json(counts))
 }
 
-/// The canonical unread/unseen count (specs/schema.sql header): maintained
-/// direct counters + broadcast window count (rows = announcements, not
-/// subscribers) − exception rows above the watermark. Seen has no
-/// exceptions term.
+/// The unread/unseen count: maintained direct counters + a live broadcast
+/// term. The broadcast term is evaluated EXACTLY as the list's broadcast arm
+/// (visible, above the watermark, no read exception, not muted) so the count
+/// agrees with the visible list at all times. It is a count over the
+/// broadcasts table (rows = announcements, not subscribers), so the per-row
+/// `NOT EXISTS` probes stay cheap. Seen has no exceptions term.
+///
+/// Category mutes ARE applied to the broadcast term here, unlike the
+/// maintained direct counters: the broadcast term is recomputed on every read
+/// (no stored counter to drift), so making it mute-aware is free and keeps the
+/// two-source invariant ("list, count, read state agree") exact for broadcasts
+/// instead of relying on a counter_rebuild that can never reconcile a live,
+/// unstored term.
 ///
 /// DESIGN NOTE, Redis count cache epoch (risk M2, required this phase even
 /// though caching itself is deferred). When these computed totals are cached
@@ -281,16 +296,26 @@ pub async fn fetch_counts(
                  + (SELECT count(*) FROM broadcasts b
                      WHERE b.environment_id = $1
                        AND b.created_at >= $3
-                       AND b.created_at >  c.read_watermark)
-                 - (SELECT count(*) FROM broadcast_reads br
-                     WHERE br.environment_id = $1
-                       AND br.subscriber_id  = $2
-                       AND br.broadcast_created_at > c.read_watermark))::int AS "unread!",
+                       AND b.created_at >  c.read_watermark
+                       AND NOT EXISTS (SELECT 1 FROM broadcast_reads br
+                             WHERE br.environment_id = b.environment_id
+                               AND br.subscriber_id  = $2
+                               AND br.broadcast_id   = b.id)
+                       AND NOT EXISTS (SELECT 1 FROM preferences p
+                             WHERE p.environment_id = b.environment_id
+                               AND p.subscriber_id  = $2
+                               AND p.category = b.category AND p.channel = 'in_app'
+                               AND p.enabled = false)))::int AS "unread!",
                greatest(0, c.unseen_direct_count
                  + (SELECT count(*) FROM broadcasts b
                      WHERE b.environment_id = $1
                        AND b.created_at >= $3
-                       AND b.created_at >  c.seen_watermark))::int AS "unseen!"
+                       AND b.created_at >  c.seen_watermark
+                       AND NOT EXISTS (SELECT 1 FROM preferences p
+                             WHERE p.environment_id = b.environment_id
+                               AND p.subscriber_id  = $2
+                               AND p.category = b.category AND p.channel = 'in_app'
+                               AND p.enabled = false)))::int AS "unseen!"
            FROM subscriber_counters c
            WHERE c.environment_id = $1 AND c.subscriber_id = $2"#,
         auth.environment_id,
@@ -347,7 +372,7 @@ pub async fn mark_notification_read(
     // Scheduled rows (visible_at > now()) are excluded from ALL subscriber
     // queries — an invisible item cannot be marked read.
     let row = sqlx::query!(
-        r#"SELECT visible_at, read_at FROM notifications
+        r#"SELECT visible_at, read_at, category FROM notifications
             WHERE environment_id = $1 AND id = $2 AND subscriber_id = $3
               AND visible_at <= now()
             FOR UPDATE"#,
@@ -395,18 +420,26 @@ pub async fn mark_notification_read(
         .await
         .map_err(ApiError::from)?;
         // Decrement ONLY IF the row was unread above the watermark AND
-        // already counted (otherwise double-decrement). updated_at bump:
-        // EVERY read-state mutation is an ETag input.
+        // already counted (otherwise double-decrement). The mute guard pairs
+        // with the mute-aware increment: a muted row was never counted, so
+        // marking it read must not steal a count from an unmuted item.
+        // updated_at bump: EVERY read-state mutation is an ETag input.
         sqlx::query!(
             r#"UPDATE subscriber_counters c SET
                    unread_direct_count = greatest(0,
-                       c.unread_direct_count - ($3 > c.read_watermark AND NOT $4)::int),
+                       c.unread_direct_count - ($3 > c.read_watermark AND NOT $4
+                           AND NOT EXISTS (SELECT 1 FROM preferences p
+                                 WHERE p.environment_id = c.environment_id
+                                   AND p.subscriber_id  = c.subscriber_id
+                                   AND p.category = $5 AND p.channel = 'in_app'
+                                   AND p.enabled = false))::int),
                    updated_at = now()
              WHERE c.environment_id = $1 AND c.subscriber_id = $2"#,
             auth.environment_id,
             auth.subscriber_id,
             row.visible_at,
             pending,
+            row.category,
         )
         .execute(&mut *tx)
         .await

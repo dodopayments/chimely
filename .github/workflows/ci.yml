@@ -144,7 +144,7 @@ jobs:
           workspaces: server
       - name: Export the generated spec
         run: cargo run --manifest-path server/Cargo.toml -- openapi > /tmp/openapi.gen.yaml
-      - name: Strip sanctioned post-freeze additions (phase-3 status timeline)
+      - name: Strip sanctioned post-freeze additions (phase-3 status timeline, honest error codes)
         run: |
           python3 - <<'EOF'
           import yaml
@@ -152,10 +152,18 @@ jobs:
           # specs/phase-3-hardening.md, deliverable 2: additive endpoint(s).
           sanctioned_paths = ['/v1/notifications/{id}/timeline']
           sanctioned_schemas = ['NotificationTimeline', 'TimelineEntry']
+          # Honest response codes the handler really returns that the frozen 3.0
+          # spec under-declares. The generated/served spec and @dronte/client
+          # keep them (schemathesis verifies annotation==handler); the strict
+          # convergence diff excludes them until the frozen spec retires at v1.
+          sanctioned_responses = [('/v1/inbox/items', 'get', '400')]
           for path in sanctioned_paths:
               assert doc['paths'].pop(path, None) is not None, f'{path} missing from generated spec'
           for schema in sanctioned_schemas:
               assert doc['components']['schemas'].pop(schema, None) is not None, f'{schema} missing'
+          for path, method, code in sanctioned_responses:
+              responses = doc['paths'][path][method]['responses']
+              assert responses.pop(code, None) is not None, f'{method} {path} {code} missing'
           yaml.safe_dump(doc, open('/tmp/openapi.gen.stripped.yaml', 'w'), sort_keys=False)
           EOF
       - uses: actions/setup-go@v5

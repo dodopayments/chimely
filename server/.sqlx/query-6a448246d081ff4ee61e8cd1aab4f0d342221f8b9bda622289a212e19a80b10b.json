@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n               greatest(0, c.unread_direct_count\n                 + (SELECT count(*) FROM broadcasts b\n                     WHERE b.environment_id = $1\n                       AND b.created_at >= $3\n                       AND b.created_at >  c.read_watermark\n                       AND NOT EXISTS (SELECT 1 FROM broadcast_reads br\n                             WHERE br.environment_id = b.environment_id\n                               AND br.subscriber_id  = $2\n                               AND br.broadcast_id   = b.id)\n                       AND NOT EXISTS (SELECT 1 FROM preferences p\n                             WHERE p.environment_id = b.environment_id\n                               AND p.subscriber_id  = $2\n                               AND p.category = b.category AND p.channel = 'in_app'\n                               AND p.enabled = false)))::int AS \"unread!\",\n               greatest(0, c.unseen_direct_count\n                 + (SELECT count(*) FROM broadcasts b\n                     WHERE b.environment_id = $1\n                       AND b.created_at >= $3\n                       AND b.created_at >  c.seen_watermark\n                       AND NOT EXISTS (SELECT 1 FROM preferences p\n                             WHERE p.environment_id = b.environment_id\n                               AND p.subscriber_id  = $2\n                               AND p.category = b.category AND p.channel = 'in_app'\n                               AND p.enabled = false)))::int AS \"unseen!\"\n           FROM subscriber_counters c\n           WHERE c.environment_id = $1 AND c.subscriber_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "unread!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "unseen!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "6a448246d081ff4ee61e8cd1aab4f0d342221f8b9bda622289a212e19a80b10b"
+}
