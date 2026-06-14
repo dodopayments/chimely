@@ -87,7 +87,14 @@ async fn every_admin_route_401s_without_the_credential() {
     assert_eq!(wrong.status(), 401);
 
     // Correct credential succeeds for both API and SPA.
-    assert_eq!(app.admin_get("/admin/api/environments").send().await.unwrap().status(), 200);
+    assert_eq!(
+        app.admin_get("/admin/api/environments")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
     let spa_ok = app.admin_get("/admin").send().await.unwrap();
     assert_eq!(spa_ok.status(), 200);
     assert!(
@@ -114,7 +121,11 @@ async fn every_admin_route_401s_without_the_credential() {
 async fn admin_plane_disabled_without_a_configured_token() {
     let app = support::spawn_configured(false, |cfg| cfg.admin_token = None).await;
     // Even a well-formed credential 401s when the plane is disabled.
-    let res = app.admin_get("/admin/api/environments").send().await.unwrap();
+    let res = app
+        .admin_get("/admin/api/environments")
+        .send()
+        .await
+        .unwrap();
     assert_eq!(res.status(), 401);
 }
 
@@ -139,7 +150,12 @@ async fn environment_and_api_key_create_revoke_roundtrip() {
     let env: Value = res.json().await.unwrap();
     let env_id = env["id"].as_str().unwrap().to_owned();
     assert!(env_id.starts_with("env_"));
-    assert!(env["subscriber_hmac_secret"].as_str().unwrap().starts_with("whsec_"));
+    assert!(
+        env["subscriber_hmac_secret"]
+            .as_str()
+            .unwrap()
+            .starts_with("whsec_")
+    );
     assert_eq!(env["has_previous_secret"], json!(false));
 
     // It shows up in the list.
@@ -205,10 +221,21 @@ async fn environment_and_api_key_create_revoke_roundtrip() {
         .json()
         .await
         .unwrap();
-    let key_row = keys.as_array().unwrap().iter().find(|k| k["id"] == json!(key_id)).unwrap();
+    let key_row = keys
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|k| k["id"] == json!(key_id))
+        .unwrap();
     assert_eq!(key_row["key_prefix"], json!(&plaintext[..14]));
-    assert!(key_row.get("key").is_none(), "the plaintext key must never be listed");
-    assert!(key_row["last_used_at"].is_string(), "use should record last_used_at");
+    assert!(
+        key_row.get("key").is_none(),
+        "the plaintext key must never be listed"
+    );
+    assert!(
+        key_row["last_used_at"].is_string(),
+        "use should record last_used_at"
+    );
 
     // Revoke it; the key 401s immediately on the management plane.
     let revoke = app
@@ -239,7 +266,12 @@ async fn environment_and_api_key_create_revoke_roundtrip() {
         .json()
         .await
         .unwrap();
-    let revoked_row = keys2.as_array().unwrap().iter().find(|k| k["id"] == json!(key_id)).unwrap();
+    let revoked_row = keys2
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|k| k["id"] == json!(key_id))
+        .unwrap();
     assert!(revoked_row["revoked_at"].is_string());
 }
 
@@ -255,11 +287,17 @@ async fn hmac_rotation_overlap_then_completion() {
     let old_secret = app.env.hmac_secret.clone();
 
     // The current secret authenticates a widget session.
-    assert_eq!(counts_status_with_secret(&app, subscriber, &old_secret).await, 200);
+    assert_eq!(
+        counts_status_with_secret(&app, subscriber, &old_secret).await,
+        200
+    );
 
     // Begin rotation: a new current secret, old secret moved to previous.
     let rot: Value = app
-        .admin_post(&format!("/admin/api/environments/{env}/hmac/rotate"), json!({}))
+        .admin_post(
+            &format!("/admin/api/environments/{env}/hmac/rotate"),
+            json!({}),
+        )
         .send()
         .await
         .unwrap()
@@ -272,8 +310,14 @@ async fn hmac_rotation_overlap_then_completion() {
     assert!(rot["subscriber_hmac_rotated_at"].is_string());
 
     // Overlap: BOTH secrets verify live sessions (zero-downtime rotation).
-    assert_eq!(counts_status_with_secret(&app, subscriber, &old_secret).await, 200);
-    assert_eq!(counts_status_with_secret(&app, subscriber, &new_secret).await, 200);
+    assert_eq!(
+        counts_status_with_secret(&app, subscriber, &old_secret).await,
+        200
+    );
+    assert_eq!(
+        counts_status_with_secret(&app, subscriber, &new_secret).await,
+        200
+    );
 
     // Rotation is observable in the environment view.
     let detail: Value = app
@@ -299,8 +343,14 @@ async fn hmac_rotation_overlap_then_completion() {
     assert_eq!(done.status(), 204);
 
     // Old secret now dies; the new one still works.
-    assert_eq!(counts_status_with_secret(&app, subscriber, &old_secret).await, 401);
-    assert_eq!(counts_status_with_secret(&app, subscriber, &new_secret).await, 200);
+    assert_eq!(
+        counts_status_with_secret(&app, subscriber, &old_secret).await,
+        401
+    );
+    assert_eq!(
+        counts_status_with_secret(&app, subscriber, &new_secret).await,
+        200
+    );
 }
 
 // =============================================================================
@@ -329,17 +379,22 @@ async fn admin_broadcast_lands_as_one_row_and_respects_visibility() {
     assert!(bcast_id.starts_with("bcast_"));
 
     // Exactly ONE row, never materialized per subscriber.
-    let row_count: i64 = sqlx::query_scalar("SELECT count(*) FROM broadcasts WHERE environment_id = $1")
-        .bind(app.env.id)
-        .fetch_one(&app.pool)
-        .await
-        .unwrap();
+    let row_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM broadcasts WHERE environment_id = $1")
+            .bind(app.env.id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
     assert_eq!(row_count, 1);
 
     // It appears in the pre-existing subscriber's merged list.
     let before_list = app.list_items("usr_before").await;
     assert!(
-        before_list["items"].as_array().unwrap().iter().any(|i| i["id"] == json!(bcast_id)),
+        before_list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["id"] == json!(bcast_id)),
         "pre-existing subscriber should see the broadcast"
     );
 
@@ -347,7 +402,11 @@ async fn admin_broadcast_lands_as_one_row_and_respects_visibility() {
     let _ = app.counts("usr_after").await;
     let after_list = app.list_items("usr_after").await;
     assert!(
-        !after_list["items"].as_array().unwrap().iter().any(|i| i["id"] == json!(bcast_id)),
+        !after_list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["id"] == json!(bcast_id)),
         "later subscriber must not see an earlier broadcast"
     );
 }
@@ -366,7 +425,8 @@ async fn subscriber_lookup_inbox_matches_the_subscriber_plane() {
     let _ = app.counts(subscriber).await;
     app.create_broadcast("announce.one").await;
     for i in 0..3 {
-        app.create_notification(subscriber, &format!("cat.{i}")).await;
+        app.create_notification(subscriber, &format!("cat.{i}"))
+            .await;
     }
     app.create_broadcast("announce.two").await;
     app.drain_jobs().await;
@@ -381,7 +441,9 @@ async fn subscriber_lookup_inbox_matches_the_subscriber_plane() {
 
     // Admin subscriber view runs the SAME canonical merge.
     let view: Value = app
-        .admin_get(&format!("/admin/api/environments/{env}/subscribers/{subscriber}"))
+        .admin_get(&format!(
+            "/admin/api/environments/{env}/subscribers/{subscriber}"
+        ))
         .send()
         .await
         .unwrap()
@@ -395,7 +457,10 @@ async fn subscriber_lookup_inbox_matches_the_subscriber_plane() {
         .map(|i| i["id"].as_str().unwrap().to_owned())
         .collect();
 
-    assert_eq!(admin_ids, plane_ids, "admin inbox must equal the subscriber plane list");
+    assert_eq!(
+        admin_ids, plane_ids,
+        "admin inbox must equal the subscriber plane list"
+    );
 
     // Counters agree with the subscriber plane too.
     let (plane_unread, plane_unseen) = app.counts(subscriber).await;
@@ -427,12 +492,13 @@ async fn dlq_replay_re_enters_the_claim_path_and_deletes_on_completion() {
 
     // A subscriber to own a replayable counter_rebuild job.
     let _ = app.counts("usr_dlq").await;
-    let internal: uuid::Uuid =
-        sqlx::query_scalar("SELECT id FROM subscribers WHERE environment_id = $1 AND subscriber_id = 'usr_dlq'")
-            .bind(app.env.id)
-            .fetch_one(&app.pool)
-            .await
-            .unwrap();
+    let internal: uuid::Uuid = sqlx::query_scalar(
+        "SELECT id FROM subscribers WHERE environment_id = $1 AND subscriber_id = 'usr_dlq'",
+    )
+    .bind(app.env.id)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
 
     // Park a job directly in the DLQ (as the worker would after exhausting
     // attempts).
@@ -451,9 +517,19 @@ async fn dlq_replay_re_enters_the_claim_path_and_deletes_on_completion() {
 
     // The admin DLQ browser lists it.
     let job_typeid = ids::typeid(ids::JOB, job_id);
-    let dlq: Value = app.admin_get("/admin/api/dlq").send().await.unwrap().json().await.unwrap();
+    let dlq: Value = app
+        .admin_get("/admin/api/dlq")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert!(
-        dlq.as_array().unwrap().iter().any(|d| d["id"] == json!(job_typeid)),
+        dlq.as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["id"] == json!(job_typeid)),
         "parked job should be listed"
     );
 
@@ -468,22 +544,24 @@ async fn dlq_replay_re_enters_the_claim_path_and_deletes_on_completion() {
 
     // The DLQ row is gone (moved back into jobs).
     assert_eq!(app.dead_letter_count().await, 0);
-    let in_jobs: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs WHERE environment_id = $1 AND id = $2")
-        .bind(app.env.id)
-        .bind(job_id)
-        .fetch_one(&app.pool)
-        .await
-        .unwrap();
+    let in_jobs: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM jobs WHERE environment_id = $1 AND id = $2")
+            .bind(app.env.id)
+            .bind(job_id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
     assert_eq!(in_jobs, 1, "replay re-enqueues into the normal claim path");
 
     // The normal worker loop completes it and DELETEs the row.
     app.drain_jobs().await;
-    let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs WHERE environment_id = $1 AND id = $2")
-        .bind(app.env.id)
-        .bind(job_id)
-        .fetch_one(&app.pool)
-        .await
-        .unwrap();
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM jobs WHERE environment_id = $1 AND id = $2")
+            .bind(app.env.id)
+            .bind(job_id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
     assert_eq!(remaining, 0, "a completed job leaves no row");
 }
 
@@ -510,7 +588,10 @@ async fn status_browser_lists_notifications_and_their_timeline() {
     let subscriber = "usr_status";
 
     let created = app.create_notification(subscriber, "payment.failed").await;
-    let notif_id = created["notifications"][0]["id"].as_str().unwrap().to_owned();
+    let notif_id = created["notifications"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     // Deliver the hint so delivered_hint appears in the timeline.
     app.drain_jobs().await;
 

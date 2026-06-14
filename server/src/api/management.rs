@@ -294,7 +294,8 @@ pub async fn create_broadcast(
     let category = validate_category(&req.category)?.to_owned();
     let payload = validate_payload(req.payload)?;
     let key = validate_idempotency_key(req.idempotency_key)?;
-    let (status, snapshot) = create_broadcast_idempotent(&state, env, category, payload, key).await?;
+    let (status, snapshot) =
+        create_broadcast_idempotent(&state, env, category, payload, key).await?;
     Ok((status, Json(snapshot)).into_response())
 }
 

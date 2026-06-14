@@ -54,7 +54,10 @@ struct AdminAssets;
 /// API request on this origin. Unknown non-file paths fall back to
 /// `index.html` so client-side routing (TanStack Router) works on refresh.
 pub async fn serve_spa(_auth: AdminAuth, uri: Uri) -> Response {
-    let path = uri.path().trim_start_matches("/admin").trim_start_matches('/');
+    let path = uri
+        .path()
+        .trim_start_matches("/admin")
+        .trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
 
     if let Some(file) = AdminAssets::get(path) {
