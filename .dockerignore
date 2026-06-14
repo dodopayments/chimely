@@ -1,7 +1,12 @@
-# Whitelist: the image build needs only the server crate.
-*
-!server/Cargo.toml
-!server/Cargo.lock
-!server/src/
-!server/.sqlx/
-!server/migrations/
+# The image build needs the server crate (Rust stages) and the admin SPA
+# source (Node stage). Exclude generated/heavy trees and secrets.
+.git
+**/node_modules
+**/dist
+/server/target
+**/.next
+docs/.source
+docs/next-env.d.ts
+**/.env
+**/.env.*
+.DS_Store
