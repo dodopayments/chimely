@@ -21,6 +21,11 @@ body {
 .topbar h1 {
   margin: 0;
   font-size: 18px;
+  color: #004f32;
+}
+
+a {
+  color: #1264ff;
 }
 
 main {
