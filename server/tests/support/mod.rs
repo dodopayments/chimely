@@ -223,7 +223,7 @@ impl TestApp {
     pub async fn create_environment(&self, require_hash: bool) -> TestEnvironment {
         let id = ids::new_uuid();
         let slug = format!("env-{}", &id.as_simple().to_string()[..12]);
-        let hmac_secret = format!("whsec_{}", ids::new_uuid().as_simple());
+        let hmac_secret = format!("shmac_{}", ids::new_uuid().as_simple());
         sqlx::query(
             "INSERT INTO environments
                  (id, slug, name, subscriber_hmac_secret, require_subscriber_hash)
