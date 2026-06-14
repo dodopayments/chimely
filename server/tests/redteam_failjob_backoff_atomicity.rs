@@ -19,9 +19,9 @@
 //! never become due again during the test, so a claimable row carrying
 //! attempts >= 1 can ONLY be the two-statement window. The atomic fix makes
 //! that state impossible to commit, so the observer must never see it. Green is
-//! deterministic (the forbidden state never exists under the fix); the
-//! repeated fail cycles give the observer ample chances to catch the window if
-//! the two-statement shape returns.
+//! deterministic (the forbidden state never exists under the fix). The repeated
+//! fail cycles give the observer ample chances to catch the window if the
+//! two-statement shape returns.
 
 mod support;
 
@@ -47,7 +47,7 @@ async fn a_failed_job_is_never_reclaimable_before_its_backoff_lands() {
 
     // One always-failing job: 'bogus' is an unknown job type, so process_one
     // errors and routes through fail_job. max_attempts is high so it never
-    // parks; `attempts` only records how many times it was failed.
+    // parks. `attempts` only records how many times it was failed.
     let job_id = dronte::ids::new_uuid();
     sqlx::query(
         "INSERT INTO jobs (environment_id, id, job_type, payload, run_at,
@@ -108,7 +108,7 @@ async fn a_failed_job_is_never_reclaimable_before_its_backoff_lands() {
         .await
         .unwrap();
         // Fails the job. Under the fix, attempts++ and run_at += backoff commit
-        // together; under the two-statement shape the bump commits first and
+        // together. Under the two-statement shape the bump commits first and
         // leaves (attempts = 1, run_at = now()) re-claimable.
         let _ = worker::process_one(&app.pool, app.pubsub.as_ref(), &app.cfg, env).await;
     }

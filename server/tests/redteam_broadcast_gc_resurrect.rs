@@ -43,19 +43,29 @@ async fn internal_id(app: &support::TestApp, external: &str) -> Uuid {
     .expect("subscriber internal id")
 }
 
-/// True once some other backend is blocked waiting on a lock while running the
-/// `enqueue_timeline` INSERT into `jobs` (the step between the watermark UPDATE
-/// and the broadcast_reads GC).
-async fn markall_blocked_at_enqueue_timeline(app: &support::TestApp) -> bool {
+/// True once some other backend is blocked waiting for a lock on the `jobs`
+/// relation. Probing pg_locks by relation (not pg_stat_activity by query text)
+/// keeps this correct if the enqueue SQL is ever rephrased.
+///
+/// REQUIRED INVARIANT this test depends on: the FIRST `jobs` write in
+/// mark_all_read (enqueue_timeline) runs AFTER the watermark UPDATE and BEFORE
+/// the broadcast_reads GC DELETE. The SHARE lock parks the handler at that
+/// write, which is the window we inject the above-watermark exception into. If
+/// the GC DELETE is ever moved ahead of enqueue_timeline, the handler would
+/// park at a `jobs` write that runs AFTER the DELETE: the injected exception
+/// would land too late for the DELETE's READ COMMITTED snapshot and survive
+/// regardless of the bound, turning this guard into a vacuous pass. Keep the GC
+/// DELETE after enqueue_timeline, or rewrite the pause point here.
+async fn markall_blocked_on_jobs_lock(app: &support::TestApp) -> bool {
     let n: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM pg_stat_activity
-          WHERE pid <> pg_backend_pid()
-            AND wait_event_type = 'Lock'
-            AND query ILIKE '%insert into jobs%'",
+        "SELECT count(*) FROM pg_locks
+          WHERE relation = 'jobs'::regclass
+            AND NOT granted
+            AND pid <> pg_backend_pid()",
     )
     .fetch_one(&app.pool)
     .await
-    .expect("pg_stat_activity probe");
+    .expect("pg_locks probe");
     n > 0
 }
 
@@ -116,7 +126,8 @@ async fn mark_all_read_gc_keeps_an_above_watermark_exception() {
         .await
         .expect("share-lock jobs");
 
-    // Fire the REAL mark_all_read; it installs the watermark, then blocks.
+    // Fire the REAL mark_all_read. It installs the watermark, then blocks at
+    // the enqueue_timeline write (see the invariant on the probe below).
     let base = app.base.clone();
     let headers = app.subscriber_headers(SUB);
     let client = app.client.clone();
@@ -130,7 +141,7 @@ async fn mark_all_read_gc_keeps_an_above_watermark_exception() {
 
     let mut blocked = false;
     for _ in 0..120 {
-        if markall_blocked_at_enqueue_timeline(&app).await {
+        if markall_blocked_on_jobs_lock(&app).await {
             blocked = true;
             break;
         }
@@ -172,7 +183,7 @@ async fn mark_all_read_gc_keeps_an_above_watermark_exception() {
     .await
     .expect("insert above-watermark exception");
 
-    // Release the lock; the handler runs its GC DELETE and commits.
+    // Release the lock. The handler runs its GC DELETE and commits.
     hold.commit().await.expect("release jobs lock");
     let res = handle
         .await
