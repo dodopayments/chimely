@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE environments SET subscriber_hmac_secret_previous = NULL, updated_at = now()\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f829eaa16f131ff4dabb6dc11a1833af50a083559d6adf076eca0716394ea6de"
+}

@@ -4,6 +4,242 @@
  */
 
 export interface paths {
+    "/admin/api/dlq": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List parked jobs across environments */
+        get: operations["adminListDeadLetters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/dlq/replay-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replay every parked job */
+        post: operations["adminReplayAllDeadLetters"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/dlq/{job_id}/replay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replay one parked job (re-enters the normal claim path)
+         * @description Moves the parked row back into `jobs` with a fresh attempt budget; the normal worker loop (SKIP LOCKED, per-environment fairness, delete-on-completion) runs it. Never executed inline.
+         */
+        post: operations["adminReplayDeadLetter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/environments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List environments */
+        get: operations["adminListEnvironments"];
+        put?: never;
+        /** Create an environment */
+        post: operations["adminCreateEnvironment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/environments/{env_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Environment detail (includes the subscriber HMAC secret) */
+        get: operations["adminGetEnvironment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/environments/{env_id}/api-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List API keys for an environment (prefix only, never the key) */
+        get: operations["adminListApiKeys"];
+        put?: never;
+        /** Create an API key (plaintext returned once) */
+        post: operations["adminCreateApiKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/environments/{env_id}/api-keys/{key_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke an API key (soft; row kept for audit) */
+        post: operations["adminRevokeApiKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/environments/{env_id}/broadcasts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compose a broadcast (one row, fan-out on read)
+         * @description Composing is creating: the same idempotent management-plane write-path. One row per announcement, never materialized per subscriber.
+         */
+        post: operations["adminCreateBroadcast"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/environments/{env_id}/hmac/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Begin a subscriber-HMAC rotation (current → previous)
+         * @description Generates a new current secret and moves the existing one into the
+         *     previous slot. During the overlap BOTH secrets verify live `<Inbox />`
+         *     sessions (auth checks current then previous), so rotation is
+         *     zero-downtime. Complete the rotation to clear the previous slot once
+         *     every customer backend has switched.
+         */
+        post: operations["adminRotateHmac"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/environments/{env_id}/hmac/rotate/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete a rotation (clear the previous secret slot) */
+        post: operations["adminCompleteHmacRotation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/environments/{env_id}/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Browse direct notifications (filter by subscriber, category, time) */
+        get: operations["adminListNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/environments/{env_id}/notifications/{notif_id}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Status timeline for one notification (the "did it send?" answer) */
+        get: operations["adminNotificationTimeline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/environments/{env_id}/subscribers/{subscriber_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Subscriber lookup: counters, watermarks, preferences, merged inbox */
+        get: operations["adminGetSubscriber"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/broadcasts": {
         parameters: {
             query?: never;
@@ -328,6 +564,147 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AdminApiKey: {
+            created_at: string;
+            /** @description TypeID, `key_…`. */
+            id: string;
+            /** @description Display prefix for recognition; the full key is never retrievable. */
+            key_prefix: string;
+            last_used_at?: string | null;
+            name: string;
+            revoked_at?: string | null;
+        };
+        AdminApiKeyCreated: {
+            created_at: string;
+            id: string;
+            /** @description The plaintext key, shown EXACTLY once. Only the sha256 hash is stored. */
+            key: string;
+            key_prefix: string;
+            name: string;
+        };
+        AdminCounts: {
+            /** Format: int32 */
+            unread: number;
+            /** Format: int32 */
+            unseen: number;
+        };
+        AdminCreateApiKeyRequest: {
+            name: string;
+        };
+        AdminCreateBroadcastRequest: {
+            category: string;
+            idempotency_key?: string | null;
+            payload?: unknown;
+        };
+        AdminCreateEnvironmentRequest: {
+            name: string;
+            /** @description Production default true; set false for a dev/quickstart environment. */
+            require_subscriber_hash?: boolean;
+            slug: string;
+        };
+        AdminDeadLetter: {
+            /** Format: int32 */
+            attempts: number;
+            environment_slug: string;
+            /** @description TypeID, `job_…` (stable across park/replay). */
+            id: string;
+            job_type: string;
+            last_error: string;
+            parked_at: string;
+        };
+        AdminEnvironment: {
+            created_at: string;
+            /** @description TypeID, `env_…`. */
+            id: string;
+            name: string;
+            require_subscriber_hash: boolean;
+            slug: string;
+        };
+        AdminEnvironmentDetail: {
+            created_at: string;
+            /**
+             * @description True while a rotation overlap is open (the previous secret still
+             *     verifies live `<Inbox />` sessions).
+             */
+            has_previous_secret: boolean;
+            id: string;
+            name: string;
+            require_subscriber_hash: boolean;
+            slug: string;
+            subscriber_hmac_rotated_at?: string | null;
+            /**
+             * @description The dedicated subscriber HMAC secret. Plaintext by design (the
+             *     customer backend computes hashes with it) and operator-only.
+             */
+            subscriber_hmac_secret: string;
+        };
+        AdminHmacRotation: {
+            has_previous_secret: boolean;
+            subscriber_hmac_rotated_at?: string | null;
+            /**
+             * @description The new current secret. Update the customer backend with it; the
+             *     previous secret keeps verifying until the rotation is completed.
+             */
+            subscriber_hmac_secret: string;
+        };
+        AdminInboxItem: {
+            category: string;
+            id: string;
+            occurred_at: string;
+            payload: unknown;
+            read: boolean;
+            source: string;
+        };
+        AdminNotification: {
+            category: string;
+            created_at: string;
+            deliver_at?: string | null;
+            /** @description TypeID, `notif_…`. */
+            id: string;
+            payload: unknown;
+            read_at?: string | null;
+            subscriber_id: string;
+            visible_at: string;
+        };
+        AdminNotificationPage: {
+            items: components["schemas"]["AdminNotification"][];
+            next_cursor?: string | null;
+        };
+        AdminNotificationTimeline: {
+            id: string;
+            subscriber_id: string;
+            timeline: components["schemas"]["AdminTimelineEntry"][];
+        };
+        AdminPreference: {
+            category: string;
+            channel: string;
+            enabled: boolean;
+        };
+        AdminReplayResult: {
+            /**
+             * Format: int64
+             * @description Number of parked jobs moved back into the claim path.
+             */
+            replayed: number;
+        };
+        AdminSubscriberView: {
+            counters: components["schemas"]["AdminCounts"];
+            /** @description Governs broadcast visibility (`broadcast.created_at >= this`). */
+            created_at: string;
+            /**
+             * @description The subscriber's recent merged inbox, from the SAME canonical query
+             *     the subscriber plane serves.
+             */
+            inbox: components["schemas"]["AdminInboxItem"][];
+            preferences: components["schemas"]["AdminPreference"][];
+            read_watermark: string;
+            seen_watermark: string;
+            subscriber_id: string;
+        };
+        AdminTimelineEntry: {
+            occurred_at: string;
+            status: string;
+        };
         Broadcast: {
             category: string;
             /** Format: date-time */
@@ -529,6 +906,612 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    adminListDeadLetters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Parked jobs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminDeadLetter"][];
+                };
+            };
+            /** @description Admin authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    adminReplayAllDeadLetters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminReplayResult"];
+                };
+            };
+            /** @description Admin authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    adminReplayDeadLetter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Job TypeID (job_…). */
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminReplayResult"];
+                };
+            };
+            /** @description Admin authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such parked job. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminListEnvironments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Environments. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminEnvironment"][];
+                };
+            };
+            /** @description Admin authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    adminCreateEnvironment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminCreateEnvironmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminEnvironmentDetail"];
+                };
+            };
+            /** @description Validation error or slug already exists. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Admin authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    adminGetEnvironment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Environment TypeID (env_…). */
+                env_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Environment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminEnvironmentDetail"];
+                };
+            };
+            /** @description Admin authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such environment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminListApiKeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Environment TypeID (env_…). */
+                env_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Keys. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminApiKey"][];
+                };
+            };
+            /** @description Admin authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such environment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminCreateApiKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Environment TypeID (env_…). */
+                env_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminCreateApiKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Created; `key` is shown once. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminApiKeyCreated"];
+                };
+            };
+            /** @description Validation error. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Admin authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such environment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminRevokeApiKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Environment TypeID (env_…). */
+                env_id: string;
+                /** @description API key TypeID (key_…). */
+                key_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked (now or already). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such API key. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminCreateBroadcast: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Environment TypeID (env_…). */
+                env_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminCreateBroadcastRequest"];
+            };
+        };
+        responses: {
+            /** @description Idempotent replay. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Broadcast"];
+                };
+            };
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Broadcast"];
+                };
+            };
+            /** @description Validation error. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Admin authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such environment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminRotateHmac: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Environment TypeID (env_…). */
+                env_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rotated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHmacRotation"];
+                };
+            };
+            /** @description Admin authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such environment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminCompleteHmacRotation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Environment TypeID (env_…). */
+                env_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Previous secret cleared. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such environment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminListNotifications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Environment TypeID (env_…). */
+                env_id: string;
+                /** @description Customer-provided subscriber id. */
+                subscriber_id: string | null;
+                category: string | null;
+                /** @description Lower bound on `visible_at` (inclusive), RFC 3339. */
+                after: string | null;
+                /** @description Upper bound on `visible_at` (exclusive), RFC 3339. */
+                before: string | null;
+                limit: number | null;
+                /** @description Opaque keyset cursor from the previous page's `next_cursor`. */
+                cursor: string | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of notifications. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminNotificationPage"];
+                };
+            };
+            /** @description Malformed cursor or out-of-range limit. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Admin authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such environment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminNotificationTimeline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Environment TypeID (env_…). */
+                env_id: string;
+                /** @description Notification TypeID (notif_…). */
+                notif_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The timeline so far. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminNotificationTimeline"];
+                };
+            };
+            /** @description Admin authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such notification. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminGetSubscriber: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Environment TypeID (env_…). */
+                env_id: string;
+                /** @description Customer-provided subscriber id. */
+                subscriber_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Subscriber view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSubscriberView"];
+                };
+            };
+            /** @description Admin authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such subscriber. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     createBroadcast: {
         parameters: {
             query?: never;

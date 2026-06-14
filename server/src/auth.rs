@@ -9,10 +9,17 @@
 //! slot so secret rotation never invalidates live sessions. Headers with
 //! query-parameter fallbacks (EventSource cannot set headers).
 
+use axum::Json;
 use axum::extract::FromRequestParts;
+use axum::http::header::{AUTHORIZATION, WWW_AUTHENTICATE};
 use axum::http::request::Parts;
+use axum::http::{HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -78,6 +85,82 @@ impl FromRequestParts<AppState> for ManagementAuth {
             api_key_id: row.id,
         })
     }
+}
+
+/// An instance admin caller (the embedded `/admin` dashboard plane).
+/// Single-org: ONE static credential for the whole instance, no admin users.
+/// Authenticated with HTTP Basic — the password is the configured admin
+/// token, the username is ignored. Basic (not Bearer) so the browser prompts
+/// for the credential on a bare `/admin` navigation and then attaches it to
+/// every same-origin asset and API request, which is what makes every SPA
+/// route gate on the credential without a separate login screen.
+pub struct AdminAuth;
+
+/// The 401 for the admin plane. Carries `WWW-Authenticate: Basic` so the
+/// browser shows its native credential prompt. The error envelope matches
+/// the rest of the API. The token is never named in the body or any header.
+pub struct AdminAuthRejection;
+
+impl IntoResponse for AdminAuthRejection {
+    fn into_response(self) -> Response {
+        let body = json!({
+            "error": { "code": "unauthorized", "message": "admin authentication required" }
+        });
+        let mut response = (StatusCode::UNAUTHORIZED, Json(body)).into_response();
+        response.headers_mut().insert(
+            WWW_AUTHENTICATE,
+            HeaderValue::from_static("Basic realm=\"dronte admin\", charset=\"UTF-8\""),
+        );
+        response
+    }
+}
+
+impl FromRequestParts<AppState> for AdminAuth {
+    type Rejection = AdminAuthRejection;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, AdminAuthRejection> {
+        // No token configured ⇒ the admin plane is disabled: nothing can
+        // authenticate, so every route 401s.
+        let configured = state.cfg.admin_token.as_deref().ok_or(AdminAuthRejection)?;
+
+        let password = parts
+            .headers
+            .get(AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Basic "))
+            .and_then(|b64| BASE64_STANDARD.decode(b64.trim()).ok())
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+            .map(|creds| {
+                // `user:password`; the username is ignored.
+                let mut parts = creds.splitn(2, ':');
+                let _user = parts.next();
+                parts.next().unwrap_or("").to_owned()
+            })
+            .ok_or(AdminAuthRejection)?;
+
+        if admin_token_matches(configured, &password) {
+            Ok(Self)
+        } else {
+            Err(AdminAuthRejection)
+        }
+    }
+}
+
+/// Constant-time credential comparison. Both sides are hashed to a fixed
+/// 32 bytes first, so neither the running time nor any early exit depends on
+/// the length of the supplied value, and the comparison is a full XOR-fold
+/// over equal-length digests.
+fn admin_token_matches(configured: &str, provided: &str) -> bool {
+    let configured = Sha256::digest(configured.as_bytes());
+    let provided = Sha256::digest(provided.as_bytes());
+    let mut diff = 0u8;
+    for (a, b) in configured.iter().zip(provided.iter()) {
+        diff |= a ^ b;
+    }
+    diff == 0
 }
 
 /// A subscriber-plane caller. Resolving it authenticates the request AND

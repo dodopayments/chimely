@@ -28,6 +28,8 @@ use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt as _};
 use uuid::Uuid;
 
 pub const RETENTION_MONTHS: u32 = 12;
+/// The admin Basic-auth password the harness configures by default.
+pub const ADMIN_TEST_TOKEN: &str = "admin-test-token";
 
 pub struct TestApp {
     pub pool: PgPool,
@@ -123,6 +125,7 @@ async fn spawn_inner(
         sse_max_connections_per_subscriber: 2,
         dev_environment: None,
         dev_api_key: None,
+        admin_token: Some(ADMIN_TEST_TOKEN.to_owned()),
         retry_backoff_base: Duration::from_millis(40),
         retry_backoff_cap: Duration::from_millis(500),
         metrics_sample_interval: Duration::from_millis(200),
@@ -264,6 +267,21 @@ impl TestApp {
         self.client
             .post(format!("{}{path}", self.base))
             .bearer_auth(&self.env.api_key)
+            .json(&body)
+    }
+
+    /// Admin-plane GET with HTTP Basic auth (username ignored, password is
+    /// the admin token).
+    pub fn admin_get(&self, path: &str) -> reqwest::RequestBuilder {
+        self.client
+            .get(format!("{}{path}", self.base))
+            .basic_auth("admin", Some(ADMIN_TEST_TOKEN))
+    }
+
+    pub fn admin_post(&self, path: &str, body: serde_json::Value) -> reqwest::RequestBuilder {
+        self.client
+            .post(format!("{}{path}", self.base))
+            .basic_auth("admin", Some(ADMIN_TEST_TOKEN))
             .json(&body)
     }
 

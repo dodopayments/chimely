@@ -58,7 +58,8 @@ conventional status codes. 429 carries `Retry-After`.
     info(title = "Dronte API", version = "1.0.0"),
     tags(
         (name = "management", description = "Backend-to-Dronte. Bearer API key."),
-        (name = "subscriber", description = "Widget-to-Dronte. HMAC subscriber hash.")
+        (name = "subscriber", description = "Widget-to-Dronte. HMAC subscriber hash."),
+        (name = "admin", description = "Instance admin dashboard. HTTP Basic (static credential).")
     ),
     paths(
         crate::api::management::create_notifications,
@@ -76,6 +77,24 @@ conventional status codes. 429 carries `Retry-After`.
         crate::api::preferences::get_inbox_preferences,
         crate::api::preferences::set_inbox_preferences,
         crate::api::sse::stream,
+        // Phase 4 admin plane (specs/phase-4-admin.md). Additive post-freeze
+        // surface: stripped from the contract convergence diff (ci.yml), kept
+        // in the served/generated spec under the `admin` tag.
+        crate::api::admin::list_environments,
+        crate::api::admin::create_environment,
+        crate::api::admin::get_environment,
+        crate::api::admin::rotate_hmac,
+        crate::api::admin::complete_hmac_rotation,
+        crate::api::admin::list_api_keys,
+        crate::api::admin::create_api_key,
+        crate::api::admin::revoke_api_key,
+        crate::api::admin::list_notifications,
+        crate::api::admin::notification_timeline,
+        crate::api::admin::create_broadcast,
+        crate::api::admin::get_subscriber,
+        crate::api::admin::list_dlq,
+        crate::api::admin::replay_dead_letter,
+        crate::api::admin::replay_all_dead_letters,
     ),
     components(
         schemas(
@@ -121,6 +140,17 @@ pub fn api_doc() -> utoipa::openapi::OpenApi {
             utoipa::openapi::security::HttpBuilder::new()
                 .scheme(HttpAuthScheme::Bearer)
                 .description(Some("Environment-scoped management API key."))
+                .build(),
+        ),
+    );
+    components.add_security_scheme(
+        "AdminToken",
+        SecurityScheme::Http(
+            utoipa::openapi::security::HttpBuilder::new()
+                .scheme(HttpAuthScheme::Basic)
+                .description(Some(
+                    "Instance admin credential (DRONTE_ADMIN_TOKEN) as the HTTP Basic password.",
+                ))
                 .build(),
         ),
     );
@@ -394,7 +424,7 @@ mod tests {
             .into_iter()
             .map(|t| t.name)
             .collect();
-        assert_eq!(tags, ["management", "subscriber"]);
+        assert_eq!(tags, ["management", "subscriber", "admin"]);
     }
 
     #[test]

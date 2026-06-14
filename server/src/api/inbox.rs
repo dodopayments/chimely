@@ -154,9 +154,71 @@ pub async fn list_items(
         return Ok((StatusCode::NOT_MODIFIED, response_headers).into_response());
     }
 
-    // The canonical merged list query (specs/schema.sql header). Both arms
-    // are keyset range scans over notifications_inbox_idx /
-    // broadcasts_window_idx; category mutes are read-time NOT EXISTS probes.
+    let rows = list_items_for(
+        &state.pool,
+        auth.environment_id,
+        auth.subscriber_id,
+        auth.subscriber_created_at,
+        cursor_ts,
+        cursor_id,
+        limit,
+    )
+    .await
+    .map_err(ApiError::from)?;
+
+    let next_cursor = (rows.len() as i64 == limit)
+        .then(|| rows.last().map(|r| encode_cursor(r.occurred_at, r.id)))
+        .flatten();
+    let items: Vec<InboxItem> = rows.into_iter().map(InboxItem::from).collect();
+
+    Ok((response_headers, Json(InboxPage { items, next_cursor })).into_response())
+}
+
+/// One row of the merged two-source inbox, with the source's native id type
+/// and ordering timestamp intact (so callers can keyset-paginate). The
+/// subscriber plane and the admin subscriber-lookup BOTH read through this
+/// one function: a second implementation of the merge would be a bug
+/// (specs/phase-4-admin.md, "admin reads reuse the canonical queries").
+pub struct MergedRow {
+    pub source: &'static str,
+    pub id: Uuid,
+    pub category: String,
+    pub payload: Value,
+    pub occurred_at: DateTime<Utc>,
+    pub read: bool,
+}
+
+impl From<MergedRow> for InboxItem {
+    fn from(row: MergedRow) -> Self {
+        let prefix = match row.source {
+            "notification" => ids::NOTIFICATION,
+            _ => ids::BROADCAST,
+        };
+        Self {
+            id: ids::typeid(prefix, row.id),
+            source: row.source,
+            category: row.category,
+            payload: row.payload,
+            occurred_at: format_ts(row.occurred_at),
+            read: row.read,
+        }
+    }
+}
+
+/// The canonical merged list query (specs/schema.sql header). Both arms are
+/// keyset range scans over notifications_inbox_idx / broadcasts_window_idx;
+/// category mutes are read-time NOT EXISTS probes. `(cursor_ts, cursor_id)`
+/// is the last item of the previous page, or `(MAX_UTC, Uuid::max())` for
+/// the first page.
+pub async fn list_items_for<'e, E: sqlx::PgExecutor<'e>>(
+    executor: E,
+    environment_id: Uuid,
+    subscriber_id: Uuid,
+    subscriber_created_at: DateTime<Utc>,
+    cursor_ts: DateTime<Utc>,
+    cursor_id: Uuid,
+    limit: i64,
+) -> sqlx::Result<Vec<MergedRow>> {
     let rows = sqlx::query!(
         r#"SELECT merged.source AS "source!", merged.id AS "id!",
                   merged.category AS "category!", merged.payload AS "payload!",
@@ -200,39 +262,31 @@ pub async fn list_items(
            ) merged
            ORDER BY occurred_at DESC, id DESC
            LIMIT $5"#,
-        auth.environment_id,
-        auth.subscriber_id,
+        environment_id,
+        subscriber_id,
         cursor_ts,
         cursor_id,
         limit,
-        auth.subscriber_created_at,
+        subscriber_created_at,
     )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(ApiError::from)?;
+    .fetch_all(executor)
+    .await?;
 
-    let next_cursor = (rows.len() as i64 == limit)
-        .then(|| rows.last().map(|r| encode_cursor(r.occurred_at, r.id)))
-        .flatten();
-    let items: Vec<InboxItem> = rows
+    Ok(rows
         .into_iter()
-        .map(|r| {
-            let (source, prefix) = match r.source.as_str() {
-                "notification" => ("notification", ids::NOTIFICATION),
-                _ => ("broadcast", ids::BROADCAST),
-            };
-            InboxItem {
-                id: ids::typeid(prefix, r.id),
-                source,
-                category: r.category,
-                payload: r.payload,
-                occurred_at: format_ts(r.occurred_at),
-                read: r.read,
-            }
+        .map(|r| MergedRow {
+            source: if r.source == "notification" {
+                "notification"
+            } else {
+                "broadcast"
+            },
+            id: r.id,
+            category: r.category,
+            payload: r.payload,
+            occurred_at: r.occurred_at,
+            read: r.read,
         })
-        .collect();
-
-    Ok((response_headers, Json(InboxPage { items, next_cursor })).into_response())
+        .collect())
 }
 
 #[utoipa::path(
@@ -290,6 +344,24 @@ pub async fn fetch_counts(
     conn: &mut sqlx::PgConnection,
     auth: &SubscriberAuth,
 ) -> Result<InboxCounts, ApiError> {
+    fetch_counts_for(
+        conn,
+        auth.environment_id,
+        auth.subscriber_id,
+        auth.subscriber_created_at,
+    )
+    .await
+}
+
+/// The canonical unread/unseen count, by explicit identity. The subscriber
+/// plane and the admin subscriber-lookup share this one implementation so the
+/// admin view can never disagree with what the subscriber sees.
+pub async fn fetch_counts_for(
+    conn: &mut sqlx::PgConnection,
+    environment_id: Uuid,
+    subscriber_id: Uuid,
+    subscriber_created_at: DateTime<Utc>,
+) -> Result<InboxCounts, ApiError> {
     let row = sqlx::query!(
         r#"SELECT
                greatest(0, c.unread_direct_count
@@ -318,9 +390,9 @@ pub async fn fetch_counts(
                                AND p.enabled = false)))::int AS "unseen!"
            FROM subscriber_counters c
            WHERE c.environment_id = $1 AND c.subscriber_id = $2"#,
-        auth.environment_id,
-        auth.subscriber_id,
-        auth.subscriber_created_at,
+        environment_id,
+        subscriber_id,
+        subscriber_created_at,
     )
     .fetch_one(conn)
     .await

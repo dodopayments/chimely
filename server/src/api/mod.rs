@@ -1,5 +1,6 @@
 //! The v1 HTTP surface (specs/openapi.yaml is the convergence target).
 
+pub mod admin;
 pub mod contract;
 pub mod inbox;
 pub mod management;

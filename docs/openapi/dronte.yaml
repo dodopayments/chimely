@@ -41,6 +41,517 @@ info:
 servers:
 - url: https://dronte.example.com
 paths:
+  /admin/api/dlq:
+    get:
+      tags:
+      - admin
+      summary: List parked jobs across environments
+      operationId: adminListDeadLetters
+      responses:
+        '200':
+          description: Parked jobs.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminDeadLetter'
+        '401':
+          description: Admin authentication required.
+      security:
+      - AdminToken: []
+  /admin/api/dlq/replay-all:
+    post:
+      tags:
+      - admin
+      summary: Replay every parked job
+      operationId: adminReplayAllDeadLetters
+      responses:
+        '200':
+          description: Replayed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminReplayResult'
+        '401':
+          description: Admin authentication required.
+      security:
+      - AdminToken: []
+  /admin/api/dlq/{job_id}/replay:
+    post:
+      tags:
+      - admin
+      summary: Replay one parked job (re-enters the normal claim path)
+      description: Moves the parked row back into `jobs` with a fresh attempt budget; the normal worker loop (SKIP LOCKED, per-environment fairness, delete-on-completion) runs it. Never executed inline.
+      operationId: adminReplayDeadLetter
+      parameters:
+      - name: job_id
+        in: path
+        description: Job TypeID (job_…).
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Replayed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminReplayResult'
+        '401':
+          description: Admin authentication required.
+        '404':
+          description: No such parked job.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - AdminToken: []
+  /admin/api/environments:
+    get:
+      tags:
+      - admin
+      summary: List environments
+      operationId: adminListEnvironments
+      responses:
+        '200':
+          description: Environments.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminEnvironment'
+        '401':
+          description: Admin authentication required.
+      security:
+      - AdminToken: []
+    post:
+      tags:
+      - admin
+      summary: Create an environment
+      operationId: adminCreateEnvironment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCreateEnvironmentRequest'
+        required: true
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEnvironmentDetail'
+        '400':
+          description: Validation error or slug already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Admin authentication required.
+      security:
+      - AdminToken: []
+  /admin/api/environments/{env_id}:
+    get:
+      tags:
+      - admin
+      summary: Environment detail (includes the subscriber HMAC secret)
+      operationId: adminGetEnvironment
+      parameters:
+      - name: env_id
+        in: path
+        description: Environment TypeID (env_…).
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEnvironmentDetail'
+        '401':
+          description: Admin authentication required.
+        '404':
+          description: No such environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - AdminToken: []
+  /admin/api/environments/{env_id}/api-keys:
+    get:
+      tags:
+      - admin
+      summary: List API keys for an environment (prefix only, never the key)
+      operationId: adminListApiKeys
+      parameters:
+      - name: env_id
+        in: path
+        description: Environment TypeID (env_…).
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Keys.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminApiKey'
+        '401':
+          description: Admin authentication required.
+        '404':
+          description: No such environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - AdminToken: []
+    post:
+      tags:
+      - admin
+      summary: Create an API key (plaintext returned once)
+      operationId: adminCreateApiKey
+      parameters:
+      - name: env_id
+        in: path
+        description: Environment TypeID (env_…).
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCreateApiKeyRequest'
+        required: true
+      responses:
+        '201':
+          description: Created; `key` is shown once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminApiKeyCreated'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Admin authentication required.
+        '404':
+          description: No such environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - AdminToken: []
+  /admin/api/environments/{env_id}/api-keys/{key_id}/revoke:
+    post:
+      tags:
+      - admin
+      summary: Revoke an API key (soft; row kept for audit)
+      operationId: adminRevokeApiKey
+      parameters:
+      - name: env_id
+        in: path
+        description: Environment TypeID (env_…).
+        required: true
+        schema:
+          type: string
+      - name: key_id
+        in: path
+        description: API key TypeID (key_…).
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Revoked (now or already).
+        '401':
+          description: Admin authentication required.
+        '404':
+          description: No such API key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - AdminToken: []
+  /admin/api/environments/{env_id}/broadcasts:
+    post:
+      tags:
+      - admin
+      summary: Compose a broadcast (one row, fan-out on read)
+      description: 'Composing is creating: the same idempotent management-plane write-path. One row per announcement, never materialized per subscriber.'
+      operationId: adminCreateBroadcast
+      parameters:
+      - name: env_id
+        in: path
+        description: Environment TypeID (env_…).
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCreateBroadcastRequest'
+        required: true
+      responses:
+        '200':
+          description: Idempotent replay.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Broadcast'
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Broadcast'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Admin authentication required.
+        '404':
+          description: No such environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - AdminToken: []
+  /admin/api/environments/{env_id}/hmac/rotate:
+    post:
+      tags:
+      - admin
+      summary: Begin a subscriber-HMAC rotation (current → previous)
+      description: |
+        Generates a new current secret and moves the existing one into the
+        previous slot. During the overlap BOTH secrets verify live `<Inbox />`
+        sessions (auth checks current then previous), so rotation is
+        zero-downtime. Complete the rotation to clear the previous slot once
+        every customer backend has switched.
+      operationId: adminRotateHmac
+      parameters:
+      - name: env_id
+        in: path
+        description: Environment TypeID (env_…).
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Rotated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminHmacRotation'
+        '401':
+          description: Admin authentication required.
+        '404':
+          description: No such environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - AdminToken: []
+  /admin/api/environments/{env_id}/hmac/rotate/complete:
+    post:
+      tags:
+      - admin
+      summary: Complete a rotation (clear the previous secret slot)
+      operationId: adminCompleteHmacRotation
+      parameters:
+      - name: env_id
+        in: path
+        description: Environment TypeID (env_…).
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Previous secret cleared.
+        '401':
+          description: Admin authentication required.
+        '404':
+          description: No such environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - AdminToken: []
+  /admin/api/environments/{env_id}/notifications:
+    get:
+      tags:
+      - admin
+      summary: Browse direct notifications (filter by subscriber, category, time)
+      operationId: adminListNotifications
+      parameters:
+      - name: env_id
+        in: path
+        description: Environment TypeID (env_…).
+        required: true
+        schema:
+          type: string
+      - name: subscriber_id
+        in: path
+        description: Customer-provided subscriber id.
+        required: true
+        schema:
+          type: string
+          nullable: true
+      - name: category
+        in: path
+        required: true
+        schema:
+          type: string
+          nullable: true
+      - name: after
+        in: path
+        description: Lower bound on `visible_at` (inclusive), RFC 3339.
+        required: true
+        schema:
+          type: string
+          format: date-time
+          nullable: true
+      - name: before
+        in: path
+        description: Upper bound on `visible_at` (exclusive), RFC 3339.
+        required: true
+        schema:
+          type: string
+          format: date-time
+          nullable: true
+      - name: limit
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          nullable: true
+      - name: cursor
+        in: path
+        description: Opaque keyset cursor from the previous page's `next_cursor`.
+        required: true
+        schema:
+          type: string
+          nullable: true
+      responses:
+        '200':
+          description: A page of notifications.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminNotificationPage'
+        '400':
+          description: Malformed cursor or out-of-range limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Admin authentication required.
+        '404':
+          description: No such environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - AdminToken: []
+  /admin/api/environments/{env_id}/notifications/{notif_id}/timeline:
+    get:
+      tags:
+      - admin
+      summary: Status timeline for one notification (the "did it send?" answer)
+      operationId: adminNotificationTimeline
+      parameters:
+      - name: env_id
+        in: path
+        description: Environment TypeID (env_…).
+        required: true
+        schema:
+          type: string
+      - name: notif_id
+        in: path
+        description: Notification TypeID (notif_…).
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The timeline so far.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminNotificationTimeline'
+        '401':
+          description: Admin authentication required.
+        '404':
+          description: No such notification.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - AdminToken: []
+  /admin/api/environments/{env_id}/subscribers/{subscriber_id}:
+    get:
+      tags:
+      - admin
+      summary: 'Subscriber lookup: counters, watermarks, preferences, merged inbox'
+      operationId: adminGetSubscriber
+      parameters:
+      - name: env_id
+        in: path
+        description: Environment TypeID (env_…).
+        required: true
+        schema:
+          type: string
+      - name: subscriber_id
+        in: path
+        description: Customer-provided subscriber id.
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Subscriber view.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSubscriberView'
+        '401':
+          description: Admin authentication required.
+        '404':
+          description: No such subscriber.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - AdminToken: []
   /v1/broadcasts:
     post:
       tags:
@@ -648,6 +1159,328 @@ paths:
       - ApiKeyBearer: []
 components:
   schemas:
+    AdminApiKey:
+      type: object
+      required:
+      - id
+      - name
+      - key_prefix
+      - created_at
+      properties:
+        created_at:
+          type: string
+        id:
+          type: string
+          description: TypeID, `key_…`.
+        key_prefix:
+          type: string
+          description: Display prefix for recognition; the full key is never retrievable.
+        last_used_at:
+          type: string
+          nullable: true
+        name:
+          type: string
+        revoked_at:
+          type: string
+          nullable: true
+    AdminApiKeyCreated:
+      type: object
+      required:
+      - id
+      - name
+      - key_prefix
+      - key
+      - created_at
+      properties:
+        created_at:
+          type: string
+        id:
+          type: string
+        key:
+          type: string
+          description: The plaintext key, shown EXACTLY once. Only the sha256 hash is stored.
+        key_prefix:
+          type: string
+        name:
+          type: string
+    AdminCounts:
+      type: object
+      required:
+      - unread
+      - unseen
+      properties:
+        unread:
+          type: integer
+          format: int32
+        unseen:
+          type: integer
+          format: int32
+    AdminCreateApiKeyRequest:
+      type: object
+      required:
+      - name
+      properties:
+        name:
+          type: string
+    AdminCreateBroadcastRequest:
+      type: object
+      required:
+      - category
+      properties:
+        category:
+          type: string
+        idempotency_key:
+          type: string
+          nullable: true
+        payload: {}
+    AdminCreateEnvironmentRequest:
+      type: object
+      required:
+      - slug
+      - name
+      properties:
+        name:
+          type: string
+        require_subscriber_hash:
+          type: boolean
+          description: Production default true; set false for a dev/quickstart environment.
+        slug:
+          type: string
+    AdminDeadLetter:
+      type: object
+      required:
+      - id
+      - environment_slug
+      - job_type
+      - attempts
+      - last_error
+      - parked_at
+      properties:
+        attempts:
+          type: integer
+          format: int32
+        environment_slug:
+          type: string
+        id:
+          type: string
+          description: TypeID, `job_…` (stable across park/replay).
+        job_type:
+          type: string
+        last_error:
+          type: string
+        parked_at:
+          type: string
+    AdminEnvironment:
+      type: object
+      required:
+      - id
+      - slug
+      - name
+      - require_subscriber_hash
+      - created_at
+      properties:
+        created_at:
+          type: string
+        id:
+          type: string
+          description: TypeID, `env_…`.
+        name:
+          type: string
+        require_subscriber_hash:
+          type: boolean
+        slug:
+          type: string
+    AdminEnvironmentDetail:
+      type: object
+      required:
+      - id
+      - slug
+      - name
+      - require_subscriber_hash
+      - subscriber_hmac_secret
+      - has_previous_secret
+      - created_at
+      properties:
+        created_at:
+          type: string
+        has_previous_secret:
+          type: boolean
+          description: |-
+            True while a rotation overlap is open (the previous secret still
+            verifies live `<Inbox />` sessions).
+        id:
+          type: string
+        name:
+          type: string
+        require_subscriber_hash:
+          type: boolean
+        slug:
+          type: string
+        subscriber_hmac_rotated_at:
+          type: string
+          nullable: true
+        subscriber_hmac_secret:
+          type: string
+          description: |-
+            The dedicated subscriber HMAC secret. Plaintext by design (the
+            customer backend computes hashes with it) and operator-only.
+    AdminHmacRotation:
+      type: object
+      required:
+      - subscriber_hmac_secret
+      - has_previous_secret
+      properties:
+        has_previous_secret:
+          type: boolean
+        subscriber_hmac_rotated_at:
+          type: string
+          nullable: true
+        subscriber_hmac_secret:
+          type: string
+          description: |-
+            The new current secret. Update the customer backend with it; the
+            previous secret keeps verifying until the rotation is completed.
+    AdminInboxItem:
+      type: object
+      required:
+      - id
+      - source
+      - category
+      - payload
+      - occurred_at
+      - read
+      properties:
+        category:
+          type: string
+        id:
+          type: string
+        occurred_at:
+          type: string
+        payload: {}
+        read:
+          type: boolean
+        source:
+          type: string
+    AdminNotification:
+      type: object
+      required:
+      - id
+      - subscriber_id
+      - category
+      - payload
+      - created_at
+      - visible_at
+      properties:
+        category:
+          type: string
+        created_at:
+          type: string
+        deliver_at:
+          type: string
+          nullable: true
+        id:
+          type: string
+          description: TypeID, `notif_…`.
+        payload: {}
+        read_at:
+          type: string
+          nullable: true
+        subscriber_id:
+          type: string
+        visible_at:
+          type: string
+    AdminNotificationPage:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminNotification'
+        next_cursor:
+          type: string
+          nullable: true
+    AdminNotificationTimeline:
+      type: object
+      required:
+      - id
+      - subscriber_id
+      - timeline
+      properties:
+        id:
+          type: string
+        subscriber_id:
+          type: string
+        timeline:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminTimelineEntry'
+    AdminPreference:
+      type: object
+      required:
+      - category
+      - channel
+      - enabled
+      properties:
+        category:
+          type: string
+        channel:
+          type: string
+        enabled:
+          type: boolean
+    AdminReplayResult:
+      type: object
+      required:
+      - replayed
+      properties:
+        replayed:
+          type: integer
+          format: int64
+          description: Number of parked jobs moved back into the claim path.
+    AdminSubscriberView:
+      type: object
+      required:
+      - subscriber_id
+      - created_at
+      - counters
+      - read_watermark
+      - seen_watermark
+      - preferences
+      - inbox
+      properties:
+        counters:
+          $ref: '#/components/schemas/AdminCounts'
+        created_at:
+          type: string
+          description: Governs broadcast visibility (`broadcast.created_at >= this`).
+        inbox:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminInboxItem'
+          description: |-
+            The subscriber's recent merged inbox, from the SAME canonical query
+            the subscriber plane serves.
+        preferences:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminPreference'
+        read_watermark:
+          type: string
+        seen_watermark:
+          type: string
+        subscriber_id:
+          type: string
+    AdminTimelineEntry:
+      type: object
+      required:
+      - status
+      - occurred_at
+      properties:
+        occurred_at:
+          type: string
+        status:
+          type: string
     Broadcast:
       type: object
       required:
@@ -957,6 +1790,10 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   securitySchemes:
+    AdminToken:
+      type: http
+      scheme: basic
+      description: Instance admin credential (DRONTE_ADMIN_TOKEN) as the HTTP Basic password.
     ApiKeyBearer:
       type: http
       scheme: bearer
@@ -1013,3 +1850,5 @@ tags:
   description: Backend-to-Dronte. Bearer API key.
 - name: subscriber
   description: Widget-to-Dronte. HMAC subscriber hash.
+- name: admin
+  description: Instance admin dashboard. HTTP Basic (static credential).
