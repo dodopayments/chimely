@@ -126,7 +126,7 @@ async fn run_locked(
     .execute(&mut *conn)
     .await?;
 
-    // Admin sessions are server-side rows; drop the expired ones (the admin
+    // Admin sessions are server-side rows. Drop the expired ones (the admin
     // multi-user auth design folds session GC into this job).
     sqlx::query("DELETE FROM admin_sessions WHERE expires_at < now()")
         .execute(&mut *conn)

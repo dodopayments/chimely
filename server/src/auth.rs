@@ -10,8 +10,8 @@
 //! query-parameter fallbacks (EventSource cannot set headers).
 //!
 //! Admin: built-in users (Argon2id passwords) with a server-side session in
-//! an `HttpOnly; SameSite=Strict; Path=/admin` cookie. Roles are
-//! instance-wide; capabilities gate each endpoint. Server-side sessions so
+//! an HttpOnly, SameSite=Strict cookie scoped to /admin. Roles are
+//! instance-wide. Capabilities gate each endpoint. Server-side sessions mean
 //! logout, expiry, disable-user, and role changes all take effect at once.
 
 use std::time::Duration;
@@ -121,8 +121,8 @@ pub struct AdminUser {
 
 /// An authenticated admin caller (the embedded `/admin` dashboard plane).
 /// Resolving it requires a live, non-expired session cookie for a
-/// non-disabled user. Roles are instance-wide; capability checks gate each
-/// endpoint. This is the security boundary — the SPA's UI gating is only
+/// non-disabled user. Roles are instance-wide. Capability checks gate each
+/// endpoint. This is the security boundary. The SPA's UI gating is only
 /// convenience.
 pub struct AdminAuth {
     pub user: AdminUser,
@@ -152,7 +152,7 @@ impl FromRequestParts<AppState> for AdminAuth {
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
         // CSRF: every state-changing method must carry the header. GET/HEAD
         // are safe and exempt. SameSite=Strict already blocks the cookie
-        // cross-site; this is defense in depth.
+        // cross-site, so this is defense in depth.
         if !parts.method.is_safe() {
             require_admin_csrf(&parts.headers)?;
         }
@@ -177,7 +177,7 @@ impl FromRequestParts<AppState> for AdminAuth {
             return Err(ApiError::forbidden("role not recognized"));
         };
 
-        // Coarse last_seen_at (at most ~1/min) — audit signal, not a hot write.
+        // Coarse last_seen_at (at most ~1/min). Audit signal, not a hot write.
         sqlx::query!(
             "UPDATE admin_sessions SET last_seen_at = now()
               WHERE id = $1 AND last_seen_at < now() - interval '60 seconds'",
@@ -263,13 +263,13 @@ pub fn validate_password(password: &str) -> Result<(), ApiError> {
 
 // ----- Sessions -------------------------------------------------------------
 
-/// 256 bits of randomness, hex-encoded — the opaque cookie value.
+/// 256 bits of randomness, hex-encoded. The opaque cookie value.
 pub fn new_session_token() -> String {
     let bytes: [u8; 32] = rand::random();
     hex::encode(bytes)
 }
 
-/// Insert a session row expiring `ttl` from the DB clock; returns the token.
+/// Insert a session row expiring `ttl` from the DB clock. Returns the token.
 pub async fn create_session(
     pool: &PgPool,
     user_id: Uuid,

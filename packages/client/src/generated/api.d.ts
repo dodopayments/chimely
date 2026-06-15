@@ -749,7 +749,7 @@ export interface components {
             /**
              * @description The dedicated subscriber HMAC secret. Plaintext by design (the customer
              *     backend computes hashes with it). Returned only to roles holding
-             *     `env:read_secret` (developer/admin); omitted entirely otherwise.
+             *     `env:read_secret` (developer/admin). Omitted entirely otherwise.
              */
             subscriber_hmac_secret?: string | null;
         };

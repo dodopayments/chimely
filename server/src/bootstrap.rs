@@ -87,7 +87,7 @@ pub async fn run(pool: &PgPool, cfg: &Config) -> anyhow::Result<()> {
 ///
 /// Idempotent: a no-op when the existing account already matches (same
 /// password, role `admin`, not disabled). Otherwise the password is reset to
-/// the env value, the role is forced to `admin`, and any disable is cleared —
+/// the env value, the role is forced to `admin`, and any disable is cleared,
 /// so the env var stays the source of truth for the root credential and a UI
 /// password change to it is overwritten on the next boot while the vars
 /// remain set. Humans get their own UI-created accounts. No-op when either

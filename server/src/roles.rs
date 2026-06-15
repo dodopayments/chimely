@@ -1,10 +1,10 @@
 //! Admin-plane roles and capabilities (docs/superpowers design 2026-06-15).
 //!
-//! Capabilities are the unit of enforcement; the four roles are fixed presets.
+//! Capabilities are the unit of enforcement. The four roles are fixed presets.
 //! `admin` holds every capability. `operator` and `developer` are parallel
 //! branches above `viewer`, neither a superset of the other. Roles are
-//! instance-wide (one role per user, every environment) — still single-org,
-//! no per-environment scoping.
+//! instance-wide (one role per user, every environment), still single-org,
+//! with no per-environment scoping.
 //!
 //! `role` is stored as text without a DB CHECK (the preferences.channel
 //! precedent): this module is the single source of truth for the allowed

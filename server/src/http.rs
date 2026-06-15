@@ -77,8 +77,8 @@ pub fn router(state: AppState) -> Router {
         // Subscriber plane (CORS-enabled)
         .merge(subscriber_plane)
         // Admin plane (the embedded /admin dashboard). The JSON API gates on
-        // AdminAuth (a server-side session cookie + per-endpoint capability);
-        // the SPA shell is public so it can render the login screen. No CORS:
+        // AdminAuth (a server-side session cookie + per-endpoint capability).
+        // The SPA shell is public so it can render the login screen. No CORS:
         // the dashboard is same-origin, served from this binary. Explicit
         // API routes are matched before the SPA wildcard fallback.
         .merge(admin_plane())
@@ -95,7 +95,7 @@ pub fn router(state: AppState) -> Router {
 }
 
 /// The embedded admin dashboard: its JSON API plus the rust-embedded SPA.
-/// Data endpoints resolve `AdminAuth` (session cookie) and a capability;
+/// Data endpoints resolve `AdminAuth` (session cookie) and a capability.
 /// `login` is public (it issues the session) and the SPA shell is public (it
 /// renders the login screen). The SPA wildcard is matched only after the
 /// explicit API routes.

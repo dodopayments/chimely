@@ -4,9 +4,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { type AdminMe, api, ApiRequestError } from '@/lib/api';
 
-/// Branded login screen. Shown by AuthGate whenever there is no live session.
-/// On success it hands the resolved user up so the app renders without an
-/// extra /me round-trip.
+// Branded login screen. Shown by AuthGate whenever there is no live session.
+// On success it hands the resolved user up so the app renders without an
+// extra /me round-trip.
 export function LoginRoute({ onAuthenticated }: { onAuthenticated: (me: AdminMe) => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

@@ -36,10 +36,10 @@ function FullScreenSpinner() {
   );
 }
 
-/// Resolves the signed-in admin before rendering the app. While loading shows a
-/// spinner; unauthenticated renders the login screen; authenticated provides
-/// the user + capability checks to the tree. A 401 from any API call routes
-/// back to login via the `dronte-admin-unauthorized` event.
+// Resolves the signed-in admin before rendering the app. While loading shows a
+// spinner, unauthenticated renders the login screen, authenticated provides
+// the user + capability checks to the tree. A 401 from any API call routes
+// back to login via the `dronte-admin-unauthorized` event.
 export function AuthGate({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AdminMe | null>(null);
   const [loading, setLoading] = useState(true);

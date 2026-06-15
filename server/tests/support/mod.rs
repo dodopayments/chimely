@@ -127,7 +127,7 @@ async fn spawn_inner(
         dev_environment: None,
         dev_api_key: None,
         // The harness seeds the admin user and logs in directly (see
-        // `spawn_inner`); bootstrap-from-env is exercised by its own test.
+        // `spawn_inner`). Bootstrap-from-env is exercised by its own test.
         admin_bootstrap_email: None,
         admin_bootstrap_password: None,
         admin_session_ttl: Duration::from_secs(3600),
@@ -342,7 +342,7 @@ impl TestApp {
         client
     }
 
-    /// Admin-plane GET; the harness client's session cookie authenticates it.
+    /// Admin-plane GET. The harness client's session cookie authenticates it.
     pub fn admin_get(&self, path: &str) -> reqwest::RequestBuilder {
         self.client.get(format!("{}{path}", self.base))
     }

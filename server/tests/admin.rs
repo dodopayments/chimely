@@ -55,7 +55,7 @@ async fn counts_status_with_secret(
 // Auth: sessions, login/logout, CSRF, capabilities
 // =============================================================================
 
-/// The JSON API requires a session; the SPA shell is public so it can render
+/// The JSON API requires a session. The SPA shell is public so it can render
 /// the login screen.
 #[tokio::test]
 async fn admin_api_requires_a_session_but_the_spa_shell_is_public() {
@@ -72,7 +72,7 @@ async fn admin_api_requires_a_session_but_the_spa_shell_is_public() {
         401
     );
 
-    // The SPA shell loads (so it can render login) — at /admin and nested routes.
+    // The SPA shell loads (so it can render login), at /admin and nested routes.
     let spa = anon
         .get(format!("{}/admin", app.base))
         .send()
@@ -103,8 +103,8 @@ async fn admin_api_requires_a_session_but_the_spa_shell_is_public() {
     );
 }
 
-/// Login failures are generic; success sets a hardened cookie and yields the
-/// user; a mutating request without the CSRF header is refused.
+/// Login failures are generic. Success sets a hardened cookie and yields the
+/// user. A mutating request without the CSRF header is refused.
 #[tokio::test]
 async fn login_success_failure_and_cookie_flags() {
     let app = support::spawn().await;
@@ -189,7 +189,7 @@ async fn login_success_failure_and_cookie_flags() {
     );
 }
 
-/// Logout deletes the session row; the cookie no longer authenticates.
+/// Logout deletes the session row. The cookie no longer authenticates.
 #[tokio::test]
 async fn logout_invalidates_the_session() {
     let app = support::spawn().await;
@@ -347,11 +347,11 @@ async fn capability_matrix_is_enforced_per_role() {
     for c in [&viewer, &operator, &developer] {
         assert_eq!(get_status(c, envs_url()).await, 200);
     }
-    // dlq:replay — operator only (of the three).
+    // dlq:replay: operator only (of the three).
     assert_eq!(post_status(&viewer, dlq_url(), json!({})).await, 403);
     assert_eq!(post_status(&developer, dlq_url(), json!({})).await, 403);
     assert_eq!(post_status(&operator, dlq_url(), json!({})).await, 200);
-    // broadcast:compose — operator only.
+    // broadcast:compose: operator only.
     assert_eq!(
         post_status(&viewer, bcast_url(), json!({"category": "x"})).await,
         403
@@ -364,7 +364,7 @@ async fn capability_matrix_is_enforced_per_role() {
         post_status(&operator, bcast_url(), json!({"category": "x"})).await,
         200 | 201
     ));
-    // apikey:read / apikey:manage — developer only.
+    // apikey:read / apikey:manage: developer only.
     assert_eq!(get_status(&viewer, keys_url()).await, 403);
     assert_eq!(get_status(&operator, keys_url()).await, 403);
     assert_eq!(get_status(&developer, keys_url()).await, 200);
@@ -376,7 +376,7 @@ async fn capability_matrix_is_enforced_per_role() {
         post_status(&developer, keys_url(), json!({"name": "k"})).await,
         201
     );
-    // env:create / hmac:rotate / user:manage — admin only (none of the three).
+    // env:create / hmac:rotate / user:manage: admin only (none of the three).
     for c in [&viewer, &operator, &developer] {
         assert_eq!(
             post_status(c, envs_url(), json!({"slug": "no", "name": "no"})).await,
@@ -387,7 +387,7 @@ async fn capability_matrix_is_enforced_per_role() {
     }
 }
 
-/// developer/admin see the HMAC secret in the environment detail; viewer does not.
+/// developer/admin see the HMAC secret in the environment detail. viewer does not.
 #[tokio::test]
 async fn env_secret_is_gated_by_capability() {
     let app = support::spawn().await;
@@ -516,6 +516,73 @@ async fn guard_rails_self_and_last_admin() {
     );
 }
 
+/// Two admins demoted concurrently: the last-admin guard is transactional, so
+/// exactly one wins and an enabled admin always remains (no TOCTOU lockout).
+#[tokio::test]
+async fn concurrent_admin_demotion_keeps_one_admin() {
+    let app = support::spawn().await;
+    let me: Value = app
+        .admin_get("/admin/api/me")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let seed_id = me["id"].as_str().unwrap().to_owned();
+
+    // A second admin, so exactly two enabled admins exist.
+    let other: Value = app
+        .admin_post(
+            "/admin/api/users",
+            json!({"email": "admin2@race.test", "name": "A2", "role": "admin", "password": "password-123456"}),
+        )
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let other_id = other["id"].as_str().unwrap().to_owned();
+    let other_client = app
+        .login_client("admin2@race.test", "password-123456")
+        .await;
+
+    // Race two demotions toward zero admins. The other client demotes the seed
+    // admin while the seed client demotes the other admin.
+    let demote_seed = other_client
+        .patch(format!("{}/admin/api/users/{seed_id}", app.base))
+        .header("x-dronte-admin", "1")
+        .json(&json!({"role": "viewer"}))
+        .send();
+    let demote_other = app
+        .client
+        .patch(format!("{}/admin/api/users/{other_id}", app.base))
+        .header("x-dronte-admin", "1")
+        .json(&json!({"role": "viewer"}))
+        .send();
+    let (r1, r2) = tokio::join!(demote_seed, demote_other);
+    let statuses = [r1.unwrap().status().as_u16(), r2.unwrap().status().as_u16()];
+
+    assert_eq!(
+        statuses.iter().filter(|&&s| s == 200).count(),
+        1,
+        "exactly one demotion wins: {statuses:?}"
+    );
+    assert_eq!(
+        statuses.iter().filter(|&&s| s == 409).count(),
+        1,
+        "the other is refused by the last-admin guard: {statuses:?}"
+    );
+    let enabled_admins: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM admin_users WHERE role = 'admin' AND disabled_at IS NULL",
+    )
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert!(enabled_admins >= 1, "an enabled admin must always remain");
+}
+
 /// Password reset (self-service) invalidates the old password.
 #[tokio::test]
 async fn password_change_then_relogin() {
@@ -548,7 +615,7 @@ async fn password_change_then_relogin() {
         .unwrap();
     assert_eq!(chg.status(), 204);
 
-    // Old password no longer logs in; new one does.
+    // Old password no longer logs in, new one does.
     let old = reqwest::Client::new()
         .post(format!("{}/admin/api/login", app.base))
         .header("x-dronte-admin", "1")
@@ -558,6 +625,50 @@ async fn password_change_then_relogin() {
         .unwrap();
     assert_eq!(old.status(), 401);
     let _ = app.login_client("p@pw.test", "new-password-456").await;
+}
+
+/// An admin-forced password reset revokes the target's live sessions, so a
+/// stolen session cannot outlive the reset.
+#[tokio::test]
+async fn password_reset_revokes_target_sessions() {
+    let app = support::spawn().await;
+    let created: Value = app
+        .admin_post(
+            "/admin/api/users",
+            json!({"email": "victim@reset.test", "name": "V", "role": "viewer", "password": "old-password-123"}),
+        )
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let uid = created["id"].as_str().unwrap().to_owned();
+
+    let victim = app
+        .login_client("victim@reset.test", "old-password-123")
+        .await;
+    assert_eq!(
+        get_status(&victim, format!("{}/admin/api/me", app.base)).await,
+        200
+    );
+
+    // Admin resets the password.
+    let reset = app
+        .admin_post(
+            &format!("/admin/api/users/{uid}/password"),
+            json!({"password": "new-password-456"}),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(reset.status(), 204);
+
+    // The victim's pre-reset session no longer authenticates.
+    assert_eq!(
+        get_status(&victim, format!("{}/admin/api/me", app.base)).await,
+        401
+    );
 }
 
 /// Passwords shorter than the minimum are rejected.

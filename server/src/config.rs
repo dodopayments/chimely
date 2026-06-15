@@ -45,16 +45,16 @@ pub struct Config {
     /// Bootstrap (root) admin account, ensured at boot when both are set.
     /// The lockout-recovery path: restart with these env vars to restore
     /// admin access. Humans get their own UI-created accounts. Supplied only
-    /// via env var; the password is never logged or echoed. See `bootstrap`.
+    /// via env var. The password is never logged or echoed. See `bootstrap`.
     pub admin_bootstrap_email: Option<String>,
     pub admin_bootstrap_password: Option<String>,
     /// Admin session lifetime. `expires_at` is stamped this far ahead at
-    /// login; the maintenance job GCs rows past it.
+    /// login. The maintenance job GCs rows past it.
     pub admin_session_ttl: Duration,
     /// Operator acknowledgement that TLS terminates in front of the binary
     /// (the binary serves plain HTTP). Gates the `Secure` cookie attribute
     /// and silences the boot-time TLS warning. The admin session cookie
-    /// REQUIRES TLS in production; unset, boot warns loudly.
+    /// REQUIRES TLS in production. Unset, boot warns loudly.
     pub admin_tls_terminated: bool,
     /// First retry delay for a failed job. Attempt n waits roughly
     /// `base * 2^(n-1)`, equal-jittered, capped below.

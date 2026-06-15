@@ -5,13 +5,13 @@
 //! `auth::AdminAuth` + `roles`). Still single-org: no organizations table, no
 //! per-environment user scoping. Every query is either scoped to one
 //! `environment_id` or is an explicit, documented cross-environment admin path
-//! (the DLQ browser) — the schema's shard-readiness invariant #3 exception.
+//! (the DLQ browser), the schema's shard-readiness invariant #3 exception.
 //!
 //! Admin reads REUSE the canonical queries (`inbox::list_items_for`,
 //! `inbox::fetch_counts_for`) and admin writes REUSE the canonical write-path
 //! (`management::create_broadcast_idempotent`, `dlq::replay`). A second
 //! implementation of the two-source merge or the broadcast write would be a
-//! bug by definition — two implementations WILL disagree.
+//! bug by definition. Two implementations WILL disagree.
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -123,7 +123,7 @@ pub struct AdminEnvironmentDetail {
     pub require_subscriber_hash: bool,
     /// The dedicated subscriber HMAC secret. Plaintext by design (the customer
     /// backend computes hashes with it). Returned only to roles holding
-    /// `env:read_secret` (developer/admin); omitted entirely otherwise.
+    /// `env:read_secret` (developer/admin). Omitted entirely otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subscriber_hmac_secret: Option<String>,
     /// True while a rotation overlap is open (the previous secret still
@@ -248,7 +248,7 @@ pub async fn create_environment(
             name: name.to_owned(),
             require_subscriber_hash: req.require_subscriber_hash,
             // The creator holds env:create, which only admin has, and admin
-            // also holds env:read_secret — so the secret is always returned
+            // also holds env:read_secret, so the secret is always returned
             // here. It is needed immediately to wire up the widget.
             subscriber_hmac_secret: Some(hmac_secret),
             has_previous_secret: false,
@@ -1385,11 +1385,35 @@ pub async fn update_user(
     auth.require(Capability::UserManage)?;
     let id = parse_user_id(&user_id)?;
 
+    // Validate the request shape before opening the transaction.
+    let requested_role = match &req.role {
+        Some(r) => Some(Role::parse(r.trim()).ok_or_else(|| {
+            ApiError::bad_request("role must be viewer, operator, developer, or admin")
+        })?),
+        None => None,
+    };
+    let requested_name = match &req.name {
+        Some(n) => {
+            let n = n.trim();
+            if n.is_empty() || n.len() > 255 {
+                return Err(ApiError::bad_request("name must be 1-255 characters"));
+            }
+            Some(n.to_owned())
+        }
+        None => None,
+    };
+
+    // The last-admin check and the mutation run in one transaction. Locking the
+    // enabled-admin set first serializes concurrent admin-roster changes, so
+    // two requests cannot each see the other as the surviving admin (TOCTOU).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    lock_enabled_admins(&mut tx).await?;
+
     let current = sqlx::query!(
         r#"SELECT email, name, role, disabled_at FROM admin_users WHERE id = $1"#,
         id,
     )
-    .fetch_optional(&state.pool)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("no such user"))?;
@@ -1400,22 +1424,8 @@ pub async fn update_user(
         ))
     })?;
 
-    let new_name = match req.name {
-        Some(n) => {
-            let n = n.trim();
-            if n.is_empty() || n.len() > 255 {
-                return Err(ApiError::bad_request("name must be 1-255 characters"));
-            }
-            n.to_owned()
-        }
-        None => current.name.clone(),
-    };
-    let new_role = match &req.role {
-        Some(r) => Role::parse(r.trim()).ok_or_else(|| {
-            ApiError::bad_request("role must be viewer, operator, developer, or admin")
-        })?,
-        None => current_role,
-    };
+    let new_name = requested_name.unwrap_or_else(|| current.name.clone());
+    let new_role = requested_role.unwrap_or(current_role);
     let currently_disabled = current.disabled_at.is_some();
     let new_disabled = req.disabled.unwrap_or(currently_disabled);
 
@@ -1427,7 +1437,7 @@ pub async fn update_user(
     let was_enabled_admin = current_role == Role::Admin && !currently_disabled;
     let stays_enabled_admin = new_role == Role::Admin && !new_disabled;
     if was_enabled_admin && !stays_enabled_admin {
-        ensure_other_enabled_admin_exists(&state, id).await?;
+        ensure_other_enabled_admin_exists(&mut *tx, id).await?;
     }
 
     let row = sqlx::query!(
@@ -1443,14 +1453,18 @@ pub async fn update_user(
         new_role.as_str(),
         new_disabled,
     )
-    .fetch_one(&state.pool)
+    .fetch_one(&mut *tx)
     .await
     .map_err(ApiError::from)?;
 
     // Newly disabled: drop their live sessions immediately.
     if new_disabled && !currently_disabled {
-        auth::delete_user_sessions(&state.pool, id).await?;
+        sqlx::query!("DELETE FROM admin_sessions WHERE user_id = $1", id)
+            .execute(&mut *tx)
+            .await
+            .map_err(ApiError::from)?;
     }
+    tx.commit().await.map_err(ApiError::from)?;
 
     Ok(Json(user_view(
         id,
@@ -1485,7 +1499,7 @@ pub async fn set_user_password(
     ApiJson(req): ApiJson<AdminSetPasswordRequest>,
 ) -> Result<StatusCode, ApiError> {
     let id = parse_user_id(&user_id)?;
-    // Self-service reset is allowed; otherwise it needs user:manage.
+    // Self-service reset is allowed. Otherwise it needs user:manage.
     if id != auth.user.id {
         auth.require(Capability::UserManage)?;
     }
@@ -1503,6 +1517,9 @@ pub async fn set_user_password(
     if affected == 0 {
         return Err(ApiError::not_found("no such user"));
     }
+    // Revoke every session for the target so an admin-forced reset evicts a
+    // compromised account, and a self reset logs other devices out.
+    auth::delete_user_sessions(&state.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1531,23 +1548,29 @@ pub async fn delete_user(
         return Err(ApiError::conflict("you cannot delete your own account"));
     }
 
+    // Lock the enabled-admin set, then check + delete in one transaction so the
+    // last-admin guard cannot be raced (TOCTOU) by a concurrent removal.
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    lock_enabled_admins(&mut tx).await?;
+
     let target = sqlx::query!(
         "SELECT role, disabled_at FROM admin_users WHERE id = $1",
         id,
     )
-    .fetch_optional(&state.pool)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("no such user"))?;
     if target.role == Role::Admin.as_str() && target.disabled_at.is_none() {
-        ensure_other_enabled_admin_exists(&state, id).await?;
+        ensure_other_enabled_admin_exists(&mut *tx, id).await?;
     }
 
     // Sessions cascade (admin_sessions FK ON DELETE CASCADE).
     sqlx::query!("DELETE FROM admin_users WHERE id = $1", id)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await
         .map_err(ApiError::from)?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1591,18 +1614,36 @@ fn user_view(
     }
 }
 
-/// 409 unless another enabled admin (other than `excluding`) exists. The
-/// no-lockout guard rail.
-async fn ensure_other_enabled_admin_exists(
-    state: &AppState,
-    excluding: Uuid,
+/// Lock every enabled-admin row FOR UPDATE so concurrent admin-roster changes
+/// serialize. The last-admin guard then cannot be raced (TOCTOU).
+async fn lock_enabled_admins(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), ApiError> {
+    sqlx::query!(
+        "SELECT id FROM admin_users WHERE role = 'admin' AND disabled_at IS NULL FOR UPDATE",
+    )
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+/// 409 unless another enabled admin (other than `excluding`) exists. The
+/// no-lockout guard rail. Runs on the caller's executor so it shares the
+/// transaction and the FOR UPDATE lock taken by `lock_enabled_admins`.
+async fn ensure_other_enabled_admin_exists<'e, E>(
+    executor: E,
+    excluding: Uuid,
+) -> Result<(), ApiError>
+where
+    E: sqlx::PgExecutor<'e>,
+{
     let others = sqlx::query_scalar!(
         r#"SELECT count(*) AS "count!" FROM admin_users
             WHERE role = 'admin' AND disabled_at IS NULL AND id <> $1"#,
         excluding,
     )
-    .fetch_one(&state.pool)
+    .fetch_one(executor)
     .await
     .map_err(ApiError::from)?;
     if others == 0 {
