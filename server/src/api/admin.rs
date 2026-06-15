@@ -210,7 +210,7 @@ pub async fn create_environment(
     }
 
     let id = ids::new_uuid();
-    let hmac_secret = format!("whsec_{}", ids::new_uuid().as_simple());
+    let hmac_secret = format!("shmac_{}", ids::new_uuid().as_simple());
     let created = sqlx::query!(
         r#"INSERT INTO environments
                (id, slug, name, subscriber_hmac_secret, require_subscriber_hash)
@@ -325,7 +325,7 @@ pub async fn rotate_hmac(
     Path(env_id): Path<String>,
 ) -> Result<Json<AdminHmacRotation>, ApiError> {
     let env = parse_env_id(&env_id)?;
-    let new_secret = format!("whsec_{}", ids::new_uuid().as_simple());
+    let new_secret = format!("shmac_{}", ids::new_uuid().as_simple());
     let row = sqlx::query!(
         r#"UPDATE environments SET
                subscriber_hmac_secret = $2,

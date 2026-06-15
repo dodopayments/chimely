@@ -103,7 +103,7 @@ async fn rotation_verifies_current_then_previous_secret() {
     let old_hash = compute_subscriber_hash(&old_secret, SUB);
 
     // Rotate: new secret current, old secret in the previous slot.
-    let new_secret = "whsec_rotated_secret";
+    let new_secret = "shmac_rotated_secret";
     sqlx::query(
         "UPDATE environments SET
              subscriber_hmac_secret = $2,

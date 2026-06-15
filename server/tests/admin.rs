@@ -154,7 +154,7 @@ async fn environment_and_api_key_create_revoke_roundtrip() {
         env["subscriber_hmac_secret"]
             .as_str()
             .unwrap()
-            .starts_with("whsec_")
+            .starts_with("shmac_")
     );
     assert_eq!(env["has_previous_secret"], json!(false));
 
@@ -306,6 +306,10 @@ async fn hmac_rotation_overlap_then_completion() {
         .unwrap();
     let new_secret = rot["subscriber_hmac_secret"].as_str().unwrap().to_owned();
     assert_ne!(new_secret, old_secret);
+    assert!(
+        new_secret.starts_with("shmac_"),
+        "rotation mints a shmac_-prefixed secret"
+    );
     assert_eq!(rot["has_previous_secret"], json!(true));
     assert!(rot["subscriber_hmac_rotated_at"].is_string());
 
@@ -350,6 +354,34 @@ async fn hmac_rotation_overlap_then_completion() {
     assert_eq!(
         counts_status_with_secret(&app, subscriber, &new_secret).await,
         200
+    );
+}
+
+/// The secret prefix is cosmetic and never parsed: auth feeds the whole
+/// secret string into HMAC-SHA256. A legacy `whsec_`-minted secret keeps
+/// authenticating after the prefix rename, so existing customer secrets do
+/// not need re-minting.
+#[tokio::test]
+async fn legacy_whsec_prefixed_secret_still_authenticates() {
+    let app = support::spawn().await;
+    let legacy_secret = "whsec_pre_rename_minted_secret";
+
+    sqlx::query("UPDATE environments SET subscriber_hmac_secret = $1 WHERE id = $2")
+        .bind(legacy_secret)
+        .bind(app.env.id)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        counts_status_with_secret(&app, "usr_legacy", legacy_secret).await,
+        200,
+        "a whsec_-prefixed secret must still verify"
+    );
+    // The prefix is not what grants access: a wrong secret is still rejected.
+    assert_eq!(
+        counts_status_with_secret(&app, "usr_legacy", "whsec_wrong").await,
+        401
     );
 }
 
