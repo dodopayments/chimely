@@ -727,6 +727,49 @@ async fn bootstrap_admin_is_idempotent() {
         .await;
 }
 
+/// Rotating the bootstrap credential (reconcile branch) revokes sessions that
+/// predate the rotation, so a restart recovers from a compromise.
+#[tokio::test]
+async fn bootstrap_reconcile_revokes_existing_sessions() {
+    let app = support::spawn_configured(false, |cfg| {
+        cfg.admin_bootstrap_email = Some("root@reconcile.test".into());
+        cfg.admin_bootstrap_password = Some("root-password-1234".into());
+    })
+    .await;
+    dronte::bootstrap::ensure_admin(&app.pool, &app.cfg)
+        .await
+        .unwrap();
+
+    let client = app
+        .login_client("root@reconcile.test", "root-password-1234")
+        .await;
+    assert_eq!(
+        get_status(&client, format!("{}/admin/api/me", app.base)).await,
+        200
+    );
+
+    // Simulate credential drift (e.g. a UI password change) so the next boot
+    // takes the reconcile branch.
+    let drift = dronte::auth::hash_password("a-different-password").unwrap();
+    sqlx::query("UPDATE admin_users SET password_hash = $1 WHERE email = 'root@reconcile.test'")
+        .bind(drift)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+    dronte::bootstrap::ensure_admin(&app.pool, &app.cfg)
+        .await
+        .unwrap();
+
+    // The pre-rotation session is revoked; the env credential still logs in.
+    assert_eq!(
+        get_status(&client, format!("{}/admin/api/me", app.base)).await,
+        401
+    );
+    let _ = app
+        .login_client("root@reconcile.test", "root-password-1234")
+        .await;
+}
+
 // =============================================================================
 // Environment + API key lifecycle
 // =============================================================================

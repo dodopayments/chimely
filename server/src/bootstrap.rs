@@ -130,6 +130,11 @@ pub async fn ensure_admin(pool: &PgPool, cfg: &Config) -> anyhow::Result<()> {
             )
             .execute(pool)
             .await?;
+            // Rotating the bootstrap credential is the lockout-recovery path, so
+            // revoke any session established before the rotation.
+            sqlx::query!("DELETE FROM admin_sessions WHERE user_id = $1", row.id)
+                .execute(pool)
+                .await?;
             tracing::info!(email = %email, "bootstrap admin reconciled to the env credential");
         }
         None => {

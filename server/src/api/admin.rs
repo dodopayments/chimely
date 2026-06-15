@@ -1403,11 +1403,11 @@ pub async fn update_user(
         None => None,
     };
 
-    // The last-admin check and the mutation run in one transaction. Locking the
-    // enabled-admin set first serializes concurrent admin-roster changes, so
+    // The last-admin check and the mutation run in one transaction. Taking the
+    // roster advisory lock first serializes concurrent admin-roster changes, so
     // two requests cannot each see the other as the surviving admin (TOCTOU).
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    lock_enabled_admins(&mut tx).await?;
+    lock_admin_roster(&mut tx).await?;
 
     let current = sqlx::query!(
         r#"SELECT email, name, role, disabled_at FROM admin_users WHERE id = $1"#,
@@ -1548,10 +1548,10 @@ pub async fn delete_user(
         return Err(ApiError::conflict("you cannot delete your own account"));
     }
 
-    // Lock the enabled-admin set, then check + delete in one transaction so the
-    // last-admin guard cannot be raced (TOCTOU) by a concurrent removal.
+    // Take the roster advisory lock, then check + delete in one transaction so
+    // the last-admin guard cannot be raced (TOCTOU) by a concurrent removal.
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    lock_enabled_admins(&mut tx).await?;
+    lock_admin_roster(&mut tx).await?;
 
     let target = sqlx::query!(
         "SELECT role, disabled_at FROM admin_users WHERE id = $1",
@@ -1614,23 +1614,27 @@ fn user_view(
     }
 }
 
-/// Lock every enabled-admin row FOR UPDATE so concurrent admin-roster changes
-/// serialize. The last-admin guard then cannot be raced (TOCTOU).
-async fn lock_enabled_admins(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<(), ApiError> {
-    sqlx::query!(
-        "SELECT id FROM admin_users WHERE role = 'admin' AND disabled_at IS NULL FOR UPDATE",
-    )
-    .fetch_all(&mut **tx)
-    .await
-    .map_err(ApiError::from)?;
+/// Transaction-scoped advisory lock serializing admin-roster mutations
+/// ("drntADMR" as big-endian i64). A single lock, so the last-admin guard
+/// cannot be raced (TOCTOU) and there is no row-order deadlock the way
+/// per-row FOR UPDATE locks could have.
+const ADMIN_ROSTER_LOCK_KEY: i64 = 0x64726e74_41444d52;
+
+/// Take the admin-roster advisory lock for the rest of the transaction.
+async fn lock_admin_roster(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<(), ApiError> {
+    // Runtime query (not the macro) for the void-returning advisory function,
+    // matching the partition-maintenance lock.
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(ADMIN_ROSTER_LOCK_KEY)
+        .execute(&mut **tx)
+        .await
+        .map_err(ApiError::from)?;
     Ok(())
 }
 
 /// 409 unless another enabled admin (other than `excluding`) exists. The
 /// no-lockout guard rail. Runs on the caller's executor so it shares the
-/// transaction and the FOR UPDATE lock taken by `lock_enabled_admins`.
+/// transaction and the advisory lock taken by `lock_admin_roster`.
 async fn ensure_other_enabled_admin_exists<'e, E>(
     executor: E,
     excluding: Uuid,
