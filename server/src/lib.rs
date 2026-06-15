@@ -18,6 +18,7 @@ pub mod openapi;
 pub mod partitions;
 pub mod pubsub;
 pub mod ratelimit;
+pub mod roles;
 pub mod state;
 pub mod telemetry;
 pub mod timeline;

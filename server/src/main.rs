@@ -61,6 +61,16 @@ async fn serve() -> anyhow::Result<()> {
     bootstrap::run(&pool, &cfg)
         .await
         .context("dev environment bootstrap")?;
+    bootstrap::ensure_admin(&pool, &cfg)
+        .await
+        .context("admin bootstrap")?;
+    if !cfg.admin_tls_terminated {
+        tracing::warn!(
+            "Admin session cookies require TLS. This binary serves plain HTTP: terminate TLS at a \
+             proxy and set DRONTE_ADMIN_TLS_TERMINATED=true. Until then the session cookie omits \
+             its Secure attribute and admin access is exposed if served over plain HTTP."
+        );
+    }
 
     let pubsub = pubsub::build(cfg.redis_url.as_deref(), &pool)
         .await

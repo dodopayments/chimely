@@ -43,6 +43,29 @@ impl ApiError {
         }
     }
 
+    /// Authenticated but lacking the capability the endpoint requires.
+    /// Distinct from `unauthorized` (no/invalid session) so the SPA can tell
+    /// "log in" apart from "your role cannot do this".
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            code: "forbidden",
+            message: message.into(),
+            retry_after_seconds: None,
+        }
+    }
+
+    /// A guard-rail refusal (self-mutation, last-admin lockout, duplicate
+    /// identity) where the request was well-formed but the state forbids it.
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            code: "conflict",
+            message: message.into(),
+            retry_after_seconds: None,
+        }
+    }
+
     pub fn too_many_connections(message: impl Into<String>, retry_after_seconds: u64) -> Self {
         Self {
             status: StatusCode::TOO_MANY_REQUESTS,

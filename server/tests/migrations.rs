@@ -195,7 +195,10 @@ async fn migration_lint_environment_id_in_every_key_and_no_sequences() {
             JOIN pg_namespace n ON n.oid = t.relnamespace
            WHERE n.nspname = 'public'
              AND c.contype IN ('p', 'u')
-             AND t.relname NOT IN ('environments', '_sqlx_migrations')
+             -- environments + the admin-plane instance tables are the
+             -- allowlisted roots (instance config, not environment-scoped).
+             AND t.relname NOT IN
+                 ('environments', '_sqlx_migrations', 'admin_users', 'admin_sessions')
              AND t.relname NOT LIKE 'notifications_2%'  -- partitions inherit the parent PK
              AND NOT EXISTS (
                  SELECT 1 FROM unnest(c.conkey) AS k(attnum)

@@ -1,10 +1,11 @@
-//! Admin plane: the embedded `/admin` dashboard's API (specs/phase-4-admin.md).
+//! Admin plane: the embedded `/admin` dashboard's API (specs/phase-4-admin.md
+//! + the 2026-06-15 multi-user-auth design).
 //!
-//! Single-org by construction: no organizations, no admin users, no roles.
-//! One static credential gates the whole plane (see `auth::AdminAuth`).
-//! Every query is either scoped to one `environment_id` or is an explicit,
-//! documented cross-environment admin path (the DLQ browser) — the schema's
-//! shard-readiness invariant #3 exception.
+//! Built-in admin users with instance-wide roles gate the plane (see
+//! `auth::AdminAuth` + `roles`). Still single-org: no organizations table, no
+//! per-environment user scoping. Every query is either scoped to one
+//! `environment_id` or is an explicit, documented cross-environment admin path
+//! (the DLQ browser) — the schema's shard-readiness invariant #3 exception.
 //!
 //! Admin reads REUSE the canonical queries (`inbox::list_items_for`,
 //! `inbox::fetch_counts_for`) and admin writes REUSE the canonical write-path
@@ -14,7 +15,8 @@
 
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
+use axum::http::HeaderMap;
+use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE, SET_COOKIE};
 use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
@@ -27,9 +29,10 @@ use uuid::Uuid;
 use crate::api::format_ts;
 use crate::api::inbox::{self, InboxCounts};
 use crate::api::management;
-use crate::auth::AdminAuth;
+use crate::auth::{self, AdminAuth};
 use crate::error::ApiError;
 use crate::extract::{ApiJson, ApiQuery};
+use crate::roles::{Capability, Role};
 use crate::state::AppState;
 use crate::{dlq, ids};
 
@@ -48,12 +51,12 @@ const ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 #[folder = "admin/dist"]
 struct AdminAssets;
 
-/// Serve the embedded SPA. Gated by `AdminAuth` like every admin route, so a
-/// bare `/admin` navigation 401s with `WWW-Authenticate: Basic` and the
-/// browser prompts; thereafter it attaches the credential to every asset and
-/// API request on this origin. Unknown non-file paths fall back to
-/// `index.html` so client-side routing (TanStack Router) works on refresh.
-pub async fn serve_spa(_auth: AdminAuth, uri: Uri) -> Response {
+/// Serve the embedded SPA. PUBLIC by design: the shell must load so it can
+/// render the login screen, then the SPA calls the session-gated JSON API
+/// (which 401s until login). The bundle carries no secrets. Unknown non-file
+/// paths fall back to `index.html` so client-side routing (TanStack Router)
+/// works on refresh.
+pub async fn serve_spa(uri: Uri) -> Response {
     let path = uri
         .path()
         .trim_start_matches("/admin")
@@ -118,9 +121,11 @@ pub struct AdminEnvironmentDetail {
     pub slug: String,
     pub name: String,
     pub require_subscriber_hash: bool,
-    /// The dedicated subscriber HMAC secret. Plaintext by design (the
-    /// customer backend computes hashes with it) and operator-only.
-    pub subscriber_hmac_secret: String,
+    /// The dedicated subscriber HMAC secret. Plaintext by design (the customer
+    /// backend computes hashes with it). Returned only to roles holding
+    /// `env:read_secret` (developer/admin); omitted entirely otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subscriber_hmac_secret: Option<String>,
     /// True while a rotation overlap is open (the previous secret still
     /// verifies live `<Inbox />` sessions).
     pub has_previous_secret: bool,
@@ -148,13 +153,15 @@ fn default_true() -> bool {
     operation_id = "adminListEnvironments",
     summary = "List environments",
     responses((status = 200, description = "Environments.", body = Vec<AdminEnvironment>),
-              (status = 401, description = "Admin authentication required.")),
-    security(("AdminToken" = []))
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error)),
+    security(("AdminSession" = []))
 )]
 pub async fn list_environments(
-    _auth: AdminAuth,
+    auth: AdminAuth,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<AdminEnvironment>>, ApiError> {
+    auth.require(Capability::Read)?;
     let rows = sqlx::query!(
         r#"SELECT id, slug, name, require_subscriber_hash, created_at
              FROM environments ORDER BY created_at"#,
@@ -184,14 +191,16 @@ pub async fn list_environments(
     request_body = AdminCreateEnvironmentRequest,
     responses((status = 201, description = "Created.", body = AdminEnvironmentDetail),
               (status = 400, description = "Validation error or slug already exists.", body = crate::api::contract::Error),
-              (status = 401, description = "Admin authentication required.")),
-    security(("AdminToken" = []))
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error)),
+    security(("AdminSession" = []))
 )]
 pub async fn create_environment(
-    _auth: AdminAuth,
+    auth: AdminAuth,
     State(state): State<AppState>,
     ApiJson(req): ApiJson<AdminCreateEnvironmentRequest>,
 ) -> Result<Response, ApiError> {
+    auth.require(Capability::EnvCreate)?;
     let slug = req.slug.trim();
     if slug.is_empty() || slug.len() > 255 {
         return Err(ApiError::bad_request("slug must be 1-255 characters"));
@@ -238,7 +247,10 @@ pub async fn create_environment(
             slug: slug.to_owned(),
             name: name.to_owned(),
             require_subscriber_hash: req.require_subscriber_hash,
-            subscriber_hmac_secret: hmac_secret,
+            // The creator holds env:create, which only admin has, and admin
+            // also holds env:read_secret — so the secret is always returned
+            // here. It is needed immediately to wire up the widget.
+            subscriber_hmac_secret: Some(hmac_secret),
             has_previous_secret: false,
             subscriber_hmac_rotated_at: None,
             created_at: format_ts(created.created_at),
@@ -255,15 +267,17 @@ pub async fn create_environment(
     summary = "Environment detail (includes the subscriber HMAC secret)",
     params(("env_id" = String, Path, description = "Environment TypeID (env_…).")),
     responses((status = 200, description = "Environment.", body = AdminEnvironmentDetail),
-              (status = 401, description = "Admin authentication required."),
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
               (status = 404, description = "No such environment.", body = crate::api::contract::Error)),
-    security(("AdminToken" = []))
+    security(("AdminSession" = []))
 )]
 pub async fn get_environment(
-    _auth: AdminAuth,
+    auth: AdminAuth,
     State(state): State<AppState>,
     Path(env_id): Path<String>,
 ) -> Result<Json<AdminEnvironmentDetail>, ApiError> {
+    auth.require(Capability::Read)?;
     let env = parse_env_id(&env_id)?;
     let row = sqlx::query!(
         r#"SELECT id, slug, name, require_subscriber_hash, subscriber_hmac_secret,
@@ -281,7 +295,11 @@ pub async fn get_environment(
         slug: row.slug,
         name: row.name,
         require_subscriber_hash: row.require_subscriber_hash,
-        subscriber_hmac_secret: row.subscriber_hmac_secret,
+        // env:read_secret gates the plaintext secret. viewer/operator see the
+        // environment without it.
+        subscriber_hmac_secret: auth
+            .has(Capability::EnvReadSecret)
+            .then_some(row.subscriber_hmac_secret),
         has_previous_secret: row.subscriber_hmac_secret_previous.is_some(),
         subscriber_hmac_rotated_at: row.subscriber_hmac_rotated_at.map(format_ts),
         created_at: format_ts(row.created_at),
@@ -315,15 +333,17 @@ every customer backend has switched.
 "#,
     params(("env_id" = String, Path, description = "Environment TypeID (env_…).")),
     responses((status = 200, description = "Rotated.", body = AdminHmacRotation),
-              (status = 401, description = "Admin authentication required."),
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
               (status = 404, description = "No such environment.", body = crate::api::contract::Error)),
-    security(("AdminToken" = []))
+    security(("AdminSession" = []))
 )]
 pub async fn rotate_hmac(
-    _auth: AdminAuth,
+    auth: AdminAuth,
     State(state): State<AppState>,
     Path(env_id): Path<String>,
 ) -> Result<Json<AdminHmacRotation>, ApiError> {
+    auth.require(Capability::HmacRotate)?;
     let env = parse_env_id(&env_id)?;
     let new_secret = format!("shmac_{}", ids::new_uuid().as_simple());
     let row = sqlx::query!(
@@ -358,15 +378,17 @@ pub async fn rotate_hmac(
     summary = "Complete a rotation (clear the previous secret slot)",
     params(("env_id" = String, Path, description = "Environment TypeID (env_…).")),
     responses((status = 204, description = "Previous secret cleared."),
-              (status = 401, description = "Admin authentication required."),
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
               (status = 404, description = "No such environment.", body = crate::api::contract::Error)),
-    security(("AdminToken" = []))
+    security(("AdminSession" = []))
 )]
 pub async fn complete_hmac_rotation(
-    _auth: AdminAuth,
+    auth: AdminAuth,
     State(state): State<AppState>,
     Path(env_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    auth.require(Capability::HmacRotate)?;
     let env = parse_env_id(&env_id)?;
     let affected = sqlx::query!(
         r#"UPDATE environments SET subscriber_hmac_secret_previous = NULL, updated_at = now()
@@ -422,15 +444,17 @@ pub struct AdminCreateApiKeyRequest {
     summary = "List API keys for an environment (prefix only, never the key)",
     params(("env_id" = String, Path, description = "Environment TypeID (env_…).")),
     responses((status = 200, description = "Keys.", body = Vec<AdminApiKey>),
-              (status = 401, description = "Admin authentication required."),
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
               (status = 404, description = "No such environment.", body = crate::api::contract::Error)),
-    security(("AdminToken" = []))
+    security(("AdminSession" = []))
 )]
 pub async fn list_api_keys(
-    _auth: AdminAuth,
+    auth: AdminAuth,
     State(state): State<AppState>,
     Path(env_id): Path<String>,
 ) -> Result<Json<Vec<AdminApiKey>>, ApiError> {
+    auth.require(Capability::ApikeyRead)?;
     let env = parse_env_id(&env_id)?;
     ensure_environment(&state, env).await?;
     let rows = sqlx::query!(
@@ -465,16 +489,18 @@ pub async fn list_api_keys(
     request_body = AdminCreateApiKeyRequest,
     responses((status = 201, description = "Created; `key` is shown once.", body = AdminApiKeyCreated),
               (status = 400, description = "Validation error.", body = crate::api::contract::Error),
-              (status = 401, description = "Admin authentication required."),
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
               (status = 404, description = "No such environment.", body = crate::api::contract::Error)),
-    security(("AdminToken" = []))
+    security(("AdminSession" = []))
 )]
 pub async fn create_api_key(
-    _auth: AdminAuth,
+    auth: AdminAuth,
     State(state): State<AppState>,
     Path(env_id): Path<String>,
     ApiJson(req): ApiJson<AdminCreateApiKeyRequest>,
 ) -> Result<Response, ApiError> {
+    auth.require(Capability::ApikeyManage)?;
     let env = parse_env_id(&env_id)?;
     ensure_environment(&state, env).await?;
     let name = req.name.trim();
@@ -526,15 +552,17 @@ pub async fn create_api_key(
         ("key_id" = String, Path, description = "API key TypeID (key_…).")
     ),
     responses((status = 204, description = "Revoked (now or already)."),
-              (status = 401, description = "Admin authentication required."),
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
               (status = 404, description = "No such API key.", body = crate::api::contract::Error)),
-    security(("AdminToken" = []))
+    security(("AdminSession" = []))
 )]
 pub async fn revoke_api_key(
-    _auth: AdminAuth,
+    auth: AdminAuth,
     State(state): State<AppState>,
     Path((env_id, key_id)): Path<(String, String)>,
 ) -> Result<StatusCode, ApiError> {
+    auth.require(Capability::ApikeyManage)?;
     let env = parse_env_id(&env_id)?;
     let key = ids::parse_typeid(ids::API_KEY, &key_id)
         .ok_or_else(|| ApiError::not_found("no such API key"))?;
@@ -604,16 +632,18 @@ pub struct AdminNotificationPage {
     ),
     responses((status = 200, description = "A page of notifications.", body = AdminNotificationPage),
               (status = 400, description = "Malformed cursor or out-of-range limit.", body = crate::api::contract::Error),
-              (status = 401, description = "Admin authentication required."),
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
               (status = 404, description = "No such environment.", body = crate::api::contract::Error)),
-    security(("AdminToken" = []))
+    security(("AdminSession" = []))
 )]
 pub async fn list_notifications(
-    _auth: AdminAuth,
+    auth: AdminAuth,
     State(state): State<AppState>,
     Path(env_id): Path<String>,
     ApiQuery(filter): ApiQuery<AdminNotificationFilter>,
 ) -> Result<Json<AdminNotificationPage>, ApiError> {
+    auth.require(Capability::Read)?;
     let env = parse_env_id(&env_id)?;
     ensure_environment(&state, env).await?;
     let limit = filter.limit.unwrap_or(ADMIN_NOTIFICATION_PAGE);
@@ -703,15 +733,17 @@ pub struct AdminNotificationTimeline {
         ("notif_id" = String, Path, description = "Notification TypeID (notif_…).")
     ),
     responses((status = 200, description = "The timeline so far.", body = AdminNotificationTimeline),
-              (status = 401, description = "Admin authentication required."),
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
               (status = 404, description = "No such notification.", body = crate::api::contract::Error)),
-    security(("AdminToken" = []))
+    security(("AdminSession" = []))
 )]
 pub async fn notification_timeline(
-    _auth: AdminAuth,
+    auth: AdminAuth,
     State(state): State<AppState>,
     Path((env_id, notif_id)): Path<(String, String)>,
 ) -> Result<Json<AdminNotificationTimeline>, ApiError> {
+    auth.require(Capability::Read)?;
     let env = parse_env_id(&env_id)?;
     let id = ids::parse_typeid(ids::NOTIFICATION, &notif_id)
         .ok_or_else(|| ApiError::not_found("no such notification"))?;
@@ -779,16 +811,18 @@ pub struct AdminCreateBroadcastRequest {
     responses((status = 201, description = "Created.", body = crate::api::contract::Broadcast),
               (status = 200, description = "Idempotent replay.", body = crate::api::contract::Broadcast),
               (status = 400, description = "Validation error.", body = crate::api::contract::Error),
-              (status = 401, description = "Admin authentication required."),
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
               (status = 404, description = "No such environment.", body = crate::api::contract::Error)),
-    security(("AdminToken" = []))
+    security(("AdminSession" = []))
 )]
 pub async fn create_broadcast(
-    _auth: AdminAuth,
+    auth: AdminAuth,
     State(state): State<AppState>,
     Path(env_id): Path<String>,
     ApiJson(req): ApiJson<AdminCreateBroadcastRequest>,
 ) -> Result<Response, ApiError> {
+    auth.require(Capability::BroadcastCompose)?;
     let env = parse_env_id(&env_id)?;
     ensure_environment(&state, env).await?;
     let category = management::validate_category(&req.category)?.to_owned();
@@ -860,15 +894,17 @@ impl From<InboxCounts> for AdminCounts {
         ("subscriber_id" = String, Path, description = "Customer-provided subscriber id.")
     ),
     responses((status = 200, description = "Subscriber view.", body = AdminSubscriberView),
-              (status = 401, description = "Admin authentication required."),
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
               (status = 404, description = "No such subscriber.", body = crate::api::contract::Error)),
-    security(("AdminToken" = []))
+    security(("AdminSession" = []))
 )]
 pub async fn get_subscriber(
-    _auth: AdminAuth,
+    auth: AdminAuth,
     State(state): State<AppState>,
     Path((env_id, subscriber_id)): Path<(String, String)>,
 ) -> Result<Json<AdminSubscriberView>, ApiError> {
+    auth.require(Capability::Read)?;
     let env = parse_env_id(&env_id)?;
     let identity = sqlx::query!(
         r#"SELECT s.id, s.created_at,
@@ -975,13 +1011,15 @@ pub struct AdminReplayResult {
     operation_id = "adminListDeadLetters",
     summary = "List parked jobs across environments",
     responses((status = 200, description = "Parked jobs.", body = Vec<AdminDeadLetter>),
-              (status = 401, description = "Admin authentication required.")),
-    security(("AdminToken" = []))
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error)),
+    security(("AdminSession" = []))
 )]
 pub async fn list_dlq(
-    _auth: AdminAuth,
+    auth: AdminAuth,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<AdminDeadLetter>>, ApiError> {
+    auth.require(Capability::Read)?;
     let letters = dlq::list(&state.pool).await.map_err(ApiError::from)?;
     Ok(Json(
         letters
@@ -1007,15 +1045,17 @@ pub async fn list_dlq(
     description = "Moves the parked row back into `jobs` with a fresh attempt budget; the normal worker loop (SKIP LOCKED, per-environment fairness, delete-on-completion) runs it. Never executed inline.",
     params(("job_id" = String, Path, description = "Job TypeID (job_…).")),
     responses((status = 200, description = "Replayed.", body = AdminReplayResult),
-              (status = 401, description = "Admin authentication required."),
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
               (status = 404, description = "No such parked job.", body = crate::api::contract::Error)),
-    security(("AdminToken" = []))
+    security(("AdminSession" = []))
 )]
 pub async fn replay_dead_letter(
-    _auth: AdminAuth,
+    auth: AdminAuth,
     State(state): State<AppState>,
     Path(job_id): Path<String>,
 ) -> Result<Json<AdminReplayResult>, ApiError> {
+    auth.require(Capability::DlqReplay)?;
     let id = ids::parse_typeid(ids::JOB, &job_id)
         .ok_or_else(|| ApiError::not_found("no such parked job"))?;
     // Cross-environment admin path: job ids are globally unique UUIDv7s.
@@ -1035,13 +1075,15 @@ pub async fn replay_dead_letter(
     operation_id = "adminReplayAllDeadLetters",
     summary = "Replay every parked job",
     responses((status = 200, description = "Replayed.", body = AdminReplayResult),
-              (status = 401, description = "Admin authentication required.")),
-    security(("AdminToken" = []))
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error)),
+    security(("AdminSession" = []))
 )]
 pub async fn replay_all_dead_letters(
-    _auth: AdminAuth,
+    auth: AdminAuth,
     State(state): State<AppState>,
 ) -> Result<Json<AdminReplayResult>, ApiError> {
+    auth.require(Capability::DlqReplay)?;
     let replayed = dlq::replay_all(&state.pool, None)
         .await
         .map_err(ApiError::from)? as i64;
@@ -1049,8 +1091,527 @@ pub async fn replay_all_dead_letters(
 }
 
 // =============================================================================
+// Session auth: login, logout, me
+// =============================================================================
+
+#[derive(Deserialize, ToSchema)]
+pub struct AdminLoginRequest {
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct AdminMe {
+    /// TypeID, `adm_…`.
+    pub id: String,
+    pub email: String,
+    pub name: String,
+    /// 'viewer' | 'operator' | 'developer' | 'admin'.
+    pub role: String,
+    /// Capability strings the SPA gates UI on (server-side enforcement is the
+    /// real boundary).
+    pub capabilities: Vec<String>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/admin/api/login",
+    tag = "admin",
+    operation_id = "adminLogin",
+    summary = "Log in with email + password; starts a server-side session",
+    description = "On success sets the `dronte_admin` session cookie (HttpOnly, SameSite=Strict, Path=/admin). Failure returns a generic error that does not reveal which field was wrong.",
+    request_body = AdminLoginRequest,
+    responses((status = 200, description = "Logged in; sets the session cookie.", body = AdminMe),
+              (status = 401, description = "Invalid email or password.", body = crate::api::contract::Error),
+              (status = 403, description = "Missing X-Dronte-Admin header.", body = crate::api::contract::Error))
+)]
+pub async fn login(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    ApiJson(req): ApiJson<AdminLoginRequest>,
+) -> Result<Response, ApiError> {
+    // login does not run the AdminAuth extractor, so it checks CSRF itself.
+    auth::require_admin_csrf(&headers)?;
+    let email = normalize_email(&req.email);
+
+    let row = sqlx::query!(
+        r#"SELECT id, email, name, role, password_hash
+             FROM admin_users WHERE email = $1 AND disabled_at IS NULL"#,
+        email,
+    )
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    let Some(row) = row else {
+        // Spend the same time as a real verify so a missing email cannot be
+        // distinguished from a wrong password.
+        auth::equalize_login_timing(&req.password);
+        return Err(ApiError::unauthorized("invalid email or password"));
+    };
+    if !auth::verify_password(&req.password, &row.password_hash) {
+        return Err(ApiError::unauthorized("invalid email or password"));
+    }
+    let Some(role) = Role::parse(&row.role) else {
+        return Err(ApiError::from(anyhow::anyhow!(
+            "admin_users.role corrupt: {}",
+            row.role
+        )));
+    };
+
+    let token = auth::create_session(&state.pool, row.id, state.cfg.admin_session_ttl).await?;
+    let cookie = auth::session_cookie(
+        &token,
+        state.cfg.admin_session_ttl,
+        state.cfg.admin_tls_terminated,
+    );
+
+    let me = AdminMe {
+        id: ids::typeid(ids::ADMIN_USER, row.id),
+        email: row.email,
+        name: row.name,
+        role: role.as_str().to_owned(),
+        capabilities: capability_strings(role),
+    };
+    Ok(([(SET_COOKIE, cookie)], Json(me)).into_response())
+}
+
+#[utoipa::path(
+    post,
+    path = "/admin/api/logout",
+    tag = "admin",
+    operation_id = "adminLogout",
+    summary = "Log out: delete the session and clear the cookie",
+    responses((status = 204, description = "Logged out."),
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Missing X-Dronte-Admin header.", body = crate::api::contract::Error)),
+    security(("AdminSession" = []))
+)]
+pub async fn logout(auth: AdminAuth, State(state): State<AppState>) -> Result<Response, ApiError> {
+    auth::delete_session(&state.pool, &auth.session_id).await?;
+    let cookie = auth::clear_session_cookie(state.cfg.admin_tls_terminated);
+    Ok((StatusCode::NO_CONTENT, [(SET_COOKIE, cookie)], ()).into_response())
+}
+
+#[utoipa::path(
+    get,
+    path = "/admin/api/me",
+    tag = "admin",
+    operation_id = "adminMe",
+    summary = "The signed-in admin user, role, and capabilities",
+    responses((status = 200, description = "The current user.", body = AdminMe),
+              (status = 401, description = "Authentication required (no or expired session).")),
+    security(("AdminSession" = []))
+)]
+pub async fn me(auth: AdminAuth) -> Json<AdminMe> {
+    Json(AdminMe {
+        id: ids::typeid(ids::ADMIN_USER, auth.user.id),
+        email: auth.user.email.clone(),
+        name: auth.user.name.clone(),
+        role: auth.user.role.as_str().to_owned(),
+        capabilities: capability_strings(auth.user.role),
+    })
+}
+
+// =============================================================================
+// User management (admin only). Guard rails: no self disable/delete, never
+// remove the last enabled admin (no lockout).
+// =============================================================================
+
+#[derive(Serialize, ToSchema)]
+pub struct AdminUserView {
+    /// TypeID, `adm_…`.
+    pub id: String,
+    pub email: String,
+    pub name: String,
+    pub role: String,
+    pub disabled: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct AdminCreateUserRequest {
+    pub email: String,
+    pub name: String,
+    pub role: String,
+    /// At least 12 characters (server-enforced). The UI shows it once.
+    pub password: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct AdminUpdateUserRequest {
+    pub name: Option<String>,
+    pub role: Option<String>,
+    pub disabled: Option<bool>,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct AdminSetPasswordRequest {
+    pub password: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/admin/api/users",
+    tag = "admin",
+    operation_id = "adminListUsers",
+    summary = "List admin users",
+    responses((status = 200, description = "Users.", body = Vec<AdminUserView>),
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Requires user:manage.", body = crate::api::contract::Error)),
+    security(("AdminSession" = []))
+)]
+pub async fn list_users(
+    auth: AdminAuth,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<AdminUserView>>, ApiError> {
+    auth.require(Capability::UserManage)?;
+    let rows = sqlx::query!(
+        r#"SELECT id, email, name, role, disabled_at, created_at, updated_at
+             FROM admin_users ORDER BY created_at"#,
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::from)?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| {
+                user_view(
+                    r.id,
+                    r.email,
+                    r.name,
+                    r.role,
+                    r.disabled_at,
+                    r.created_at,
+                    r.updated_at,
+                )
+            })
+            .collect(),
+    ))
+}
+
+#[utoipa::path(
+    post,
+    path = "/admin/api/users",
+    tag = "admin",
+    operation_id = "adminCreateUser",
+    summary = "Create an admin user",
+    request_body = AdminCreateUserRequest,
+    responses((status = 201, description = "Created.", body = AdminUserView),
+              (status = 400, description = "Validation error.", body = crate::api::contract::Error),
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Requires user:manage.", body = crate::api::contract::Error),
+              (status = 409, description = "Email already exists.", body = crate::api::contract::Error)),
+    security(("AdminSession" = []))
+)]
+pub async fn create_user(
+    auth: AdminAuth,
+    State(state): State<AppState>,
+    ApiJson(req): ApiJson<AdminCreateUserRequest>,
+) -> Result<Response, ApiError> {
+    auth.require(Capability::UserManage)?;
+    let email = normalize_email(&req.email);
+    if email.is_empty() || email.len() > 255 || !email.contains('@') {
+        return Err(ApiError::bad_request("a valid email is required"));
+    }
+    let name = req.name.trim();
+    if name.is_empty() || name.len() > 255 {
+        return Err(ApiError::bad_request("name must be 1-255 characters"));
+    }
+    let role = Role::parse(req.role.trim()).ok_or_else(|| {
+        ApiError::bad_request("role must be viewer, operator, developer, or admin")
+    })?;
+    auth::validate_password(&req.password)?;
+    let hash = auth::hash_password(&req.password).map_err(ApiError::from)?;
+
+    let id = ids::new_uuid();
+    let created = sqlx::query!(
+        r#"INSERT INTO admin_users (id, email, name, role, password_hash)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (email) DO NOTHING
+           RETURNING created_at, updated_at"#,
+        id,
+        email,
+        name,
+        role.as_str(),
+        hash,
+    )
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    let Some(created) = created else {
+        return Err(ApiError::conflict("a user with that email already exists"));
+    };
+
+    Ok((
+        StatusCode::CREATED,
+        Json(user_view(
+            id,
+            email,
+            name.to_owned(),
+            role.as_str().to_owned(),
+            None,
+            created.created_at,
+            created.updated_at,
+        )),
+    )
+        .into_response())
+}
+
+#[utoipa::path(
+    patch,
+    path = "/admin/api/users/{user_id}",
+    tag = "admin",
+    operation_id = "adminUpdateUser",
+    summary = "Update an admin user's name, role, or disabled state",
+    params(("user_id" = String, Path, description = "Admin user TypeID (adm_…).")),
+    request_body = AdminUpdateUserRequest,
+    responses((status = 200, description = "Updated.", body = AdminUserView),
+              (status = 400, description = "Validation error.", body = crate::api::contract::Error),
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Requires user:manage.", body = crate::api::contract::Error),
+              (status = 404, description = "No such user.", body = crate::api::contract::Error),
+              (status = 409, description = "Self-disable or last-admin guard rail.", body = crate::api::contract::Error)),
+    security(("AdminSession" = []))
+)]
+pub async fn update_user(
+    auth: AdminAuth,
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+    ApiJson(req): ApiJson<AdminUpdateUserRequest>,
+) -> Result<Json<AdminUserView>, ApiError> {
+    auth.require(Capability::UserManage)?;
+    let id = parse_user_id(&user_id)?;
+
+    let current = sqlx::query!(
+        r#"SELECT email, name, role, disabled_at FROM admin_users WHERE id = $1"#,
+        id,
+    )
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::from)?
+    .ok_or_else(|| ApiError::not_found("no such user"))?;
+    let current_role = Role::parse(&current.role).ok_or_else(|| {
+        ApiError::from(anyhow::anyhow!(
+            "admin_users.role corrupt: {}",
+            current.role
+        ))
+    })?;
+
+    let new_name = match req.name {
+        Some(n) => {
+            let n = n.trim();
+            if n.is_empty() || n.len() > 255 {
+                return Err(ApiError::bad_request("name must be 1-255 characters"));
+            }
+            n.to_owned()
+        }
+        None => current.name.clone(),
+    };
+    let new_role = match &req.role {
+        Some(r) => Role::parse(r.trim()).ok_or_else(|| {
+            ApiError::bad_request("role must be viewer, operator, developer, or admin")
+        })?,
+        None => current_role,
+    };
+    let currently_disabled = current.disabled_at.is_some();
+    let new_disabled = req.disabled.unwrap_or(currently_disabled);
+
+    // Guard rail: a user cannot disable themselves (no foot-gun lockout).
+    if id == auth.user.id && new_disabled && !currently_disabled {
+        return Err(ApiError::conflict("you cannot disable your own account"));
+    }
+    // Guard rail: never remove the last enabled admin.
+    let was_enabled_admin = current_role == Role::Admin && !currently_disabled;
+    let stays_enabled_admin = new_role == Role::Admin && !new_disabled;
+    if was_enabled_admin && !stays_enabled_admin {
+        ensure_other_enabled_admin_exists(&state, id).await?;
+    }
+
+    let row = sqlx::query!(
+        r#"UPDATE admin_users
+              SET name = $2,
+                  role = $3,
+                  disabled_at = CASE WHEN $4 THEN COALESCE(disabled_at, now()) ELSE NULL END,
+                  updated_at = now()
+            WHERE id = $1
+            RETURNING email, created_at, updated_at, disabled_at"#,
+        id,
+        new_name,
+        new_role.as_str(),
+        new_disabled,
+    )
+    .fetch_one(&state.pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    // Newly disabled: drop their live sessions immediately.
+    if new_disabled && !currently_disabled {
+        auth::delete_user_sessions(&state.pool, id).await?;
+    }
+
+    Ok(Json(user_view(
+        id,
+        row.email,
+        new_name,
+        new_role.as_str().to_owned(),
+        row.disabled_at,
+        row.created_at,
+        row.updated_at,
+    )))
+}
+
+#[utoipa::path(
+    post,
+    path = "/admin/api/users/{user_id}/password",
+    tag = "admin",
+    operation_id = "adminSetUserPassword",
+    summary = "Set a user's password (user:manage, or the user themselves)",
+    params(("user_id" = String, Path, description = "Admin user TypeID (adm_…).")),
+    request_body = AdminSetPasswordRequest,
+    responses((status = 204, description = "Password updated."),
+              (status = 400, description = "Password too short.", body = crate::api::contract::Error),
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Not user:manage and not the target user.", body = crate::api::contract::Error),
+              (status = 404, description = "No such user.", body = crate::api::contract::Error)),
+    security(("AdminSession" = []))
+)]
+pub async fn set_user_password(
+    auth: AdminAuth,
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+    ApiJson(req): ApiJson<AdminSetPasswordRequest>,
+) -> Result<StatusCode, ApiError> {
+    let id = parse_user_id(&user_id)?;
+    // Self-service reset is allowed; otherwise it needs user:manage.
+    if id != auth.user.id {
+        auth.require(Capability::UserManage)?;
+    }
+    auth::validate_password(&req.password)?;
+    let hash = auth::hash_password(&req.password).map_err(ApiError::from)?;
+    let affected = sqlx::query!(
+        "UPDATE admin_users SET password_hash = $2, updated_at = now() WHERE id = $1",
+        id,
+        hash,
+    )
+    .execute(&state.pool)
+    .await
+    .map_err(ApiError::from)?
+    .rows_affected();
+    if affected == 0 {
+        return Err(ApiError::not_found("no such user"));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    delete,
+    path = "/admin/api/users/{user_id}",
+    tag = "admin",
+    operation_id = "adminDeleteUser",
+    summary = "Delete an admin user",
+    params(("user_id" = String, Path, description = "Admin user TypeID (adm_…).")),
+    responses((status = 204, description = "Deleted."),
+              (status = 401, description = "Authentication required (no or expired session)."),
+              (status = 403, description = "Requires user:manage.", body = crate::api::contract::Error),
+              (status = 404, description = "No such user.", body = crate::api::contract::Error),
+              (status = 409, description = "Self-delete or last-admin guard rail.", body = crate::api::contract::Error)),
+    security(("AdminSession" = []))
+)]
+pub async fn delete_user(
+    auth: AdminAuth,
+    State(state): State<AppState>,
+    Path(user_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    auth.require(Capability::UserManage)?;
+    let id = parse_user_id(&user_id)?;
+    if id == auth.user.id {
+        return Err(ApiError::conflict("you cannot delete your own account"));
+    }
+
+    let target = sqlx::query!(
+        "SELECT role, disabled_at FROM admin_users WHERE id = $1",
+        id,
+    )
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::from)?
+    .ok_or_else(|| ApiError::not_found("no such user"))?;
+    if target.role == Role::Admin.as_str() && target.disabled_at.is_none() {
+        ensure_other_enabled_admin_exists(&state, id).await?;
+    }
+
+    // Sessions cascade (admin_sessions FK ON DELETE CASCADE).
+    sqlx::query!("DELETE FROM admin_users WHERE id = $1", id)
+        .execute(&state.pool)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// =============================================================================
 // Shared helpers
 // =============================================================================
+
+fn normalize_email(email: &str) -> String {
+    email.trim().to_lowercase()
+}
+
+fn capability_strings(role: Role) -> Vec<String> {
+    role.capabilities()
+        .iter()
+        .map(|c| c.as_str().to_owned())
+        .collect()
+}
+
+fn parse_user_id(user_id: &str) -> Result<Uuid, ApiError> {
+    ids::parse_typeid(ids::ADMIN_USER, user_id).ok_or_else(|| ApiError::not_found("no such user"))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn user_view(
+    id: Uuid,
+    email: String,
+    name: String,
+    role: String,
+    disabled_at: Option<DateTime<Utc>>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+) -> AdminUserView {
+    AdminUserView {
+        id: ids::typeid(ids::ADMIN_USER, id),
+        email,
+        name,
+        role,
+        disabled: disabled_at.is_some(),
+        created_at: format_ts(created_at),
+        updated_at: format_ts(updated_at),
+    }
+}
+
+/// 409 unless another enabled admin (other than `excluding`) exists. The
+/// no-lockout guard rail.
+async fn ensure_other_enabled_admin_exists(
+    state: &AppState,
+    excluding: Uuid,
+) -> Result<(), ApiError> {
+    let others = sqlx::query_scalar!(
+        r#"SELECT count(*) AS "count!" FROM admin_users
+            WHERE role = 'admin' AND disabled_at IS NULL AND id <> $1"#,
+        excluding,
+    )
+    .fetch_one(&state.pool)
+    .await
+    .map_err(ApiError::from)?;
+    if others == 0 {
+        return Err(ApiError::conflict(
+            "cannot remove the last enabled admin (would lock everyone out)",
+        ));
+    }
+    Ok(())
+}
 
 fn parse_env_id(env_id: &str) -> Result<Uuid, ApiError> {
     ids::parse_typeid(ids::ENVIRONMENT, env_id)

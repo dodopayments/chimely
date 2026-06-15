@@ -17,9 +17,16 @@ keys and environments. The single-file deploy story must survive intact.
 1. **SPA shell.** Vite + React + TanStack Query/Router, embedded via
    rust-embed, served by the dronte binary (e.g. under `/admin`). No
    separate deployment artifact; `docker run dronte` ships the dashboard.
-2. **Instance-level admin auth.** Static credential via env var at launch
-   (OIDC later). One credential for the whole instance — there are no
-   admin "users". All admin endpoints and the SPA gate on it.
+2. **Instance-level admin auth (multi-user).** Built-in admin users with
+   Argon2id passwords and a styled login, backed by a server-side session
+   cookie (`HttpOnly; SameSite=Strict; Path=/admin`). Four fixed roles
+   (`viewer`/`operator`/`developer`/`admin`) implemented as capability
+   presets gate every endpoint; the data API enforces them, the SPA mirrors
+   them in the UI. A bootstrap (root) admin is ensured from
+   `DRONTE_ADMIN_EMAIL`/`DRONTE_ADMIN_PASSWORD` (lockout recovery). The auth
+   layer is abstracted so OIDC/SSO is additive later. (Supersedes the
+   original "one static credential, no admin users" wording — see
+   docs/superpowers/specs/2026-06-15-admin-multi-user-auth-design.md.)
 3. **Notification/status browser.** Filter by environment, subscriber,
    category, time window; inspect payloads; view each notification's
    append-only status timeline (`created → delivered_hint → seen → read`)
@@ -44,10 +51,12 @@ keys and environments. The single-file deploy story must survive intact.
 
 ## Invariants in play (restated; violating any is a bug)
 
-- **Single-org, no exceptions.** No organizations table, no user
-  management, no roles. Environments are the only isolation unit;
-  multi-tenancy is "run another instance". The admin plane must not grow
-  org-shaped concepts (the non-goals list is product strategy).
+- **Single-org.** No organizations table; environments are the only
+  data-isolation unit; multi-tenancy is "run another instance". The admin
+  plane is the one scoped exception: instance-level admin users with four
+  fixed roles (capability presets), instance-wide — no organizations and no
+  per-environment user scoping. The admin plane must not grow org-shaped
+  concepts beyond that.
 - **Environment isolation everywhere.** Every admin query is either
   scoped to one environment_id or is an explicit, documented cross-
   environment admin path (the allowed exception in the schema's
@@ -76,7 +85,8 @@ keys and environments. The single-file deploy story must survive intact.
 
 ## Out of scope (deliberately)
 
-OIDC (later), audit log UI, member/role management (never — single-org),
+OIDC/SSO (later; the auth layer is abstracted so it is additive), email-based
+password reset, per-environment user scoping, 2FA/MFA, an audit-log UI,
 notification editing or deletion (no undo primitives exist yet — cancel/
 retract ships per the Phase 2 design note, and the admin UI exposes it
 only once the API exists), analytics dashboards.
@@ -86,9 +96,10 @@ only once the API exists), analytics dashboards.
 - [ ] `docker run` of the published image serves the dashboard at
       `/admin` with no extra artifacts; total deploy remains binary +
       Postgres + Redis.
-- [ ] Admin auth: every admin endpoint and SPA route 401s without the
-      credential; the credential is supplied only via env var; it never
-      appears in logs.
+- [ ] Admin auth: the data API 401s without a session and the SPA shell
+      loads (it renders the login screen); login starts a server-side session
+      and per-role capability checks gate each endpoint (200 on permitted,
+      403 on not); passwords and session ids never appear in logs.
 - [ ] Status browser answers "did notification X send?" end to end:
       create → see timeline transitions appear live.
 - [ ] Subscriber lookup shows counters, watermarks, preferences, and a

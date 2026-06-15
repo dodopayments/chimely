@@ -60,7 +60,13 @@ device is 1:1.
 
 **Single-org.** No organization concept anywhere — not in the schema, not in
 the API, not in the admin UI. Environments are the isolation unit;
-multi-tenancy is "run another instance".
+multi-tenancy is "run another instance". The admin plane is the sole, scoped
+exception: it has instance-level **users with four fixed roles**
+(`viewer`/`operator`/`developer`/`admin`, capability presets in
+`server/src/roles.rs`). Roles are instance-wide — still no organizations, and
+no per-environment user scoping. `admin_users`/`admin_sessions` are
+instance-level tables (no `environment_id`), allowlisted in the migration
+lint like the `environments` root.
 
 **Licensing is settled** (plan, "Licensing"): FSL-1.1-MIT for `server/`
 (fair source — free use/self-host, no competing commercialization, each

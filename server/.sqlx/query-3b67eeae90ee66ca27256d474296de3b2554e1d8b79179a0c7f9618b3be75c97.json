@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE admin_sessions SET last_seen_at = now()\n              WHERE id = $1 AND last_seen_at < now() - interval '60 seconds'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3b67eeae90ee66ca27256d474296de3b2554e1d8b79179a0c7f9618b3be75c97"
+}

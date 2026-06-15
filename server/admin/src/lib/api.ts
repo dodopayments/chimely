@@ -1,6 +1,7 @@
 // Admin API client. Every endpoint is same-origin under /admin/api/* and
-// gated by HTTP Basic auth; the browser holds the credential (it prompted on
-// the first /admin load) and attaches it to same-origin fetches automatically.
+// gated by a server-side session cookie (set by POST /admin/api/login). The
+// cookie rides automatically on same-origin fetches; mutating requests also
+// send the X-Dronte-Admin header (CSRF defense — a cross-site form cannot).
 
 export interface ApiError {
   status: number;
@@ -19,11 +20,16 @@ export class ApiRequestError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? 'GET').toUpperCase();
+  const mutating = method !== 'GET' && method !== 'HEAD';
   const res = await fetch(`/admin/api${path}`, {
     ...init,
     credentials: 'same-origin',
     headers: {
       ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      // CSRF: a cross-site form cannot set a custom header, and the admin
+      // plane has no CORS. Required server-side on every mutating request.
+      ...(mutating ? { 'X-Dronte-Admin': '1' } : {}),
       ...init?.headers,
     },
   });
@@ -55,8 +61,33 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const get = <T,>(path: string) => request<T>(path);
 const post = <T,>(path: string, body?: unknown) =>
   request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) });
+const patch = <T,>(path: string, body?: unknown) =>
+  request<T>(path, { method: 'PATCH', body: body === undefined ? undefined : JSON.stringify(body) });
+const del = <T,>(path: string) => request<T>(path, { method: 'DELETE' });
 
 // ----- Types (mirror server/src/api/admin.rs) -------------------------------
+
+export type AdminRole = 'viewer' | 'operator' | 'developer' | 'admin';
+
+export const ADMIN_ROLES: AdminRole[] = ['viewer', 'operator', 'developer', 'admin'];
+
+export interface AdminMe {
+  id: string;
+  email: string;
+  name: string;
+  role: AdminRole;
+  capabilities: string[];
+}
+
+export interface AdminUserView {
+  id: string;
+  email: string;
+  name: string;
+  role: AdminRole;
+  disabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface AdminEnvironment {
   id: string;
@@ -67,7 +98,9 @@ export interface AdminEnvironment {
 }
 
 export interface AdminEnvironmentDetail extends AdminEnvironment {
-  subscriber_hmac_secret: string;
+  // Present only for roles holding env:read_secret (developer/admin); omitted
+  // from the JSON otherwise.
+  subscriber_hmac_secret?: string;
   has_previous_secret: boolean;
   subscriber_hmac_rotated_at: string | null;
 }
@@ -187,6 +220,21 @@ export interface NotificationFilter {
 }
 
 export const api = {
+  // Session auth.
+  me: () => get<AdminMe>('/me'),
+  login: (email: string, password: string) => post<AdminMe>('/login', { email, password }),
+  logout: () => post<void>('/logout'),
+
+  // Admin users (user:manage).
+  listUsers: () => get<AdminUserView[]>('/users'),
+  createUser: (body: { email: string; name: string; role: AdminRole; password: string }) =>
+    post<AdminUserView>('/users', body),
+  updateUser: (id: string, body: { name?: string; role?: AdminRole; disabled?: boolean }) =>
+    patch<AdminUserView>(`/users/${enc(id)}`, body),
+  setUserPassword: (id: string, password: string) =>
+    post<void>(`/users/${enc(id)}/password`, { password }),
+  deleteUser: (id: string) => del<void>(`/users/${enc(id)}`),
+
   listEnvironments: () => get<AdminEnvironment[]>('/environments'),
   createEnvironment: (body: { slug: string; name: string; require_subscriber_hash: boolean }) =>
     post<AdminEnvironmentDetail>('/environments', body),

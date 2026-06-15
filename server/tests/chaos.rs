@@ -261,7 +261,8 @@ async fn racing_boot_migrations_serialize_under_the_advisory_lock() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(applied, 2, "each migration applied exactly once");
+    let expected = db::MIGRATOR.iter().count() as i64;
+    assert_eq!(applied, expected, "each migration applied exactly once");
     assert!(db::ready(&pool).await.unwrap(), "every replica ends ready");
 }
 
@@ -489,7 +490,10 @@ async fn sustained_jobs_churn_stays_bounded_under_autovacuum() {
         sse_max_connections_per_subscriber: 8,
         dev_environment: None,
         dev_api_key: None,
-        admin_token: None,
+        admin_bootstrap_email: None,
+        admin_bootstrap_password: None,
+        admin_session_ttl: Duration::from_secs(3600),
+        admin_tls_terminated: false,
         retry_backoff_base: Duration::from_millis(100),
         retry_backoff_cap: Duration::from_secs(2),
         metrics_sample_interval: Duration::from_secs(1),

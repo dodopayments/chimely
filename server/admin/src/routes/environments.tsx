@@ -19,9 +19,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { api, ApiRequestError } from '@/lib/api';
+import { CAP, useAuth } from '@/lib/auth';
 import { formatTs } from '@/lib/utils';
 
 export function EnvironmentsRoute() {
+  const { has } = useAuth();
   const envs = useQuery({ queryKey: ['environments'], queryFn: api.listEnvironments });
   const navigate = useNavigate();
 
@@ -34,7 +36,7 @@ export function EnvironmentsRoute() {
             The isolation unit. Each has its own API keys and subscriber HMAC secret.
           </p>
         </div>
-        <NewEnvironmentDialog />
+        {has(CAP.envCreate) && <NewEnvironmentDialog />}
       </div>
 
       <Async query={envs} emptyTitle="No environments yet">

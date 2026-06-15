@@ -24,18 +24,39 @@ specs/             frozen v1 contracts (read-only)
 
 The server embeds an operator dashboard at `/admin` (status/timeline browser,
 broadcast composer, subscriber lookup, DLQ replay, environment + API key
-management, HMAC rotation). It ships inside the binary — `docker run dronte`
-serves it with no extra artifact.
+management, HMAC rotation, and admin-user management). It ships inside the
+binary — `docker run dronte` serves it with no extra artifact.
 
-Set `DRONTE_ADMIN_TOKEN` to enable it. The dashboard and its API gate on that
-single static credential via HTTP Basic (any username, the token as the
-password); the browser prompts on first visit. Unset, the admin plane is
-disabled and every `/admin` route returns 401. The credential is read only
-from the env var and never logged.
+**Built-in users with roles.** The dashboard has its own login (email +
+password, Argon2id-hashed) backed by a server-side session cookie. Four fixed
+roles gate what each operator can do (still single-org — no organizations, no
+per-environment user scoping):
+
+- **viewer** — read-only (inbox, timelines, subscriber lookup, DLQ list).
+- **operator** — viewer, plus DLQ replay and composing broadcasts.
+- **developer** — viewer, plus create/revoke API keys and read an
+  environment's subscriber HMAC secret.
+- **admin** — everything, including creating environments, rotating HMAC
+  secrets, and managing users.
+
+**Bootstrap (root) admin.** On boot, if `DRONTE_ADMIN_EMAIL` and
+`DRONTE_ADMIN_PASSWORD` are set, Dronte ensures an `admin` account with that
+email — creating it, or resetting its password to the env value if it drifted.
+This is the lockout-recovery path: restart with the env vars to restore admin
+access. Everyone else gets their own account from the Users page.
 
 ```bash
-DRONTE_ADMIN_TOKEN=$(openssl rand -hex 32) dronte serve
+DRONTE_ADMIN_EMAIL=ops@example.com \
+DRONTE_ADMIN_PASSWORD="$(openssl rand -hex 24)" \
+DRONTE_ADMIN_TLS_TERMINATED=true \
+  dronte serve
 ```
+
+**TLS is required.** The session cookie is `HttpOnly; SameSite=Strict;
+Path=/admin`, marked `Secure` only when `DRONTE_ADMIN_TLS_TERMINATED=true`.
+The binary serves plain HTTP, so terminate TLS at a proxy and set that flag;
+without it Dronte logs a boot-time warning and the cookie omits `Secure`.
+Passwords and session ids are never logged.
 
 ## License FAQ
 

@@ -9,11 +9,28 @@ mod support;
 
 use dronte::auth::compute_subscriber_hash;
 use dronte::ids;
-use reqwest::header::HeaderValue;
 use serde_json::{Value, json};
 
 fn env_typeid(app: &support::TestApp) -> String {
     ids::typeid(ids::ENVIRONMENT, app.env.id)
+}
+
+/// Status of a GET with the given (already logged-in) client.
+async fn get_status(client: &reqwest::Client, url: String) -> u16 {
+    client.get(url).send().await.unwrap().status().as_u16()
+}
+
+/// Status of a POST (with the CSRF header) using the given client.
+async fn post_status(client: &reqwest::Client, url: String, body: Value) -> u16 {
+    client
+        .post(url)
+        .header("x-dronte-admin", "1")
+        .json(&body)
+        .send()
+        .await
+        .unwrap()
+        .status()
+        .as_u16()
 }
 
 /// Subscriber-plane GET /v1/inbox/counts with a hash computed from `secret`.
@@ -35,58 +52,47 @@ async fn counts_status_with_secret(
 }
 
 // =============================================================================
-// Auth
+// Auth: sessions, login/logout, CSRF, capabilities
 // =============================================================================
 
+/// The JSON API requires a session; the SPA shell is public so it can render
+/// the login screen.
 #[tokio::test]
-async fn every_admin_route_401s_without_the_credential() {
+async fn admin_api_requires_a_session_but_the_spa_shell_is_public() {
     let app = support::spawn().await;
+    let anon = reqwest::Client::new();
 
-    // API route, no credential.
-    let res = app
-        .client
-        .get(format!("{}/admin/api/environments", app.base))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(res.status(), 401);
-    // The 401 prompts the browser via Basic.
+    // API + /me, no session.
     assert_eq!(
-        res.headers().get("www-authenticate"),
-        Some(&HeaderValue::from_static(
-            "Basic realm=\"dronte admin\", charset=\"UTF-8\""
-        ))
+        get_status(&anon, format!("{}/admin/api/environments", app.base)).await,
+        401
+    );
+    assert_eq!(
+        get_status(&anon, format!("{}/admin/api/me", app.base)).await,
+        401
     );
 
-    // SPA shell, no credential.
-    let spa = app
-        .client
+    // The SPA shell loads (so it can render login) — at /admin and nested routes.
+    let spa = anon
         .get(format!("{}/admin", app.base))
         .send()
         .await
         .unwrap();
-    assert_eq!(spa.status(), 401);
+    assert_eq!(spa.status(), 200);
+    assert!(
+        spa.headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("text/html")
+    );
+    assert_eq!(
+        get_status(&anon, format!("{}/admin/environments", app.base)).await,
+        200
+    );
 
-    // A nested SPA route, no credential.
-    let route = app
-        .client
-        .get(format!("{}/admin/environments", app.base))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(route.status(), 401);
-
-    // Wrong password.
-    let wrong = app
-        .client
-        .get(format!("{}/admin/api/environments", app.base))
-        .basic_auth("admin", Some("not-the-token"))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(wrong.status(), 401);
-
-    // Correct credential succeeds for both API and SPA.
+    // The logged-in harness client succeeds.
     assert_eq!(
         app.admin_get("/admin/api/environments")
             .send()
@@ -95,38 +101,519 @@ async fn every_admin_route_401s_without_the_credential() {
             .status(),
         200
     );
-    let spa_ok = app.admin_get("/admin").send().await.unwrap();
-    assert_eq!(spa_ok.status(), 200);
-    assert!(
-        spa_ok
-            .headers()
-            .get("content-type")
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .starts_with("text/html")
-    );
-    // A POST also gates (and a username other than the password is fine).
-    let create_unauth = app
-        .client
-        .post(format!("{}/admin/api/environments", app.base))
-        .json(&json!({"slug": "x", "name": "x"}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(create_unauth.status(), 401);
 }
 
+/// Login failures are generic; success sets a hardened cookie and yields the
+/// user; a mutating request without the CSRF header is refused.
 #[tokio::test]
-async fn admin_plane_disabled_without_a_configured_token() {
-    let app = support::spawn_configured(false, |cfg| cfg.admin_token = None).await;
-    // Even a well-formed credential 401s when the plane is disabled.
-    let res = app
-        .admin_get("/admin/api/environments")
+async fn login_success_failure_and_cookie_flags() {
+    let app = support::spawn().await;
+    let client = reqwest::Client::builder()
+        .cookie_store(true)
+        .build()
+        .unwrap();
+    let login_url = format!("{}/admin/api/login", app.base);
+
+    // Wrong password and unknown email both return the same generic 401.
+    for body in [
+        json!({"email": support::ADMIN_TEST_EMAIL, "password": "wrong-password-xx"}),
+        json!({"email": "nobody@nowhere.test", "password": "whatever-123456"}),
+    ] {
+        let res = client
+            .post(&login_url)
+            .header("x-dronte-admin", "1")
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 401);
+        assert_eq!(
+            res.json::<Value>().await.unwrap()["error"]["message"],
+            json!("invalid email or password")
+        );
+    }
+
+    // Login without the CSRF header is refused.
+    let no_csrf = client
+        .post(&login_url)
+        .json(
+            &json!({"email": support::ADMIN_TEST_EMAIL, "password": support::ADMIN_TEST_PASSWORD}),
+        )
         .send()
         .await
         .unwrap();
-    assert_eq!(res.status(), 401);
+    assert_eq!(no_csrf.status(), 403);
+
+    // Correct login.
+    let ok = client
+        .post(&login_url)
+        .header("x-dronte-admin", "1")
+        .json(
+            &json!({"email": support::ADMIN_TEST_EMAIL, "password": support::ADMIN_TEST_PASSWORD}),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), 200);
+    let set_cookie = ok
+        .headers()
+        .get(reqwest::header::SET_COOKIE)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert!(set_cookie.contains("dronte_admin="));
+    assert!(set_cookie.contains("HttpOnly"));
+    assert!(set_cookie.contains("SameSite=Strict"));
+    assert!(set_cookie.contains("Path=/admin"));
+    // No TLS hint in tests, so no Secure (otherwise the cookie would not ride
+    // over plain HTTP).
+    assert!(!set_cookie.contains("Secure"));
+
+    let me: Value = ok.json().await.unwrap();
+    assert_eq!(me["email"], json!(support::ADMIN_TEST_EMAIL));
+    assert_eq!(me["role"], json!("admin"));
+    assert!(me["id"].as_str().unwrap().starts_with("adm_"));
+    assert!(
+        me["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c == "user:manage")
+    );
+
+    // The session now authenticates.
+    assert_eq!(
+        get_status(&client, format!("{}/admin/api/me", app.base)).await,
+        200
+    );
+}
+
+/// Logout deletes the session row; the cookie no longer authenticates.
+#[tokio::test]
+async fn logout_invalidates_the_session() {
+    let app = support::spawn().await;
+    let client = app
+        .login_client(support::ADMIN_TEST_EMAIL, support::ADMIN_TEST_PASSWORD)
+        .await;
+    assert_eq!(
+        get_status(&client, format!("{}/admin/api/me", app.base)).await,
+        200
+    );
+
+    let out = client
+        .post(format!("{}/admin/api/logout", app.base))
+        .header("x-dronte-admin", "1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(out.status(), 204);
+
+    assert_eq!(
+        get_status(&client, format!("{}/admin/api/me", app.base)).await,
+        401
+    );
+}
+
+/// A session past `expires_at` is rejected.
+#[tokio::test]
+async fn session_expires() {
+    let app = support::spawn_configured(false, |cfg| {
+        cfg.admin_session_ttl = std::time::Duration::from_millis(500);
+    })
+    .await;
+    let client = app
+        .login_client(support::ADMIN_TEST_EMAIL, support::ADMIN_TEST_PASSWORD)
+        .await;
+    assert_eq!(
+        get_status(&client, format!("{}/admin/api/me", app.base)).await,
+        200
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(900)).await;
+    assert_eq!(
+        get_status(&client, format!("{}/admin/api/me", app.base)).await,
+        401
+    );
+}
+
+/// Disabling a user kills their live session and blocks re-login.
+#[tokio::test]
+async fn disabled_user_cannot_authenticate() {
+    let app = support::spawn().await;
+    let created: Value = app
+        .admin_post(
+            "/admin/api/users",
+            json!({"email": "v@disable.test", "name": "V", "role": "viewer", "password": "viewer-password-1"}),
+        )
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let uid = created["id"].as_str().unwrap().to_owned();
+
+    let viewer = app
+        .login_client("v@disable.test", "viewer-password-1")
+        .await;
+    assert_eq!(
+        get_status(&viewer, format!("{}/admin/api/me", app.base)).await,
+        200
+    );
+
+    let patch = app
+        .admin_patch(
+            &format!("/admin/api/users/{uid}"),
+            json!({"disabled": true}),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(patch.status(), 200);
+
+    // Existing session rejected, and re-login refused.
+    assert_eq!(
+        get_status(&viewer, format!("{}/admin/api/me", app.base)).await,
+        401
+    );
+    let relogin = reqwest::Client::new()
+        .post(format!("{}/admin/api/login", app.base))
+        .header("x-dronte-admin", "1")
+        .json(&json!({"email": "v@disable.test", "password": "viewer-password-1"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(relogin.status(), 401);
+}
+
+/// A logged-in but headerless mutating request is refused (CSRF), GET is fine.
+#[tokio::test]
+async fn mutating_requests_require_the_csrf_header() {
+    let app = support::spawn().await;
+    let no_header = app
+        .client
+        .post(format!("{}/admin/api/environments", app.base))
+        .json(&json!({"slug": "csrf", "name": "csrf"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(no_header.status(), 403);
+    assert_eq!(
+        app.client
+            .get(format!("{}/admin/api/environments", app.base))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+}
+
+/// Each role 200s on what it may do and 403s on what it may not.
+#[tokio::test]
+async fn capability_matrix_is_enforced_per_role() {
+    let app = support::spawn().await;
+    let env = env_typeid(&app);
+    for role in ["viewer", "operator", "developer"] {
+        let res = app
+            .admin_post(
+                "/admin/api/users",
+                json!({"email": format!("{role}@matrix.test"), "name": role, "role": role, "password": "password-123456"}),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 201, "create {role}");
+    }
+    let viewer = app
+        .login_client("viewer@matrix.test", "password-123456")
+        .await;
+    let operator = app
+        .login_client("operator@matrix.test", "password-123456")
+        .await;
+    let developer = app
+        .login_client("developer@matrix.test", "password-123456")
+        .await;
+
+    let base = &app.base;
+    let envs_url = || format!("{base}/admin/api/environments");
+    let dlq_url = || format!("{base}/admin/api/dlq/replay-all");
+    let bcast_url = || format!("{base}/admin/api/environments/{env}/broadcasts");
+    let keys_url = || format!("{base}/admin/api/environments/{env}/api-keys");
+    let hmac_url = || format!("{base}/admin/api/environments/{env}/hmac/rotate");
+    let users_url = || format!("{base}/admin/api/users");
+
+    // read: every role can list environments.
+    for c in [&viewer, &operator, &developer] {
+        assert_eq!(get_status(c, envs_url()).await, 200);
+    }
+    // dlq:replay — operator only (of the three).
+    assert_eq!(post_status(&viewer, dlq_url(), json!({})).await, 403);
+    assert_eq!(post_status(&developer, dlq_url(), json!({})).await, 403);
+    assert_eq!(post_status(&operator, dlq_url(), json!({})).await, 200);
+    // broadcast:compose — operator only.
+    assert_eq!(
+        post_status(&viewer, bcast_url(), json!({"category": "x"})).await,
+        403
+    );
+    assert_eq!(
+        post_status(&developer, bcast_url(), json!({"category": "x"})).await,
+        403
+    );
+    assert!(matches!(
+        post_status(&operator, bcast_url(), json!({"category": "x"})).await,
+        200 | 201
+    ));
+    // apikey:read / apikey:manage — developer only.
+    assert_eq!(get_status(&viewer, keys_url()).await, 403);
+    assert_eq!(get_status(&operator, keys_url()).await, 403);
+    assert_eq!(get_status(&developer, keys_url()).await, 200);
+    assert_eq!(
+        post_status(&operator, keys_url(), json!({"name": "k"})).await,
+        403
+    );
+    assert_eq!(
+        post_status(&developer, keys_url(), json!({"name": "k"})).await,
+        201
+    );
+    // env:create / hmac:rotate / user:manage — admin only (none of the three).
+    for c in [&viewer, &operator, &developer] {
+        assert_eq!(
+            post_status(c, envs_url(), json!({"slug": "no", "name": "no"})).await,
+            403
+        );
+        assert_eq!(post_status(c, hmac_url(), json!({})).await, 403);
+        assert_eq!(get_status(c, users_url()).await, 403);
+    }
+}
+
+/// developer/admin see the HMAC secret in the environment detail; viewer does not.
+#[tokio::test]
+async fn env_secret_is_gated_by_capability() {
+    let app = support::spawn().await;
+    let env = env_typeid(&app);
+    for role in ["viewer", "developer"] {
+        app.admin_post(
+            "/admin/api/users",
+            json!({"email": format!("{role}@secret.test"), "name": role, "role": role, "password": "password-123456"}),
+        )
+        .send()
+        .await
+        .unwrap();
+    }
+    let viewer = app
+        .login_client("viewer@secret.test", "password-123456")
+        .await;
+    let developer = app
+        .login_client("developer@secret.test", "password-123456")
+        .await;
+    let url = format!("{}/admin/api/environments/{env}", app.base);
+
+    let v: Value = viewer.get(&url).send().await.unwrap().json().await.unwrap();
+    assert!(
+        v.get("subscriber_hmac_secret").is_none(),
+        "viewer must not see the secret"
+    );
+    let d: Value = developer
+        .get(&url)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        d["subscriber_hmac_secret"]
+            .as_str()
+            .unwrap()
+            .starts_with("whsec_"),
+        "developer must see the secret"
+    );
+    // admin too.
+    let a: Value = app
+        .admin_get(&format!("/admin/api/environments/{env}"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        a["subscriber_hmac_secret"]
+            .as_str()
+            .unwrap()
+            .starts_with("whsec_")
+    );
+}
+
+/// No self-disable, no self-delete, and never remove the last enabled admin.
+#[tokio::test]
+async fn guard_rails_self_and_last_admin() {
+    let app = support::spawn().await;
+    let me: Value = app
+        .admin_get("/admin/api/me")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let my_id = me["id"].as_str().unwrap().to_owned();
+
+    // Cannot disable or delete self.
+    assert_eq!(
+        app.admin_patch(
+            &format!("/admin/api/users/{my_id}"),
+            json!({"disabled": true})
+        )
+        .send()
+        .await
+        .unwrap()
+        .status(),
+        409
+    );
+    assert_eq!(
+        app.admin_delete(&format!("/admin/api/users/{my_id}"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        409
+    );
+    // Cannot demote the last enabled admin.
+    assert_eq!(
+        app.admin_patch(
+            &format!("/admin/api/users/{my_id}"),
+            json!({"role": "viewer"})
+        )
+        .send()
+        .await
+        .unwrap()
+        .status(),
+        409
+    );
+
+    // With a second admin, deleting one is allowed.
+    let other: Value = app
+        .admin_post(
+            "/admin/api/users",
+            json!({"email": "admin2@guard.test", "name": "A2", "role": "admin", "password": "password-123456"}),
+        )
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let other_id = other["id"].as_str().unwrap().to_owned();
+    assert_eq!(
+        app.admin_delete(&format!("/admin/api/users/{other_id}"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
+}
+
+/// Password reset (self-service) invalidates the old password.
+#[tokio::test]
+async fn password_change_then_relogin() {
+    let app = support::spawn().await;
+    app.admin_post(
+        "/admin/api/users",
+        json!({"email": "p@pw.test", "name": "P", "role": "viewer", "password": "old-password-123"}),
+    )
+    .send()
+    .await
+    .unwrap();
+    let user = app.login_client("p@pw.test", "old-password-123").await;
+    let me: Value = user
+        .get(format!("{}/admin/api/me", app.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let uid = me["id"].as_str().unwrap().to_owned();
+
+    // Self-service change.
+    let chg = user
+        .post(format!("{}/admin/api/users/{uid}/password", app.base))
+        .header("x-dronte-admin", "1")
+        .json(&json!({"password": "new-password-456"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(chg.status(), 204);
+
+    // Old password no longer logs in; new one does.
+    let old = reqwest::Client::new()
+        .post(format!("{}/admin/api/login", app.base))
+        .header("x-dronte-admin", "1")
+        .json(&json!({"email": "p@pw.test", "password": "old-password-123"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(old.status(), 401);
+    let _ = app.login_client("p@pw.test", "new-password-456").await;
+}
+
+/// Passwords shorter than the minimum are rejected.
+#[tokio::test]
+async fn short_passwords_are_rejected() {
+    let app = support::spawn().await;
+    let res = app
+        .admin_post(
+            "/admin/api/users",
+            json!({"email": "short@pw.test", "name": "S", "role": "viewer", "password": "short"}),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+}
+
+/// Bootstrap-from-env creates the root admin once and is a no-op on re-run.
+#[tokio::test]
+async fn bootstrap_admin_is_idempotent() {
+    let app = support::spawn_configured(false, |cfg| {
+        cfg.admin_bootstrap_email = Some("root@boot.test".into());
+        cfg.admin_bootstrap_password = Some("root-password-1234".into());
+    })
+    .await;
+
+    dronte::bootstrap::ensure_admin(&app.pool, &app.cfg)
+        .await
+        .unwrap();
+    let hash1: String =
+        sqlx::query_scalar("SELECT password_hash FROM admin_users WHERE email = 'root@boot.test'")
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+
+    // Second run: still one row, unchanged hash (a true no-op).
+    dronte::bootstrap::ensure_admin(&app.pool, &app.cfg)
+        .await
+        .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM admin_users WHERE email = 'root@boot.test'")
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 1);
+    let hash2: String =
+        sqlx::query_scalar("SELECT password_hash FROM admin_users WHERE email = 'root@boot.test'")
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(hash1, hash2, "idempotent boot must not re-hash");
+
+    // The bootstrap admin can log in.
+    let _ = app
+        .login_client("root@boot.test", "root-password-1234")
+        .await;
 }
 
 // =============================================================================

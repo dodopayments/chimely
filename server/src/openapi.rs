@@ -59,7 +59,7 @@ conventional status codes. 429 carries `Retry-After`.
     tags(
         (name = "management", description = "Backend-to-Dronte. Bearer API key."),
         (name = "subscriber", description = "Widget-to-Dronte. HMAC subscriber hash."),
-        (name = "admin", description = "Instance admin dashboard. HTTP Basic (static credential).")
+        (name = "admin", description = "Instance admin dashboard. Built-in users, session cookie.")
     ),
     paths(
         crate::api::management::create_notifications,
@@ -77,9 +77,18 @@ conventional status codes. 429 carries `Retry-After`.
         crate::api::preferences::get_inbox_preferences,
         crate::api::preferences::set_inbox_preferences,
         crate::api::sse::stream,
-        // Phase 4 admin plane (specs/phase-4-admin.md). Additive post-freeze
-        // surface: stripped from the contract convergence diff (ci.yml), kept
-        // in the served/generated spec under the `admin` tag.
+        // Phase 4 admin plane (specs/phase-4-admin.md + the 2026-06-15
+        // multi-user-auth design). Additive post-freeze surface: stripped from
+        // the contract convergence diff (ci.yml), kept in the served/generated
+        // spec under the `admin` tag.
+        crate::api::admin::login,
+        crate::api::admin::logout,
+        crate::api::admin::me,
+        crate::api::admin::list_users,
+        crate::api::admin::create_user,
+        crate::api::admin::update_user,
+        crate::api::admin::set_user_password,
+        crate::api::admin::delete_user,
         crate::api::admin::list_environments,
         crate::api::admin::create_environment,
         crate::api::admin::get_environment,
@@ -144,15 +153,11 @@ pub fn api_doc() -> utoipa::openapi::OpenApi {
         ),
     );
     components.add_security_scheme(
-        "AdminToken",
-        SecurityScheme::Http(
-            utoipa::openapi::security::HttpBuilder::new()
-                .scheme(HttpAuthScheme::Basic)
-                .description(Some(
-                    "Instance admin credential (DRONTE_ADMIN_TOKEN) as the HTTP Basic password.",
-                ))
-                .build(),
-        ),
+        "AdminSession",
+        SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::with_description(
+            "dronte_admin",
+            "Server-side admin session cookie, set by POST /admin/api/login.",
+        ))),
     );
     components.add_security_scheme(
         "SubscriberEnv",
