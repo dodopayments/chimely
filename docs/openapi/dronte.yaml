@@ -37,7 +37,7 @@ info:
 
     **Errors** use a single envelope: `{"error": {"code", "message"}}` with
     conventional status codes. 429 carries `Retry-After`.
-  version: 1.0.0
+  version: 0.1.0
 servers:
 - url: https://dronte.example.com
 paths:

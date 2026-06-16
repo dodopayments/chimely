@@ -98,7 +98,7 @@ require a CLA so exclusive commercialization rights hold.
 - The contract is **code-first via utoipa**; `dronte openapi` prints the
   generated spec (CI exports it; the docs site and `@dronte/client` types are
   built from it).
-- **The generated spec is the published truth** (since v1.0.0). The
+- **The generated spec is the published truth** (since the v1 flip). The
   hand-written convergence target retired to
   `project/archive-v1/openapi.yaml`; never converge code toward it again. The
   `contract` CI job runs oasdiff **breaking-change detection** of the live
@@ -117,7 +117,7 @@ require a CLA so exclusive commercialization rights hold.
 ## Archived v1 contracts (project/archive-v1, read-only)
 
 `project/archive-v1/{schema.sql,openapi.yaml,sdk-api.d.ts}` are the frozen v1
-contracts (tagged `contract-v1`), archived at the v1.0.0 flip. They are
+contracts (tagged `contract-v1`), archived at the v1 flip. They are
 historical: the generated spec is now the published truth, so do not edit them
 and do not converge code toward `openapi.yaml` anymore. `schema.sql` stays the
 reference for the schema invariants the migrations implement, and
@@ -161,7 +161,7 @@ specs.
 
 **Server:** Rust stable (2024 edition, pinned via rust-toolchain.toml), axum 0.8 on tokio, sqlx (compile-time-checked raw SQL; built-in migrator, run on boot under advisory lock), Postgres ≥15, `fred` Redis client (resilient pub/sub), Redis Lua token bucket for cross-replica rate limiting, RustCrypto hmac+sha2, thiserror/anyhow, tracing + OTLP, metrics + Prometheus exporter. Single crate until compile times force a split.
 
-**Contract tooling:** code-first via utoipa, rendered docs served from the binary via utoipa-scalar at /docs. Since v1.0.0 the generated spec (`cargo run -- openapi`) is the published artifact; the hand-written convergence target retired to project/archive-v1/openapi.yaml. The `contract` CI job runs oasdiff breaking-change detection of the live spec against project/openapi-baseline.yaml (the export frozen at the last release). openapi-typescript consumes the generated spec for @dronte/client types in the same CI step. Annotation-vs-handler drift (utoipa response codes are hand-annotated) is guarded by the Rust contract-drift integration tests (server/tests/redteam_contract_drift*.rs), which assert the status a handler returns is the status its annotation declares. The light schemathesis run named in the original plan was never wired into CI; these tests are the guard in its place.
+**Contract tooling:** code-first via utoipa, rendered docs served from the binary via utoipa-scalar at /docs. Since the v1 flip the generated spec (`cargo run -- openapi`) is the published artifact; the hand-written convergence target retired to project/archive-v1/openapi.yaml. The `contract` CI job runs oasdiff breaking-change detection of the live spec against project/openapi-baseline.yaml (the export frozen at the last release). openapi-typescript consumes the generated spec for @dronte/client types in the same CI step. Annotation-vs-handler drift (utoipa response codes are hand-annotated) is guarded by the Rust contract-drift integration tests (server/tests/redteam_contract_drift*.rs), which assert the status a handler returns is the status its annotation declares. The light schemathesis run named in the original plan was never wired into CI; these tests are the guard in its place.
 
 **Testing:** testcontainers-rs (Postgres + Redis), cargo-nextest, proptest for two-source merge and watermark invariants.
 

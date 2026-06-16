@@ -1,10 +1,10 @@
 //! Code-first OpenAPI document (utoipa).
 //!
-//! Contract rule (see CLAUDE.md): until v1, `specs/openapi.yaml` is the
-//! convergence target. CI exports this document (`dronte openapi`) and runs
-//! oasdiff against the spec; the diff is the to-do list. All free text below
-//! is verbatim from the spec — the goal is an empty delta for implemented
-//! surface.
+//! Contract rule (see CLAUDE.md): the generated spec is the published truth.
+//! `dronte openapi` exports this document. The contract CI job runs oasdiff
+//! breaking-change detection of the export against
+//! project/openapi-baseline.yaml. The hand-written convergence target retired
+//! to project/archive-v1/openapi.yaml.
 
 use utoipa::OpenApi;
 use utoipa::openapi::content::ContentBuilder;
@@ -13,7 +13,7 @@ use utoipa::openapi::schema::{ObjectBuilder, Type};
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, SecurityScheme};
 use utoipa::openapi::{Ref, ServerBuilder};
 
-/// Verbatim from specs/openapi.yaml `info.description`.
+/// Verbatim from project/archive-v1/openapi.yaml `info.description`.
 const INFO_DESCRIPTION: &str = r#"Two planes, one binary:
 
 * **Management plane** — called by the customer's backend with a Bearer API
@@ -51,11 +51,12 @@ treat ids as opaque strings.
 conventional status codes. 429 carries `Retry-After`.
 "#;
 
-/// Title/version deliberately mirror specs/openapi.yaml so the oasdiff delta
-/// is only the parts we haven't built yet, not metadata noise.
+/// info.version is the published API contract version. The generated spec is
+/// the source of truth and the contract gate diffs it against
+/// project/openapi-baseline.yaml (see CLAUDE.md "API contract rules").
 #[derive(OpenApi)]
 #[openapi(
-    info(title = "Dronte API", version = "1.0.0"),
+    info(title = "Dronte API", version = "0.1.0"),
     tags(
         (name = "management", description = "Backend-to-Dronte. Bearer API key."),
         (name = "subscriber", description = "Widget-to-Dronte. HMAC subscriber hash."),
@@ -376,7 +377,7 @@ mod tests {
     fn exports_yaml_with_expected_identity() {
         let yaml = api_doc().to_yaml().expect("spec serializes");
         assert!(yaml.contains("title: Dronte API"));
-        assert!(yaml.contains("version: 1.0.0"));
+        assert!(yaml.contains("version: 0.1.0"));
     }
 
     #[test]
