@@ -1,6 +1,6 @@
 {
   "name": "dronte-example-nextjs",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "description": "Dronte 30-second quickstart: the drop-in <Inbox /> in a Next.js app.",
   "license": "MIT",
