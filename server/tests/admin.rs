@@ -426,7 +426,7 @@ async fn env_secret_is_gated_by_capability() {
         d["subscriber_hmac_secret"]
             .as_str()
             .unwrap()
-            .starts_with("whsec_"),
+            .starts_with("shmac_"),
         "developer must see the secret"
     );
     // admin too.
@@ -442,7 +442,7 @@ async fn env_secret_is_gated_by_capability() {
         a["subscriber_hmac_secret"]
             .as_str()
             .unwrap()
-            .starts_with("whsec_")
+            .starts_with("shmac_")
     );
 }
 
