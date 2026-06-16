@@ -57,9 +57,15 @@ paths:
                 items:
                   $ref: '#/components/schemas/AdminDeadLetter'
         '401':
-          description: Admin authentication required.
+          description: Authentication required (no or expired session).
+        '403':
+          description: Authenticated but the role lacks the capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
       security:
-      - AdminToken: []
+      - AdminSession: []
   /admin/api/dlq/replay-all:
     post:
       tags:
@@ -74,9 +80,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/AdminReplayResult'
         '401':
-          description: Admin authentication required.
+          description: Authentication required (no or expired session).
+        '403':
+          description: Authenticated but the role lacks the capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
       security:
-      - AdminToken: []
+      - AdminSession: []
   /admin/api/dlq/{job_id}/replay:
     post:
       tags:
@@ -99,7 +111,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/AdminReplayResult'
         '401':
-          description: Admin authentication required.
+          description: Authentication required (no or expired session).
+        '403':
+          description: Authenticated but the role lacks the capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
           description: No such parked job.
           content:
@@ -107,7 +125,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       security:
-      - AdminToken: []
+      - AdminSession: []
   /admin/api/environments:
     get:
       tags:
@@ -124,9 +142,15 @@ paths:
                 items:
                   $ref: '#/components/schemas/AdminEnvironment'
         '401':
-          description: Admin authentication required.
+          description: Authentication required (no or expired session).
+        '403':
+          description: Authenticated but the role lacks the capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
       security:
-      - AdminToken: []
+      - AdminSession: []
     post:
       tags:
       - admin
@@ -152,9 +176,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
-          description: Admin authentication required.
+          description: Authentication required (no or expired session).
+        '403':
+          description: Authenticated but the role lacks the capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
       security:
-      - AdminToken: []
+      - AdminSession: []
   /admin/api/environments/{env_id}:
     get:
       tags:
@@ -176,7 +206,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/AdminEnvironmentDetail'
         '401':
-          description: Admin authentication required.
+          description: Authentication required (no or expired session).
+        '403':
+          description: Authenticated but the role lacks the capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
           description: No such environment.
           content:
@@ -184,7 +220,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       security:
-      - AdminToken: []
+      - AdminSession: []
   /admin/api/environments/{env_id}/api-keys:
     get:
       tags:
@@ -208,7 +244,13 @@ paths:
                 items:
                   $ref: '#/components/schemas/AdminApiKey'
         '401':
-          description: Admin authentication required.
+          description: Authentication required (no or expired session).
+        '403':
+          description: Authenticated but the role lacks the capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
           description: No such environment.
           content:
@@ -216,7 +258,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       security:
-      - AdminToken: []
+      - AdminSession: []
     post:
       tags:
       - admin
@@ -249,7 +291,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
-          description: Admin authentication required.
+          description: Authentication required (no or expired session).
+        '403':
+          description: Authenticated but the role lacks the capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
           description: No such environment.
           content:
@@ -257,7 +305,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       security:
-      - AdminToken: []
+      - AdminSession: []
   /admin/api/environments/{env_id}/api-keys/{key_id}/revoke:
     post:
       tags:
@@ -281,7 +329,13 @@ paths:
         '204':
           description: Revoked (now or already).
         '401':
-          description: Admin authentication required.
+          description: Authentication required (no or expired session).
+        '403':
+          description: Authenticated but the role lacks the capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
           description: No such API key.
           content:
@@ -289,7 +343,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       security:
-      - AdminToken: []
+      - AdminSession: []
   /admin/api/environments/{env_id}/broadcasts:
     post:
       tags:
@@ -330,7 +384,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
-          description: Admin authentication required.
+          description: Authentication required (no or expired session).
+        '403':
+          description: Authenticated but the role lacks the capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
           description: No such environment.
           content:
@@ -338,7 +398,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       security:
-      - AdminToken: []
+      - AdminSession: []
   /admin/api/environments/{env_id}/hmac/rotate:
     post:
       tags:
@@ -366,7 +426,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/AdminHmacRotation'
         '401':
-          description: Admin authentication required.
+          description: Authentication required (no or expired session).
+        '403':
+          description: Authenticated but the role lacks the capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
           description: No such environment.
           content:
@@ -374,7 +440,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       security:
-      - AdminToken: []
+      - AdminSession: []
   /admin/api/environments/{env_id}/hmac/rotate/complete:
     post:
       tags:
@@ -392,7 +458,13 @@ paths:
         '204':
           description: Previous secret cleared.
         '401':
-          description: Admin authentication required.
+          description: Authentication required (no or expired session).
+        '403':
+          description: Authenticated but the role lacks the capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
           description: No such environment.
           content:
@@ -400,7 +472,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       security:
-      - AdminToken: []
+      - AdminSession: []
   /admin/api/environments/{env_id}/notifications:
     get:
       tags:
@@ -471,7 +543,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
-          description: Admin authentication required.
+          description: Authentication required (no or expired session).
+        '403':
+          description: Authenticated but the role lacks the capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
           description: No such environment.
           content:
@@ -479,7 +557,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       security:
-      - AdminToken: []
+      - AdminSession: []
   /admin/api/environments/{env_id}/notifications/{notif_id}/timeline:
     get:
       tags:
@@ -507,7 +585,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/AdminNotificationTimeline'
         '401':
-          description: Admin authentication required.
+          description: Authentication required (no or expired session).
+        '403':
+          description: Authenticated but the role lacks the capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
           description: No such notification.
           content:
@@ -515,7 +599,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       security:
-      - AdminToken: []
+      - AdminSession: []
   /admin/api/environments/{env_id}/subscribers/{subscriber_id}:
     get:
       tags:
@@ -543,7 +627,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/AdminSubscriberView'
         '401':
-          description: Admin authentication required.
+          description: Authentication required (no or expired session).
+        '403':
+          description: Authenticated but the role lacks the capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
           description: No such subscriber.
           content:
@@ -551,7 +641,275 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
       security:
-      - AdminToken: []
+      - AdminSession: []
+  /admin/api/login:
+    post:
+      tags:
+      - admin
+      summary: Log in with email + password; starts a server-side session
+      description: On success sets the `dronte_admin` session cookie (HttpOnly, SameSite=Strict, Path=/admin). Failure returns a generic error that does not reveal which field was wrong.
+      operationId: adminLogin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminLoginRequest'
+        required: true
+      responses:
+        '200':
+          description: Logged in; sets the session cookie.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminMe'
+        '401':
+          description: Invalid email or password.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Missing X-Dronte-Admin header.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /admin/api/logout:
+    post:
+      tags:
+      - admin
+      summary: 'Log out: delete the session and clear the cookie'
+      operationId: adminLogout
+      responses:
+        '204':
+          description: Logged out.
+        '401':
+          description: Authentication required (no or expired session).
+        '403':
+          description: Missing X-Dronte-Admin header.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - AdminSession: []
+  /admin/api/me:
+    get:
+      tags:
+      - admin
+      summary: The signed-in admin user, role, and capabilities
+      operationId: adminMe
+      responses:
+        '200':
+          description: The current user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminMe'
+        '401':
+          description: Authentication required (no or expired session).
+      security:
+      - AdminSession: []
+  /admin/api/users:
+    get:
+      tags:
+      - admin
+      summary: List admin users
+      operationId: adminListUsers
+      responses:
+        '200':
+          description: Users.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminUserView'
+        '401':
+          description: Authentication required (no or expired session).
+        '403':
+          description: Requires user:manage.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - AdminSession: []
+    post:
+      tags:
+      - admin
+      summary: Create an admin user
+      operationId: adminCreateUser
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCreateUserRequest'
+        required: true
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserView'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required (no or expired session).
+        '403':
+          description: Requires user:manage.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Email already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - AdminSession: []
+  /admin/api/users/{user_id}:
+    delete:
+      tags:
+      - admin
+      summary: Delete an admin user
+      operationId: adminDeleteUser
+      parameters:
+      - name: user_id
+        in: path
+        description: Admin user TypeID (adm_…).
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          description: Authentication required (no or expired session).
+        '403':
+          description: Requires user:manage.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No such user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Self-delete or last-admin guard rail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - AdminSession: []
+    patch:
+      tags:
+      - admin
+      summary: Update an admin user's name, role, or disabled state
+      operationId: adminUpdateUser
+      parameters:
+      - name: user_id
+        in: path
+        description: Admin user TypeID (adm_…).
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUpdateUserRequest'
+        required: true
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserView'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required (no or expired session).
+        '403':
+          description: Requires user:manage.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No such user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Self-disable or last-admin guard rail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - AdminSession: []
+  /admin/api/users/{user_id}/password:
+    post:
+      tags:
+      - admin
+      summary: Set a user's password (user:manage, or the user themselves)
+      operationId: adminSetUserPassword
+      parameters:
+      - name: user_id
+        in: path
+        description: Admin user TypeID (adm_…).
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminSetPasswordRequest'
+        required: true
+      responses:
+        '204':
+          description: Password updated.
+        '400':
+          description: Password too short.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required (no or expired session).
+        '403':
+          description: Not user:manage and not the target user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No such user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - AdminSession: []
   /v1/broadcasts:
     post:
       tags:
@@ -1246,6 +1604,23 @@ components:
           description: Production default true; set false for a dev/quickstart environment.
         slug:
           type: string
+    AdminCreateUserRequest:
+      type: object
+      required:
+      - email
+      - name
+      - role
+      - password
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+        password:
+          type: string
+          description: At least 12 characters (server-enforced). The UI shows it once.
+        role:
+          type: string
     AdminDeadLetter:
       type: object
       required:
@@ -1297,7 +1672,6 @@ components:
       - slug
       - name
       - require_subscriber_hash
-      - subscriber_hmac_secret
       - has_previous_secret
       - created_at
       properties:
@@ -1322,8 +1696,10 @@ components:
         subscriber_hmac_secret:
           type: string
           description: |-
-            The dedicated subscriber HMAC secret. Plaintext by design (the
-            customer backend computes hashes with it) and operator-only.
+            The dedicated subscriber HMAC secret. Plaintext by design (the customer
+            backend computes hashes with it). Returned only to roles holding
+            `env:read_secret` (developer/admin). Omitted entirely otherwise.
+          nullable: true
     AdminHmacRotation:
       type: object
       required:
@@ -1361,6 +1737,42 @@ components:
           type: boolean
         source:
           type: string
+    AdminLoginRequest:
+      type: object
+      required:
+      - email
+      - password
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+    AdminMe:
+      type: object
+      required:
+      - id
+      - email
+      - name
+      - role
+      - capabilities
+      properties:
+        capabilities:
+          type: array
+          items:
+            type: string
+          description: |-
+            Capability strings the SPA gates UI on (server-side enforcement is the
+            real boundary).
+        email:
+          type: string
+        id:
+          type: string
+          description: TypeID, `adm_…`.
+        name:
+          type: string
+        role:
+          type: string
+          description: '''viewer'' | ''operator'' | ''developer'' | ''admin''.'
     AdminNotification:
       type: object
       required:
@@ -1438,6 +1850,13 @@ components:
           type: integer
           format: int64
           description: Number of parked jobs moved back into the claim path.
+    AdminSetPasswordRequest:
+      type: object
+      required:
+      - password
+      properties:
+        password:
+          type: string
     AdminSubscriberView:
       type: object
       required:
@@ -1480,6 +1899,44 @@ components:
         occurred_at:
           type: string
         status:
+          type: string
+    AdminUpdateUserRequest:
+      type: object
+      properties:
+        disabled:
+          type: boolean
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        role:
+          type: string
+          nullable: true
+    AdminUserView:
+      type: object
+      required:
+      - id
+      - email
+      - name
+      - role
+      - disabled
+      - created_at
+      - updated_at
+      properties:
+        created_at:
+          type: string
+        disabled:
+          type: boolean
+        email:
+          type: string
+        id:
+          type: string
+          description: TypeID, `adm_…`.
+        name:
+          type: string
+        role:
+          type: string
+        updated_at:
           type: string
     Broadcast:
       type: object
@@ -1790,10 +2247,11 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   securitySchemes:
-    AdminToken:
-      type: http
-      scheme: basic
-      description: Instance admin credential (DRONTE_ADMIN_TOKEN) as the HTTP Basic password.
+    AdminSession:
+      type: apiKey
+      in: cookie
+      name: dronte_admin
+      description: Server-side admin session cookie, set by POST /admin/api/login.
     ApiKeyBearer:
       type: http
       scheme: bearer
@@ -1851,4 +2309,4 @@ tags:
 - name: subscriber
   description: Widget-to-Dronte. HMAC subscriber hash.
 - name: admin
-  description: Instance admin dashboard. HTTP Basic (static credential).
+  description: Instance admin dashboard. Built-in users, session cookie.

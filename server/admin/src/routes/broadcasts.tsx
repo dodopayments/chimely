@@ -4,15 +4,18 @@ import { Radio } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { EnvNav } from '@/components/env-nav';
+import { EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { api, ApiRequestError } from '@/lib/api';
+import { CAP, useAuth } from '@/lib/auth';
 
 export function BroadcastsRoute() {
   const { envId } = useParams({ strict: false }) as { envId: string };
+  const { has } = useAuth();
   const [category, setCategory] = useState('');
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
@@ -59,7 +62,8 @@ export function BroadcastsRoute() {
       </div>
       <EnvNav envId={envId} />
 
-      <Card className="max-w-2xl">
+      {has(CAP.broadcastCompose) ? (
+        <Card className="max-w-2xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Radio className="size-4 text-primary" /> New broadcast
@@ -114,7 +118,13 @@ export function BroadcastsRoute() {
             </div>
           </form>
         </CardContent>
-      </Card>
+        </Card>
+      ) : (
+        <EmptyState
+          title="Not authorized"
+          hint="Composing broadcasts requires the operator or admin role."
+        />
+      )}
     </div>
   );
 }

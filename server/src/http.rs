@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use axum::http::{HeaderName, Method, StatusCode, header};
-use axum::routing::{get, post, put};
+use axum::routing::{get, patch, post, put};
 use axum::{Router, middleware};
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use tower_http::cors::{Any, CorsLayer};
@@ -76,8 +76,9 @@ pub fn router(state: AppState) -> Router {
         )
         // Subscriber plane (CORS-enabled)
         .merge(subscriber_plane)
-        // Admin plane (the embedded /admin dashboard). Every route gates on
-        // AdminAuth (HTTP Basic, the static DRONTE_ADMIN_TOKEN). No CORS:
+        // Admin plane (the embedded /admin dashboard). The JSON API gates on
+        // AdminAuth (a server-side session cookie + per-endpoint capability).
+        // The SPA shell is public so it can render the login screen. No CORS:
         // the dashboard is same-origin, served from this binary. Explicit
         // API routes are matched before the SPA wildcard fallback.
         .merge(admin_plane())
@@ -94,10 +95,29 @@ pub fn router(state: AppState) -> Router {
 }
 
 /// The embedded admin dashboard: its JSON API plus the rust-embedded SPA.
-/// Every handler resolves `AdminAuth` first, so an unauthenticated request to
-/// any path here — API or SPA — is a 401 with `WWW-Authenticate: Basic`.
+/// Data endpoints resolve `AdminAuth` (session cookie) and a capability.
+/// `login` is public (it issues the session) and the SPA shell is public (it
+/// renders the login screen). The SPA wildcard is matched only after the
+/// explicit API routes.
 fn admin_plane() -> Router<AppState> {
     Router::new()
+        // Session auth + the signed-in user.
+        .route("/admin/api/login", post(admin::login))
+        .route("/admin/api/logout", post(admin::logout))
+        .route("/admin/api/me", get(admin::me))
+        // Admin user management (admin only).
+        .route(
+            "/admin/api/users",
+            get(admin::list_users).post(admin::create_user),
+        )
+        .route(
+            "/admin/api/users/{user_id}",
+            patch(admin::update_user).delete(admin::delete_user),
+        )
+        .route(
+            "/admin/api/users/{user_id}/password",
+            post(admin::set_user_password),
+        )
         .route(
             "/admin/api/environments",
             get(admin::list_environments).post(admin::create_environment),

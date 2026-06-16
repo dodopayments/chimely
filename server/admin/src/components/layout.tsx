@@ -1,15 +1,25 @@
 import { Link, Outlet } from '@tanstack/react-router';
-import { AlertTriangle, Boxes, LayoutDashboard, Monitor, Moon, Sun } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import {
+  AlertTriangle,
+  Boxes,
+  LayoutDashboard,
+  LogOut,
+  Monitor,
+  Moon,
+  Sun,
+  Users,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
+import { CAP, useAuth } from '@/lib/auth';
 import { useTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
 const NAV = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-  { to: '/environments', label: 'Environments', icon: Boxes, exact: false },
-  { to: '/dlq', label: 'Dead-letter queue', icon: AlertTriangle, exact: true },
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true, cap: CAP.read },
+  { to: '/environments', label: 'Environments', icon: Boxes, exact: false, cap: CAP.read },
+  { to: '/dlq', label: 'Dead-letter queue', icon: AlertTriangle, exact: true, cap: CAP.read },
+  { to: '/users', label: 'Users', icon: Users, exact: false, cap: CAP.userManage },
 ] as const;
 
 function ThemeToggle() {
@@ -33,28 +43,9 @@ function ThemeToggle() {
   );
 }
 
-function Unauthorized() {
-  return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 text-center">
-      <h1 className="text-xl font-semibold">Session expired</h1>
-      <p className="max-w-sm text-muted-foreground">
-        Your admin credential is no longer valid. Reload the page to re-authenticate.
-      </p>
-      <Button onClick={() => window.location.reload()}>Reload</Button>
-    </div>
-  );
-}
-
 export function Layout() {
-  const [unauthorized, setUnauthorized] = useState(false);
-
-  useEffect(() => {
-    const handler = () => setUnauthorized(true);
-    window.addEventListener('dronte-admin-unauthorized', handler);
-    return () => window.removeEventListener('dronte-admin-unauthorized', handler);
-  }, []);
-
-  if (unauthorized) return <Unauthorized />;
+  const { user, has, logout } = useAuth();
+  const items = NAV.filter((n) => has(n.cap));
 
   return (
     <div className="grid min-h-screen grid-cols-[15rem_1fr] max-md:grid-cols-1">
@@ -65,7 +56,7 @@ export function Layout() {
           <span className="text-xs text-muted-foreground">admin</span>
         </div>
         <nav className="flex flex-1 flex-col gap-1 p-3">
-          {NAV.map(({ to, label, icon: Icon, exact }) => (
+          {items.map(({ to, label, icon: Icon, exact }) => (
             <Link
               key={to}
               to={to}
@@ -83,14 +74,33 @@ export function Layout() {
             </Link>
           ))}
         </nav>
-        <div className="border-t border-border p-3">
+        <div className="flex flex-col gap-3 border-t border-border p-3">
+          <div className="px-1">
+            <p className="truncate text-sm font-medium" title={user.name}>
+              {user.name}
+            </p>
+            <p className="truncate text-xs text-muted-foreground" title={user.email}>
+              {user.email}
+            </p>
+            <span className="mt-1.5 inline-block rounded bg-primary/10 px-1.5 py-0.5 text-xs font-medium capitalize text-primary">
+              {user.role}
+            </span>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => void logout()}>
+            <LogOut className="size-4" /> Sign out
+          </Button>
           <ThemeToggle />
         </div>
       </aside>
       <main className="min-w-0 overflow-x-hidden">
         <header className="flex h-14 items-center justify-between gap-4 border-b border-border px-6 md:hidden">
           <span className="font-semibold">Dronte admin</span>
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Button variant="outline" size="icon" aria-label="Sign out" onClick={() => void logout()}>
+              <LogOut className="size-4" />
+            </Button>
+          </div>
         </header>
         <div className="mx-auto max-w-6xl p-6">
           <Outlet />

@@ -240,6 +240,113 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/api/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Log in with email + password; starts a server-side session
+         * @description On success sets the `dronte_admin` session cookie (HttpOnly, SameSite=Strict, Path=/admin). Failure returns a generic error that does not reveal which field was wrong.
+         */
+        post: operations["adminLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Log out: delete the session and clear the cookie */
+        post: operations["adminLogout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The signed-in admin user, role, and capabilities */
+        get: operations["adminMe"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List admin users */
+        get: operations["adminListUsers"];
+        put?: never;
+        /** Create an admin user */
+        post: operations["adminCreateUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete an admin user */
+        delete: operations["adminDeleteUser"];
+        options?: never;
+        head?: never;
+        /** Update an admin user's name, role, or disabled state */
+        patch: operations["adminUpdateUser"];
+        trace?: never;
+    };
+    "/admin/api/users/{user_id}/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set a user's password (user:manage, or the user themselves) */
+        post: operations["adminSetUserPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/broadcasts": {
         parameters: {
             query?: never;
@@ -602,6 +709,13 @@ export interface components {
             require_subscriber_hash?: boolean;
             slug: string;
         };
+        AdminCreateUserRequest: {
+            email: string;
+            name: string;
+            /** @description At least 12 characters (server-enforced). The UI shows it once. */
+            password: string;
+            role: string;
+        };
         AdminDeadLetter: {
             /** Format: int32 */
             attempts: number;
@@ -633,10 +747,11 @@ export interface components {
             slug: string;
             subscriber_hmac_rotated_at?: string | null;
             /**
-             * @description The dedicated subscriber HMAC secret. Plaintext by design (the
-             *     customer backend computes hashes with it) and operator-only.
+             * @description The dedicated subscriber HMAC secret. Plaintext by design (the customer
+             *     backend computes hashes with it). Returned only to roles holding
+             *     `env:read_secret` (developer/admin). Omitted entirely otherwise.
              */
-            subscriber_hmac_secret: string;
+            subscriber_hmac_secret?: string | null;
         };
         AdminHmacRotation: {
             has_previous_secret: boolean;
@@ -654,6 +769,23 @@ export interface components {
             payload: unknown;
             read: boolean;
             source: string;
+        };
+        AdminLoginRequest: {
+            email: string;
+            password: string;
+        };
+        AdminMe: {
+            /**
+             * @description Capability strings the SPA gates UI on (server-side enforcement is the
+             *     real boundary).
+             */
+            capabilities: string[];
+            email: string;
+            /** @description TypeID, `adm_…`. */
+            id: string;
+            name: string;
+            /** @description 'viewer' | 'operator' | 'developer' | 'admin'. */
+            role: string;
         };
         AdminNotification: {
             category: string;
@@ -687,6 +819,9 @@ export interface components {
              */
             replayed: number;
         };
+        AdminSetPasswordRequest: {
+            password: string;
+        };
         AdminSubscriberView: {
             counters: components["schemas"]["AdminCounts"];
             /** @description Governs broadcast visibility (`broadcast.created_at >= this`). */
@@ -704,6 +839,21 @@ export interface components {
         AdminTimelineEntry: {
             occurred_at: string;
             status: string;
+        };
+        AdminUpdateUserRequest: {
+            disabled?: boolean | null;
+            name?: string | null;
+            role?: string | null;
+        };
+        AdminUserView: {
+            created_at: string;
+            disabled: boolean;
+            email: string;
+            /** @description TypeID, `adm_…`. */
+            id: string;
+            name: string;
+            role: string;
+            updated_at: string;
         };
         Broadcast: {
             category: string;
@@ -924,12 +1074,21 @@ export interface operations {
                     "application/json": components["schemas"]["AdminDeadLetter"][];
                 };
             };
-            /** @description Admin authentication required. */
+            /** @description Authentication required (no or expired session). */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Authenticated but the role lacks the capability. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
         };
     };
@@ -951,12 +1110,21 @@ export interface operations {
                     "application/json": components["schemas"]["AdminReplayResult"];
                 };
             };
-            /** @description Admin authentication required. */
+            /** @description Authentication required (no or expired session). */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Authenticated but the role lacks the capability. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
         };
     };
@@ -981,12 +1149,21 @@ export interface operations {
                     "application/json": components["schemas"]["AdminReplayResult"];
                 };
             };
-            /** @description Admin authentication required. */
+            /** @description Authentication required (no or expired session). */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Authenticated but the role lacks the capability. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description No such parked job. */
             404: {
@@ -1017,12 +1194,21 @@ export interface operations {
                     "application/json": components["schemas"]["AdminEnvironment"][];
                 };
             };
-            /** @description Admin authentication required. */
+            /** @description Authentication required (no or expired session). */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Authenticated but the role lacks the capability. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
         };
     };
@@ -1057,12 +1243,21 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Admin authentication required. */
+            /** @description Authentication required (no or expired session). */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Authenticated but the role lacks the capability. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
         };
     };
@@ -1087,12 +1282,21 @@ export interface operations {
                     "application/json": components["schemas"]["AdminEnvironmentDetail"];
                 };
             };
-            /** @description Admin authentication required. */
+            /** @description Authentication required (no or expired session). */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Authenticated but the role lacks the capability. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description No such environment. */
             404: {
@@ -1126,12 +1330,21 @@ export interface operations {
                     "application/json": components["schemas"]["AdminApiKey"][];
                 };
             };
-            /** @description Admin authentication required. */
+            /** @description Authentication required (no or expired session). */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Authenticated but the role lacks the capability. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description No such environment. */
             404: {
@@ -1178,12 +1391,21 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Admin authentication required. */
+            /** @description Authentication required (no or expired session). */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Authenticated but the role lacks the capability. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description No such environment. */
             404: {
@@ -1217,12 +1439,21 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Admin authentication required. */
+            /** @description Authentication required (no or expired session). */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Authenticated but the role lacks the capability. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description No such API key. */
             404: {
@@ -1278,12 +1509,21 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Admin authentication required. */
+            /** @description Authentication required (no or expired session). */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Authenticated but the role lacks the capability. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description No such environment. */
             404: {
@@ -1317,12 +1557,21 @@ export interface operations {
                     "application/json": components["schemas"]["AdminHmacRotation"];
                 };
             };
-            /** @description Admin authentication required. */
+            /** @description Authentication required (no or expired session). */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Authenticated but the role lacks the capability. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description No such environment. */
             404: {
@@ -1354,12 +1603,21 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Admin authentication required. */
+            /** @description Authentication required (no or expired session). */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Authenticated but the role lacks the capability. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description No such environment. */
             404: {
@@ -1412,12 +1670,21 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Admin authentication required. */
+            /** @description Authentication required (no or expired session). */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Authenticated but the role lacks the capability. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description No such environment. */
             404: {
@@ -1453,12 +1720,21 @@ export interface operations {
                     "application/json": components["schemas"]["AdminNotificationTimeline"];
                 };
             };
-            /** @description Admin authentication required. */
+            /** @description Authentication required (no or expired session). */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Authenticated but the role lacks the capability. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description No such notification. */
             404: {
@@ -1494,14 +1770,404 @@ export interface operations {
                     "application/json": components["schemas"]["AdminSubscriberView"];
                 };
             };
-            /** @description Admin authentication required. */
+            /** @description Authentication required (no or expired session). */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            /** @description Authenticated but the role lacks the capability. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description No such subscriber. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Logged in; sets the session cookie. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminMe"];
+                };
+            };
+            /** @description Invalid email or password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Missing X-Dronte-Admin header. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminLogout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Logged out. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required (no or expired session). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing X-Dronte-Admin header. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminMe"];
+                };
+            };
+            /** @description Authentication required (no or expired session). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    adminListUsers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Users. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUserView"][];
+                };
+            };
+            /** @description Authentication required (no or expired session). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Requires user:manage. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminCreateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminCreateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUserView"];
+                };
+            };
+            /** @description Validation error. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required (no or expired session). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Requires user:manage. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Email already exists. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminDeleteUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Admin user TypeID (adm_…). */
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required (no or expired session). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Requires user:manage. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Self-delete or last-admin guard rail. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminUpdateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Admin user TypeID (adm_…). */
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminUpdateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUserView"];
+                };
+            };
+            /** @description Validation error. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required (no or expired session). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Requires user:manage. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Self-disable or last-admin guard rail. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminSetUserPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Admin user TypeID (adm_…). */
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminSetPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Password updated. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Password too short. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required (no or expired session). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not user:manage and not the target user. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such user. */
             404: {
                 headers: {
                     [name: string]: unknown;

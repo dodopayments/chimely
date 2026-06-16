@@ -1,4 +1,4 @@
-//! Both auth planes (specs/openapi.yaml, "securitySchemes").
+//! The three auth planes.
 //!
 //! Management: `Authorization: Bearer <key>`; sha256(key) looked up over
 //! non-revoked api_keys rows. The environment is implied by the key.
@@ -8,23 +8,29 @@
 //! subscriber_id))`, verified against the current then the previous secret
 //! slot so secret rotation never invalidates live sessions. Headers with
 //! query-parameter fallbacks (EventSource cannot set headers).
+//!
+//! Admin: built-in users (Argon2id passwords) with a server-side session in
+//! an HttpOnly, SameSite=Strict cookie scoped to /admin. Roles are
+//! instance-wide. Capabilities gate each endpoint. Server-side sessions mean
+//! logout, expiry, disable-user, and role changes all take effect at once.
 
-use axum::Json;
+use std::time::Duration;
+
+use argon2::password_hash::SaltString;
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::extract::FromRequestParts;
-use axum::http::header::{AUTHORIZATION, WWW_AUTHENTICATE};
+use axum::http::HeaderMap;
+use axum::http::header::COOKIE;
 use axum::http::request::Parts;
-use axum::http::{HeaderValue, StatusCode};
-use axum::response::{IntoResponse, Response};
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
-use serde_json::json;
 use sha2::{Digest, Sha256};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::error::ApiError;
 use crate::ids;
+use crate::roles::{Capability, Role};
 use crate::state::AppState;
 
 pub const HEADER_ENVIRONMENT: &str = "x-dronte-environment";
@@ -87,80 +93,230 @@ impl FromRequestParts<AppState> for ManagementAuth {
     }
 }
 
-/// An instance admin caller (the embedded `/admin` dashboard plane).
-/// Single-org: ONE static credential for the whole instance, no admin users.
-/// Authenticated with HTTP Basic — the password is the configured admin
-/// token, the username is ignored. Basic (not Bearer) so the browser prompts
-/// for the credential on a bare `/admin` navigation and then attaches it to
-/// every same-origin asset and API request, which is what makes every SPA
-/// route gate on the credential without a separate login screen.
-pub struct AdminAuth;
+// =============================================================================
+// Admin plane: built-in users, Argon2id passwords, server-side sessions.
+// =============================================================================
 
-/// The 401 for the admin plane. Carries `WWW-Authenticate: Basic` so the
-/// browser shows its native credential prompt. The error envelope matches
-/// the rest of the API. The token is never named in the body or any header.
-pub struct AdminAuthRejection;
+/// The admin session cookie. `Path=/admin` scoped, `HttpOnly` (no JS access,
+/// so XSS cannot exfiltrate it), `SameSite=Strict`, and `Secure` whenever TLS
+/// terminates in front of the binary (config `admin_tls_terminated`).
+pub const ADMIN_COOKIE: &str = "dronte_admin";
 
-impl IntoResponse for AdminAuthRejection {
-    fn into_response(self) -> Response {
-        let body = json!({
-            "error": { "code": "unauthorized", "message": "admin authentication required" }
-        });
-        let mut response = (StatusCode::UNAUTHORIZED, Json(body)).into_response();
-        response.headers_mut().insert(
-            WWW_AUTHENTICATE,
-            HeaderValue::from_static("Basic realm=\"dronte admin\", charset=\"UTF-8\""),
-        );
-        response
+/// CSRF defense for mutating admin requests. A cross-site form cannot set a
+/// custom header, and the admin plane has no CORS, so requiring it (on top of
+/// `SameSite=Strict`) closes forged-request paths.
+pub const ADMIN_CSRF_HEADER: &str = "x-dronte-admin";
+
+/// Minimum admin password length, enforced server-side on create/reset.
+pub const MIN_PASSWORD_LEN: usize = 12;
+
+/// A resolved admin user (no password material).
+#[derive(Clone)]
+pub struct AdminUser {
+    pub id: Uuid,
+    pub email: String,
+    pub name: String,
+    pub role: Role,
+}
+
+/// An authenticated admin caller (the embedded `/admin` dashboard plane).
+/// Resolving it requires a live, non-expired session cookie for a
+/// non-disabled user. Roles are instance-wide. Capability checks gate each
+/// endpoint. This is the security boundary. The SPA's UI gating is only
+/// convenience.
+pub struct AdminAuth {
+    pub user: AdminUser,
+    /// The session token that authenticated this request, so logout deletes
+    /// exactly this session row.
+    pub session_id: String,
+}
+
+impl AdminAuth {
+    /// 403 unless the resolved role holds `cap`.
+    pub fn require(&self, cap: Capability) -> Result<(), ApiError> {
+        if self.user.role.has(cap) {
+            Ok(())
+        } else {
+            Err(ApiError::forbidden("your role does not permit this action"))
+        }
+    }
+
+    pub fn has(&self, cap: Capability) -> bool {
+        self.user.role.has(cap)
     }
 }
 
 impl FromRequestParts<AppState> for AdminAuth {
-    type Rejection = AdminAuthRejection;
+    type Rejection = ApiError;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, AdminAuthRejection> {
-        // No token configured ⇒ the admin plane is disabled: nothing can
-        // authenticate, so every route 401s.
-        let configured = state.cfg.admin_token.as_deref().ok_or(AdminAuthRejection)?;
-
-        let password = parts
-            .headers
-            .get(AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Basic "))
-            .and_then(|b64| BASE64_STANDARD.decode(b64.trim()).ok())
-            .and_then(|bytes| String::from_utf8(bytes).ok())
-            .map(|creds| {
-                // `user:password`; the username is ignored.
-                let mut parts = creds.splitn(2, ':');
-                let _user = parts.next();
-                parts.next().unwrap_or("").to_owned()
-            })
-            .ok_or(AdminAuthRejection)?;
-
-        if admin_token_matches(configured, &password) {
-            Ok(Self)
-        } else {
-            Err(AdminAuthRejection)
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
+        // CSRF: every state-changing method must carry the header. GET/HEAD
+        // are safe and exempt. SameSite=Strict already blocks the cookie
+        // cross-site, so this is defense in depth.
+        if !parts.method.is_safe() {
+            require_admin_csrf(&parts.headers)?;
         }
+
+        let token = admin_cookie(&parts.headers)
+            .ok_or_else(|| ApiError::unauthorized("admin session required"))?;
+
+        let row = sqlx::query!(
+            r#"SELECT s.id AS session_id, u.id AS user_id, u.email, u.name, u.role
+                 FROM admin_sessions s
+                 JOIN admin_users u ON u.id = s.user_id
+                WHERE s.id = $1 AND s.expires_at > now() AND u.disabled_at IS NULL"#,
+            token,
+        )
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(ApiError::from)?
+        .ok_or_else(|| ApiError::unauthorized("admin session required"))?;
+
+        let Some(role) = Role::parse(&row.role) else {
+            tracing::error!(role = %row.role, "admin_users.role is not a known role");
+            return Err(ApiError::forbidden("role not recognized"));
+        };
+
+        // Coarse last_seen_at (at most ~1/min). Audit signal, not a hot write.
+        sqlx::query!(
+            "UPDATE admin_sessions SET last_seen_at = now()
+              WHERE id = $1 AND last_seen_at < now() - interval '60 seconds'",
+            token,
+        )
+        .execute(&state.pool)
+        .await
+        .ok();
+
+        Ok(Self {
+            user: AdminUser {
+                id: row.user_id,
+                email: row.email,
+                name: row.name,
+                role,
+            },
+            session_id: row.session_id,
+        })
     }
 }
 
-/// Constant-time credential comparison. Both sides are hashed to a fixed
-/// 32 bytes first, so neither the running time nor any early exit depends on
-/// the length of the supplied value, and the comparison is a full XOR-fold
-/// over equal-length digests.
-fn admin_token_matches(configured: &str, provided: &str) -> bool {
-    let configured = Sha256::digest(configured.as_bytes());
-    let provided = Sha256::digest(provided.as_bytes());
-    let mut diff = 0u8;
-    for (a, b) in configured.iter().zip(provided.iter()) {
-        diff |= a ^ b;
+/// The `dronte_admin` cookie value, if present.
+fn admin_cookie(headers: &HeaderMap) -> Option<String> {
+    let raw = headers.get(COOKIE)?.to_str().ok()?;
+    raw.split(';')
+        .filter_map(|kv| kv.trim().split_once('='))
+        .find(|(name, _)| *name == ADMIN_COOKIE)
+        .map(|(_, value)| value.to_owned())
+}
+
+/// 403 unless the request carries a non-empty `X-Dronte-Admin` header.
+pub fn require_admin_csrf(headers: &HeaderMap) -> Result<(), ApiError> {
+    let present = headers
+        .get(ADMIN_CSRF_HEADER)
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    if present {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden("missing X-Dronte-Admin header"))
     }
-    diff == 0
+}
+
+// ----- Password hashing (Argon2id) ------------------------------------------
+
+/// Argon2id PHC string with a per-hash random salt.
+pub fn hash_password(password: &str) -> anyhow::Result<String> {
+    let salt_bytes: [u8; 16] = rand::random();
+    let salt =
+        SaltString::encode_b64(&salt_bytes).map_err(|e| anyhow::anyhow!("argon2 salt: {e}"))?;
+    let hash = Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|e| anyhow::anyhow!("argon2 hash: {e}"))?;
+    Ok(hash.to_string())
+}
+
+/// Constant-time verification via the crate. False on any parse/verify error.
+pub fn verify_password(password: &str, phc: &str) -> bool {
+    let Ok(parsed) = PasswordHash::new(phc) else {
+        return false;
+    };
+    Argon2::default()
+        .verify_password(password.as_bytes(), &parsed)
+        .is_ok()
+}
+
+/// Verify against a throwaway hash so a missing-user login costs the same as a
+/// wrong-password login (no email enumeration via timing).
+pub fn equalize_login_timing(password: &str) {
+    static DUMMY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let phc = DUMMY.get_or_init(|| hash_password("not-a-real-password").unwrap_or_default());
+    let _ = verify_password(password, phc);
+}
+
+pub fn validate_password(password: &str) -> Result<(), ApiError> {
+    if password.chars().count() < MIN_PASSWORD_LEN {
+        return Err(ApiError::bad_request(
+            "password must be at least 12 characters",
+        ));
+    }
+    Ok(())
+}
+
+// ----- Sessions -------------------------------------------------------------
+
+/// 256 bits of randomness, hex-encoded. The opaque cookie value.
+pub fn new_session_token() -> String {
+    let bytes: [u8; 32] = rand::random();
+    hex::encode(bytes)
+}
+
+/// Insert a session row expiring `ttl` from the DB clock. Returns the token.
+pub async fn create_session(
+    pool: &PgPool,
+    user_id: Uuid,
+    ttl: Duration,
+) -> Result<String, ApiError> {
+    let token = new_session_token();
+    sqlx::query!(
+        r#"INSERT INTO admin_sessions (id, user_id, expires_at)
+           VALUES ($1, $2, now() + make_interval(secs => $3))"#,
+        token,
+        user_id,
+        ttl.as_secs_f64(),
+    )
+    .execute(pool)
+    .await
+    .map_err(ApiError::from)?;
+    Ok(token)
+}
+
+pub async fn delete_session(pool: &PgPool, token: &str) -> Result<(), ApiError> {
+    sqlx::query!("DELETE FROM admin_sessions WHERE id = $1", token)
+        .execute(pool)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(())
+}
+
+/// `Set-Cookie` for a fresh session. `Secure` only with TLS terminated in
+/// front (config) so the cookie still works over plain HTTP in dev/tests.
+pub fn session_cookie(token: &str, ttl: Duration, secure: bool) -> String {
+    let mut cookie = format!(
+        "{ADMIN_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/admin; Max-Age={}",
+        ttl.as_secs_f64().ceil() as u64,
+    );
+    if secure {
+        cookie.push_str("; Secure");
+    }
+    cookie
+}
+
+/// `Set-Cookie` that clears the session cookie (logout).
+pub fn clear_session_cookie(secure: bool) -> String {
+    let mut cookie = format!("{ADMIN_COOKIE}=; HttpOnly; SameSite=Strict; Path=/admin; Max-Age=0");
+    if secure {
+        cookie.push_str("; Secure");
+    }
+    cookie
 }
 
 /// A subscriber-plane caller. Resolving it authenticates the request AND

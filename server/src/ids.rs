@@ -11,6 +11,7 @@ pub const SUBSCRIBER: &str = "sub";
 pub const NOTIFICATION: &str = "notif";
 pub const BROADCAST: &str = "bcast";
 pub const JOB: &str = "job";
+pub const ADMIN_USER: &str = "adm";
 
 const ALPHABET: &[u8; 32] = b"0123456789abcdefghjkmnpqrstvwxyz";
 

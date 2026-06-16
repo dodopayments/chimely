@@ -42,12 +42,20 @@ pub struct Config {
     /// the quickstart curl is copy-pasteable. Ignored without
     /// `dev_environment`.
     pub dev_api_key: Option<String>,
-    /// Static credential for the embedded `/admin` dashboard and its API
-    /// (the HTTP Basic password; the username is ignored). One credential
-    /// for the whole instance — there are no admin users (single-org).
-    /// `None` disables the admin plane: every `/admin` route answers 401.
-    /// Supplied only via env var; never logged or echoed.
-    pub admin_token: Option<String>,
+    /// Bootstrap (root) admin account, ensured at boot when both are set.
+    /// The lockout-recovery path: restart with these env vars to restore
+    /// admin access. Humans get their own UI-created accounts. Supplied only
+    /// via env var. The password is never logged or echoed. See `bootstrap`.
+    pub admin_bootstrap_email: Option<String>,
+    pub admin_bootstrap_password: Option<String>,
+    /// Admin session lifetime. `expires_at` is stamped this far ahead at
+    /// login. The maintenance job GCs rows past it.
+    pub admin_session_ttl: Duration,
+    /// Operator acknowledgement that TLS terminates in front of the binary
+    /// (the binary serves plain HTTP). Gates the `Secure` cookie attribute
+    /// and silences the boot-time TLS warning. The admin session cookie
+    /// REQUIRES TLS in production. Unset, boot warns loudly.
+    pub admin_tls_terminated: bool,
     /// First retry delay for a failed job. Attempt n waits roughly
     /// `base * 2^(n-1)`, equal-jittered, capped below.
     pub retry_backoff_base: Duration,
@@ -100,9 +108,17 @@ impl Config {
             dev_api_key: std::env::var("DRONTE_DEV_API_KEY")
                 .ok()
                 .filter(|s| !s.is_empty()),
-            admin_token: std::env::var("DRONTE_ADMIN_TOKEN")
+            admin_bootstrap_email: std::env::var("DRONTE_ADMIN_EMAIL")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            admin_bootstrap_password: std::env::var("DRONTE_ADMIN_PASSWORD")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            admin_session_ttl: Duration::from_secs(parse_var(
+                "DRONTE_ADMIN_SESSION_TTL_SECS",
+                28_800,
+            )?),
+            admin_tls_terminated: parse_var("DRONTE_ADMIN_TLS_TERMINATED", false)?,
             retry_backoff_base: Duration::from_millis(parse_var(
                 "DRONTE_RETRY_BACKOFF_BASE_MS",
                 5_000,

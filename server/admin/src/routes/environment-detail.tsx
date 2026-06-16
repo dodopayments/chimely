@@ -24,11 +24,16 @@ import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api, type AdminApiKeyCreated, ApiRequestError } from '@/lib/api';
+import { CAP, useAuth } from '@/lib/auth';
 import { formatTs } from '@/lib/utils';
 
 export function EnvironmentDetailRoute() {
   const { envId } = useParams({ strict: false }) as { envId: string };
+  const { has } = useAuth();
   const env = useQuery({ queryKey: ['environment', envId], queryFn: () => api.getEnvironment(envId) });
+
+  const showKeys = has(CAP.apikeyRead);
+  const showHmac = has(CAP.envReadSecret);
 
   return (
     <div className="flex flex-col gap-6">
@@ -40,18 +45,29 @@ export function EnvironmentDetailRoute() {
       </div>
       <EnvNav envId={envId} />
 
-      <Tabs defaultValue="keys">
-        <TabsList>
-          <TabsTrigger value="keys">API keys</TabsTrigger>
-          <TabsTrigger value="hmac">Subscriber HMAC</TabsTrigger>
-        </TabsList>
-        <TabsContent value="keys">
-          <ApiKeysTab envId={envId} />
-        </TabsContent>
-        <TabsContent value="hmac">
-          <HmacTab envId={envId} />
-        </TabsContent>
-      </Tabs>
+      {showKeys || showHmac ? (
+        <Tabs defaultValue={showKeys ? 'keys' : 'hmac'}>
+          <TabsList>
+            {showKeys && <TabsTrigger value="keys">API keys</TabsTrigger>}
+            {showHmac && <TabsTrigger value="hmac">Subscriber HMAC</TabsTrigger>}
+          </TabsList>
+          {showKeys && (
+            <TabsContent value="keys">
+              <ApiKeysTab envId={envId} />
+            </TabsContent>
+          )}
+          {showHmac && (
+            <TabsContent value="hmac">
+              <HmacTab envId={envId} />
+            </TabsContent>
+          )}
+        </Tabs>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          You have read-only access to this environment. API keys and the subscriber HMAC secret
+          require the developer or admin role.
+        </p>
+      )}
     </div>
   );
 }
@@ -263,7 +279,7 @@ function HmacTab({ envId }: { envId: string }) {
           <CardContent className="flex flex-col gap-5">
             <div className="flex flex-col gap-1.5">
               <Label>Current secret</Label>
-              <CopyField value={detail.subscriber_hmac_secret} maskable />
+              <CopyField value={detail.subscriber_hmac_secret ?? ''} maskable />
             </div>
 
             {detail.has_previous_secret && (

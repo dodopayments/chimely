@@ -7,6 +7,7 @@ import { EnvironmentDetailRoute } from '@/routes/environment-detail';
 import { EnvironmentsRoute } from '@/routes/environments';
 import { NotificationsRoute } from '@/routes/notifications';
 import { SubscribersRoute } from '@/routes/subscribers';
+import { UsersRoute } from '@/routes/users';
 
 const rootRoute = createRootRoute({ component: Layout });
 
@@ -52,6 +53,12 @@ const dlqRoute = createRoute({
   component: DlqRoute,
 });
 
+const usersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'users',
+  component: UsersRoute,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   environmentsRoute,
@@ -60,6 +67,7 @@ const routeTree = rootRoute.addChildren([
   broadcastsRoute,
   subscribersRoute,
   dlqRoute,
+  usersRoute,
 ]);
 
 export const router = createRouter({

@@ -6,10 +6,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { api, type AdminDeadLetter, ApiRequestError } from '@/lib/api';
+import { CAP, useAuth } from '@/lib/auth';
 import { formatTs } from '@/lib/utils';
 
 export function DlqRoute() {
   const qc = useQueryClient();
+  const { has } = useAuth();
+  const canReplay = has(CAP.dlqReplay);
   const dlq = useQuery({ queryKey: ['dlq'], queryFn: api.listDlq });
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -45,13 +48,15 @@ export function DlqRoute() {
             the normal worker loop.
           </p>
         </div>
-        <Button
-          variant="destructive"
-          disabled={replayAll.isPending || (dlq.data?.length ?? 0) === 0}
-          onClick={() => replayAll.mutate()}
-        >
-          Replay all
-        </Button>
+        {canReplay && (
+          <Button
+            variant="destructive"
+            disabled={replayAll.isPending || (dlq.data?.length ?? 0) === 0}
+            onClick={() => replayAll.mutate()}
+          >
+            Replay all
+          </Button>
+        )}
       </div>
 
       <Async query={dlq} emptyTitle="Dead-letter queue is empty">
@@ -92,14 +97,16 @@ export function DlqRoute() {
                       </button>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={replayOne.isPending}
-                        onClick={() => replayOne.mutate(l.id)}
-                      >
-                        Replay
-                      </Button>
+                      {canReplay && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={replayOne.isPending}
+                          onClick={() => replayOne.mutate(l.id)}
+                        >
+                          Replay
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

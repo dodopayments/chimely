@@ -28,8 +28,9 @@ use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt as _};
 use uuid::Uuid;
 
 pub const RETENTION_MONTHS: u32 = 12;
-/// The admin Basic-auth password the harness configures by default.
-pub const ADMIN_TEST_TOKEN: &str = "admin-test-token";
+/// The seed admin the harness creates and logs in as by default.
+pub const ADMIN_TEST_EMAIL: &str = "admin@test.dronte";
+pub const ADMIN_TEST_PASSWORD: &str = "test-admin-password";
 
 pub struct TestApp {
     pub pool: PgPool,
@@ -125,7 +126,14 @@ async fn spawn_inner(
         sse_max_connections_per_subscriber: 2,
         dev_environment: None,
         dev_api_key: None,
-        admin_token: Some(ADMIN_TEST_TOKEN.to_owned()),
+        // The harness seeds the admin user and logs in directly (see
+        // `spawn_inner`). Bootstrap-from-env is exercised by its own test.
+        admin_bootstrap_email: None,
+        admin_bootstrap_password: None,
+        admin_session_ttl: Duration::from_secs(3600),
+        // No TLS in tests: cookies omit Secure so reqwest's cookie store
+        // replays them over plain HTTP to 127.0.0.1.
+        admin_tls_terminated: false,
         retry_backoff_base: Duration::from_millis(40),
         retry_backoff_cap: Duration::from_millis(500),
         metrics_sample_interval: Duration::from_millis(200),
@@ -177,7 +185,12 @@ async fn spawn_inner(
     let mut app = TestApp {
         pool,
         base: format!("http://{addr}"),
-        client: reqwest::Client::new(),
+        // Cookie store so the admin session cookie set by /admin/api/login is
+        // replayed on later admin requests, the way a browser would.
+        client: reqwest::Client::builder()
+            .cookie_store(true)
+            .build()
+            .expect("reqwest client"),
         cfg,
         pubsub,
         ratelimit,
@@ -194,6 +207,11 @@ async fn spawn_inner(
         _pg: pg,
     };
     app.env = app.create_environment(require_hash).await;
+    // Seed a default admin user and log the harness client in, so admin_get /
+    // admin_post carry a live session by default (as the old Basic helper did).
+    app.seed_admin(ADMIN_TEST_EMAIL, ADMIN_TEST_PASSWORD, "admin")
+        .await;
+    app.login(ADMIN_TEST_EMAIL, ADMIN_TEST_PASSWORD).await;
     app
 }
 
@@ -270,19 +288,83 @@ impl TestApp {
             .json(&body)
     }
 
-    /// Admin-plane GET with HTTP Basic auth (username ignored, password is
-    /// the admin token).
+    /// Insert an admin user directly (bypassing the API). Returns its uuid.
+    pub async fn seed_admin(&self, email: &str, password: &str, role: &str) -> Uuid {
+        let id = ids::new_uuid();
+        let hash = dronte::auth::hash_password(password).expect("hash password");
+        sqlx::query(
+            "INSERT INTO admin_users (id, email, name, role, password_hash)
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(id)
+        .bind(email.to_lowercase())
+        .bind(email)
+        .bind(role)
+        .bind(hash)
+        .execute(&self.pool)
+        .await
+        .expect("seed admin user");
+        id
+    }
+
+    /// Log the harness client in (stores the session cookie in its jar).
+    pub async fn login(&self, email: &str, password: &str) {
+        let res = self
+            .client
+            .post(format!("{}/admin/api/login", self.base))
+            .header("x-dronte-admin", "1")
+            .json(&serde_json::json!({ "email": email, "password": password }))
+            .send()
+            .await
+            .expect("login request");
+        assert_eq!(
+            res.status(),
+            200,
+            "login failed: {}",
+            res.text().await.unwrap()
+        );
+    }
+
+    /// A fresh cookie-store client logged in as the given user (role tests).
+    pub async fn login_client(&self, email: &str, password: &str) -> reqwest::Client {
+        let client = reqwest::Client::builder()
+            .cookie_store(true)
+            .build()
+            .expect("reqwest client");
+        let res = client
+            .post(format!("{}/admin/api/login", self.base))
+            .header("x-dronte-admin", "1")
+            .json(&serde_json::json!({ "email": email, "password": password }))
+            .send()
+            .await
+            .expect("login request");
+        assert_eq!(res.status(), 200, "login failed for {email}");
+        client
+    }
+
+    /// Admin-plane GET. The harness client's session cookie authenticates it.
     pub fn admin_get(&self, path: &str) -> reqwest::RequestBuilder {
-        self.client
-            .get(format!("{}{path}", self.base))
-            .basic_auth("admin", Some(ADMIN_TEST_TOKEN))
+        self.client.get(format!("{}{path}", self.base))
     }
 
     pub fn admin_post(&self, path: &str, body: serde_json::Value) -> reqwest::RequestBuilder {
         self.client
             .post(format!("{}{path}", self.base))
-            .basic_auth("admin", Some(ADMIN_TEST_TOKEN))
+            .header("x-dronte-admin", "1")
             .json(&body)
+    }
+
+    pub fn admin_patch(&self, path: &str, body: serde_json::Value) -> reqwest::RequestBuilder {
+        self.client
+            .patch(format!("{}{path}", self.base))
+            .header("x-dronte-admin", "1")
+            .json(&body)
+    }
+
+    pub fn admin_delete(&self, path: &str) -> reqwest::RequestBuilder {
+        self.client
+            .delete(format!("{}{path}", self.base))
+            .header("x-dronte-admin", "1")
     }
 
     pub fn subscriber_headers(&self, subscriber: &str) -> HeaderMap {
