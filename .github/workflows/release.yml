@@ -1,28 +1,65 @@
 # Changesets-driven release of the SDK packages (MIT, packages/*).
 #
-# On every push to main with pending changesets, changesets/action opens or
-# updates a "Version Packages" PR. Merging that PR re-triggers this
-# workflow, which then publishes to npm.
+# Versioning and publishing are split across two triggers:
+#
+#   - push to main  -> the `version` job. changesets/action opens or updates
+#     the "Version Packages" PR (consumes pending changesets, bumps
+#     package.json + CHANGELOG). Merging that PR lands the bumped versions on
+#     main. This job NEVER publishes.
+#   - GitHub Release published -> the `publish` job. Runs the gates and
+#     `pnpm changeset publish`, pushing the already-bumped versions to npm.
+#
+# Release procedure (human): merge the Version Packages PR, then create a
+# GitHub Release (tag vX.Y.Z) at that commit. The Release event publishes to
+# npm; the same v* tag push publishes the Docker image (see ci.yml docker job).
 #
 # Prerequisites (repo settings, one-time, human):
 #   - NPM_TOKEN secret: an npm automation token with publish rights to the
-#     @dronte scope
-#   - the @dronte scope must exist on npm and grant that token access
+#     @dronte scope, and the @dronte scope must grant that token access.
+#   - "Allow GitHub Actions to create and approve pull requests" enabled.
+#     The `version` job opens the Version Packages PR. The `publish` job does
+#     NOT need this (no pull-requests permission), so the publish path is
+#     independent of that setting.
 name: Release
 
 on:
   push:
     branches: [main]
+  release:
+    types: [published]
 
 concurrency: release-${{ github.ref }}
 
-permissions:
-  contents: write
-  pull-requests: write
-
 jobs:
-  release:
+  # Open/update the Version Packages PR on every push to main. No `publish`
+  # input means changesets/action only versions, never publishes.
+  version:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Open or update the Version Packages PR
+        uses: changesets/action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Publish to npm when a GitHub Release is published. The versions were
+  # bumped on main by the merged Version Packages PR, so changeset publish
+  # pushes whatever is not yet on the registry.
+  publish:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -32,16 +69,15 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter "./packages/*" build
-      # The publish path must never outrun the gates. CI covers PRs, but
-      # this workflow runs on push to main, which branch protection alone
-      # does not make test-clean.
+      # The publish path must never outrun the gates.
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm conformance
-      - name: Version PR or publish
+      - name: Publish to npm
         uses: changesets/action@v1
         with:
           publish: pnpm changeset publish
+          createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
