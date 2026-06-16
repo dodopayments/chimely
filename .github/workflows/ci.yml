@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
 
 env:
@@ -195,36 +194,17 @@ jobs:
       - name: Semantic diff against the frozen convergence target
         run: oasdiff diff specs/openapi.yaml /tmp/openapi.gen.stripped.yaml --fail-on-diff
 
+  # Build-only validation of the Dockerfile on every main push and PR. The
+  # push to GHCR happens on a GitHub Release (publish.yml), never from CI.
   docker:
-    name: docker image
+    name: docker image (build)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=sha
       - uses: docker/build-push-action@v6
         with:
           context: .
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
