@@ -1,5 +1,5 @@
-//! Runtime configuration, sourced from the environment. Every knob has a
-//! production default; tests construct `Config` directly with tight timings.
+//! Runtime configuration sourced from the environment. Every knob has a
+//! production default. Tests construct `Config` directly with tight timings.
 
 use std::time::Duration;
 
@@ -8,16 +8,16 @@ use anyhow::Context;
 #[derive(Clone, Debug)]
 pub struct Config {
     pub database_url: String,
-    /// `None` = Redis-less mode: hints ride Postgres LISTEN/NOTIFY instead of
-    /// Redis pub/sub (see `pubsub`). Redis is the hint/cache plane only. Its
-    /// absence degrades hint latency and nothing else.
+    /// `None` is Redis-less mode. Hints ride Postgres LISTEN/NOTIFY instead of
+    /// Redis pub/sub. Redis is the hint/cache plane only. Its absence degrades
+    /// hint latency and nothing else.
     pub redis_url: Option<String>,
     pub listen_addr: String,
     /// Months of notification partitions kept behind `now`. Older partitions
     /// are detached and dropped by the maintenance job.
     pub retention_months: u32,
-    /// Days idempotency snapshots are kept (comfortably longer than any sane
-    /// client retry horizon).
+    /// Days idempotency snapshots are kept. Longer than any client retry
+    /// horizon.
     pub idempotency_retention_days: u32,
     /// Hint debounce window: at most one published hint per subscriber per
     /// window.
@@ -29,23 +29,22 @@ pub struct Config {
     /// produce a reconnect stampede.
     pub sse_retry_base: Duration,
     pub sse_retry_jitter: Duration,
-    /// Per-subscriber SSE connection cap, per replica (risk M3: dev
-    /// environments without subscriber hashes are otherwise an open
-    /// connection-exhaustion relay).
+    /// Per-subscriber SSE connection cap, per replica. Without it, dev
+    /// environments lacking subscriber hashes are an open
+    /// connection-exhaustion relay.
     pub sse_max_connections_per_subscriber: usize,
-    /// Dev-quickstart bootstrap (see `bootstrap`). When set, boot upserts an
-    /// environment with this slug and require_subscriber_hash = false.
-    /// Real environment management is the Phase 4 admin UI. Never set this
-    /// in production.
+    /// Dev-quickstart bootstrap. When set, boot upserts an environment with
+    /// this slug and require_subscriber_hash = false. Real environment
+    /// management is the admin UI. Never set this in production.
     pub dev_environment: Option<String>,
     /// Plaintext management API key upserted into the dev environment, so
     /// the quickstart curl is copy-pasteable. Ignored without
     /// `dev_environment`.
     pub dev_api_key: Option<String>,
     /// Bootstrap (root) admin account, ensured at boot when both are set.
-    /// The lockout-recovery path: restart with these env vars to restore
-    /// admin access. Humans get their own UI-created accounts. Supplied only
-    /// via env var. The password is never logged or echoed. See `bootstrap`.
+    /// The lockout-recovery path. Restart with these env vars to restore
+    /// admin access. Humans get their own UI-created accounts. The password
+    /// is never logged or echoed.
     pub admin_bootstrap_email: Option<String>,
     pub admin_bootstrap_password: Option<String>,
     /// Admin session lifetime. `expires_at` is stamped this far ahead at
@@ -67,7 +66,7 @@ pub struct Config {
     /// Subscribers recounted per drift sample, most recently active first.
     pub counter_drift_sample_size: i64,
     /// Management-plane token bucket, per API key. Rate is tokens added per
-    /// second; burst is the bucket capacity. Zero rate disables the limit.
+    /// second. Burst is the bucket capacity. Zero rate disables the limit.
     pub api_key_rate_per_sec: f64,
     pub api_key_rate_burst: f64,
     /// Subscriber-plane token bucket, per subscriber. Zero rate disables.
@@ -77,7 +76,7 @@ pub struct Config {
     /// load balancers drain the replica first.
     pub shutdown_readiness_grace: Duration,
     /// In-flight job drain budget after claiming stops. Past it the worker
-    /// is aborted; at-least-once semantics make the rollback safe.
+    /// is aborted. At-least-once semantics make the rollback safe.
     pub shutdown_drain_deadline: Duration,
 }
 

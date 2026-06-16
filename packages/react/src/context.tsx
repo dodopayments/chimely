@@ -6,9 +6,9 @@ import { createContext, useContext, useEffect, useState } from 'react';
 export const DronteContext = createContext<DronteClient | null>(null);
 
 /**
- * Provides one shared DronteClient to all hooks. Pass either a pre-built
- * `client` (you own its lifecycle) or `config` (the provider constructs,
- * connects on mount, closes on unmount).
+ * Provides one shared DronteClient to all hooks. Either `client` or `config`
+ * is set. A passed `client` is caller-owned. A passed `config` is constructed
+ * here, connected on mount, and closed on unmount.
  */
 export interface DronteProviderProps {
   client?: DronteClient;

@@ -1,8 +1,6 @@
 /**
- * No index signature on purpose. It would let typos type-check silently.
- * Future strings are added as OPTIONAL fields (consumers pass
- * Partial<InboxLocalization>, and exhaustive implementations must not
- * break on minor versions).
+ * No index signature so typos fail to type-check.
+ * New strings are added as optional fields to keep minor versions non-breaking.
  */
 export interface InboxLocalization {
   emptyTitle: string;

@@ -1,7 +1,6 @@
-//! The 30-second-quickstart enablers: the dev bootstrap (environment + API
-//! key from env-var config) and subscriber-plane CORS. Both exist for the
-//! Phase 2 Next.js example, which runs the widget in a browser against a
-//! local Redis-less dronte.
+//! Quickstart enablers. Dev bootstrap mints an environment and API key from
+//! env-var config. Subscriber-plane CORS lets the widget run in a browser
+//! against a local Redis-less dronte.
 
 mod support;
 
@@ -59,8 +58,7 @@ async fn dev_bootstrap_seeds_an_environment_and_key_idempotently() {
     assert_eq!(res.status(), 201);
 }
 
-/// Tested invariant (risk: env-var misconfiguration in production): the
-/// bootstrap never modifies an environment it did not create. A slug
+/// The bootstrap never modifies an environment it did not create. A slug
 /// collision with an environment that requires subscriber hashes must not
 /// downgrade that requirement on restart.
 #[tokio::test]
@@ -122,7 +120,7 @@ async fn dev_bootstrap_truncates_the_key_prefix_on_a_char_boundary() {
 async fn subscriber_plane_is_cors_enabled_for_the_widget() {
     let app = support::spawn_dev_mode().await;
 
-    // Preflight, exactly as a browser sends it before a conditional list GET.
+    // Browser preflight before a conditional list GET.
     let res = app
         .client
         .request(

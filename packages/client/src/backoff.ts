@@ -8,7 +8,7 @@ export interface ResolvedBackoff {
   maxAttempts: number;
 }
 
-/** The documented defaults from specs/sdk-api.d.ts. */
+/** Defaults frozen in the SDK surface (project/archive-v1/sdk-api.d.ts). */
 export const BACKOFF_DEFAULTS: ResolvedBackoff = {
   initialDelayMs: 1000,
   maxDelayMs: 30000,

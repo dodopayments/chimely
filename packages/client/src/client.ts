@@ -24,7 +24,7 @@ function toItem<TPayload>(wire: WireInboxItem): InboxItem<TPayload> {
     id: wire.id as InboxItemId,
     source: wire.source,
     category: wire.category,
-    // Payloads are wire format and pass through verbatim, never case-transformed.
+    // Payloads pass through verbatim, never case-transformed.
     payload: wire.payload as TPayload,
     occurredAt: wire.occurred_at,
     read: wire.read,
@@ -59,19 +59,16 @@ const defaultCreateEventSource = (url: string): EventSourceLike => {
 };
 
 /**
- * The headless inbox. Lifecycle: construct → connect() → use → close().
+ * The headless inbox. Lifecycle: construct, connect(), use, close().
  *
- * Behavioral contract (tested invariants, not implementation details):
- * - SSE events are HINTS: every hint and every (re)connect triggers a
+ * - SSE events are hints. Every hint and every (re)connect triggers a
  *   conditional (ETag/If-None-Match) REST refetch. Missed hints are
- *   harmless. A 304 costs nothing. The client never renders from event
- *   payloads.
- * - All mutations are OPTIMISTIC: the snapshot updates synchronously, the
+ *   harmless. The client never renders from event payloads.
+ * - Mutations are optimistic. The snapshot updates synchronously, the
  *   server call follows, and a failure rolls back and surfaces on the
  *   'error' channel. Void mutations resolve either way. Calls that return
  *   data (getPreferences, setPreferences) also reject with the DronteError.
- * - markAllSeen() is what the bell-open gesture calls. It zeroes `unseen`
- *   without touching read state.
+ * - markAllSeen() zeroes unseen without touching read state.
  */
 export class DronteClient<TPayload = WellKnownPayload> {
   private readonly config: DronteClientConfig;
@@ -162,9 +159,9 @@ export class DronteClient<TPayload = WellKnownPayload> {
           await this.doRefresh();
         } while (this.refreshAgain);
       } finally {
-        // Cleared inside the body, not via promise.finally, so no caller
-        // can observe a refreshing that already exited its rerun loop. In
-        // that one-microtask gap a coalesce request would be dropped.
+        // Cleared inside the body, not via promise.finally. A finally
+        // handler leaves a one-microtask gap where refreshing is non-null
+        // but the rerun loop has exited, dropping a coalesce request.
         this.refreshing = null;
       }
     })();
@@ -221,9 +218,9 @@ export class DronteClient<TPayload = WellKnownPayload> {
     try {
       const response = await this.http('POST', '/v1/inbox/read-all');
       const counts = (await response.json()) as WireCounts;
-      // Only the field this mutation owns is applied. The response was
-      // computed before a concurrent markAllSeen may have landed, so its
-      // unseen value would clobber that mutation's optimistic zero.
+      // Only the owned field is applied. The response was computed before a
+      // concurrent markAllSeen may have landed, so its unseen value would
+      // clobber that mutation's optimistic zero.
       this.store.patch({
         counts: { ...this.store.getSnapshot().counts, unread: counts.unread },
         error: null,
@@ -453,8 +450,6 @@ export class DronteClient<TPayload = WellKnownPayload> {
       this.attempts = 0;
       this.retryOverrideMs = null;
       this.store.patch({ status: 'connected' });
-      // Every (re)connect refetches conditionally. Missed hints are harmless
-      // by construction.
       void this.refresh();
     });
     source.addEventListener('hint', (event) => {
@@ -464,7 +459,6 @@ export class DronteClient<TPayload = WellKnownPayload> {
       if (event.lastEventId) {
         this.lastEventId = event.lastEventId;
       }
-      // Hints are hints, never transports. The data is not rendered.
       void this.refresh();
     });
     source.addEventListener('retry', (event) => {

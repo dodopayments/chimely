@@ -1,9 +1,9 @@
 //! Preferences, shared by both planes. Row ABSENCE means enabled: writes are
 //! a partial upsert where `enabled=true` deletes the explicit row. The API
-//! layer owns the allowed channel list ('in_app' only in v1 — deliberately no
-//! CHECK constraint on the hot table).
+//! layer owns the allowed channel list ('in_app' only). There is deliberately
+//! no CHECK constraint on this hot table.
 //!
-//! Counters ignore category mutes; a real flip enqueues a `counter_rebuild`
+//! Counters ignore category mutes. A real flip enqueues a `counter_rebuild`
 //! job for that one subscriber (eventual exactness) plus a hint, and bumps
 //! `subscriber_counters.updated_at` so list ETags move.
 
@@ -24,7 +24,7 @@ pub const ALLOWED_CHANNELS: &[&str] = &["in_app"];
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Preference {
     pub category: String,
-    /// Only `in_app` in v1; push channels later, no contract break.
+    /// Only `in_app` for now. Push channels later need no contract break.
     pub channel: String,
     pub enabled: bool,
 }
@@ -58,7 +58,7 @@ pub async fn get_subscriber_preferences(
     auth: ManagementAuth,
     Path(subscriber_id): Path<String>,
 ) -> Result<Json<PreferenceList>, ApiError> {
-    // Admin reads do NOT lazily create — a typo'd id should 404, not mint a
+    // Admin reads do NOT lazily create. A typo'd id should 404, not mint a
     // subscriber.
     let row = sqlx::query!(
         r#"SELECT id FROM subscribers WHERE environment_id = $1 AND subscriber_id = $2"#,
@@ -98,8 +98,8 @@ pub async fn set_subscriber_preferences(
             "subscriber_id must be 1–255 characters",
         ));
     }
-    // Writes lazily create (the spec declares no 404 here) — preferences set
-    // before the first notify must stick.
+    // Writes lazily create. There is no 404 here. Preferences set before the
+    // first notify must stick.
     let (subscriber, _) =
         ensure_subscriber(&state.pool, auth.environment_id, &subscriber_id).await?;
     Ok(Json(
@@ -152,7 +152,7 @@ pub async fn set_inbox_preferences(
     ))
 }
 
-/// Explicit preference rows only — absence means enabled.
+/// Explicit preference rows only. Absence means enabled.
 pub async fn list(pool: &PgPool, env: Uuid, subscriber: Uuid) -> Result<PreferenceList, ApiError> {
     let rows = sqlx::query!(
         r#"SELECT category, channel, enabled FROM preferences
@@ -240,7 +240,7 @@ pub async fn write(
     }
 
     if changed {
-        // updated_at is an ETag input; a preference DELETE can move
+        // updated_at is an ETag input. A preference DELETE can move
         // max(preferences.updated_at) backwards, so the counters bump is what
         // guarantees conditional refetches never serve a stale 304.
         sqlx::query!(

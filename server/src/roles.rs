@@ -1,4 +1,4 @@
-//! Admin-plane roles and capabilities (docs/superpowers design 2026-06-15).
+//! Admin-plane roles and capabilities.
 //!
 //! Capabilities are the unit of enforcement. The four roles are fixed presets.
 //! `admin` holds every capability. `operator` and `developer` are parallel
@@ -6,9 +6,9 @@
 //! instance-wide (one role per user, every environment), still single-org,
 //! with no per-environment scoping.
 //!
-//! `role` is stored as text without a DB CHECK (the preferences.channel
-//! precedent): this module is the single source of truth for the allowed
-//! values, so adding a role is a code change, not a migration.
+//! `role` is stored as text without a DB CHECK, mirroring preferences.channel.
+//! This module is the single source of truth for the allowed values, so adding
+//! a role is a code change, not a migration.
 
 use std::fmt;
 
@@ -33,7 +33,7 @@ pub enum Capability {
 
 impl Capability {
     /// The wire string the `/admin/api/me` response exposes so the SPA can
-    /// gate UI. Mirrors the capability column headers in the design table.
+    /// gate UI.
     pub fn as_str(self) -> &'static str {
         match self {
             Capability::Read => "read",
@@ -58,7 +58,7 @@ pub enum Role {
     Admin,
 }
 
-/// The allowed `role` values, in the order the design table lists them.
+/// The allowed `role` values.
 pub const ALL_ROLES: [Role; 4] = [Role::Viewer, Role::Operator, Role::Developer, Role::Admin];
 
 impl Role {
@@ -150,7 +150,6 @@ mod tests {
 
     #[test]
     fn presets_match_the_design_matrix() {
-        // viewer: read only.
         assert!(Role::Viewer.has(Capability::Read));
         assert!(!Role::Viewer.has(Capability::DlqReplay));
         assert!(!Role::Viewer.has(Capability::EnvReadSecret));

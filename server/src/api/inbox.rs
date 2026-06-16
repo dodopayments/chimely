@@ -1,11 +1,10 @@
 //! Subscriber plane: the merged two-source inbox.
 //!
-//! Implements the canonical queries from specs/schema.sql in their specified
-//! shape: each source arm is independently keyset-limited (newest first,
-//! `(occurred_at, id)` tuple keyset, id tiebreaker makes it total), then
-//! merged; the unread count is the maintained direct counter plus a tiny
-//! broadcasts range count minus the subscriber's own exception rows above the
-//! watermark — O(1)-ish, never O(rows).
+//! Each source arm is independently keyset-limited (newest first,
+//! `(occurred_at, id)` tuple keyset, id tiebreaker makes it total) then merged.
+//! The unread count is the maintained direct counter plus a tiny broadcasts
+//! range count minus the subscriber's own exception rows above the watermark.
+//! It is never O(rows).
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -34,21 +33,20 @@ pub const CACHE_CONTROL: &str = "private, max-age=0";
 pub struct InboxItem {
     /// TypeID. The prefix already encodes the source.
     pub id: String,
-    /// Routes mark-read to the right endpoint; the SDK handles this.
+    /// Routes mark-read to the right endpoint.
     pub source: &'static str,
     pub category: String,
     pub payload: Value,
-    /// The ordering timestamp — `visible_at` for direct, `created_at` for
-    /// broadcast.
+    /// Ordering timestamp. `visible_at` for direct, `created_at` for broadcast.
     pub occurred_at: String,
-    /// Computed — per-item exception OR at-or-below the read watermark.
+    /// Per-item exception OR at-or-below the read watermark.
     pub read: bool,
 }
 
 #[derive(Debug, Serialize)]
 pub struct InboxPage {
     pub items: Vec<InboxItem>,
-    /// Opaque keyset token; null when the last page is reached.
+    /// Opaque keyset token. Null when the last page is reached.
     pub next_cursor: Option<String>,
 }
 
@@ -101,9 +99,6 @@ per-user data and must never be cached by shared proxies.
         (status = 304, description = "Not modified (If-None-Match matched)."),
         // The handler rejects an out-of-range `limit` and a malformed `cursor`,
         // and the query extractor rejects a non-integer `limit`, all with 400.
-        // The frozen 3.0 spec (specs/openapi.yaml) under-declares this, so the
-        // contract CI job sanctions-strips it before oasdiff (see ci.yml); the
-        // generated/served spec and @dronte/client stay honest about it.
         (status = 400, description = "Malformed cursor or out-of-range limit.", body = crate::api::contract::Error),
         (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
         (status = 429, response = crate::api::contract::RateLimited),
@@ -175,10 +170,9 @@ pub async fn list_items(
 }
 
 /// One row of the merged two-source inbox, with the source's native id type
-/// and ordering timestamp intact (so callers can keyset-paginate). The
-/// subscriber plane and the admin subscriber-lookup BOTH read through this
-/// one function: a second implementation of the merge would be a bug
-/// (specs/phase-4-admin.md, "admin reads reuse the canonical queries").
+/// and ordering timestamp intact so callers can keyset-paginate. The
+/// subscriber plane and the admin subscriber-lookup both read through this one
+/// function. A second implementation of the merge would be a bug.
 pub struct MergedRow {
     pub source: &'static str,
     pub id: Uuid,
@@ -205,11 +199,10 @@ impl From<MergedRow> for InboxItem {
     }
 }
 
-/// The canonical merged list query (specs/schema.sql header). Both arms are
-/// keyset range scans over notifications_inbox_idx / broadcasts_window_idx;
-/// category mutes are read-time NOT EXISTS probes. `(cursor_ts, cursor_id)`
-/// is the last item of the previous page, or `(MAX_UTC, Uuid::max())` for
-/// the first page.
+/// The canonical merged list query. Both arms are keyset range scans over
+/// notifications_inbox_idx and broadcasts_window_idx. Category mutes are
+/// read-time NOT EXISTS probes. `(cursor_ts, cursor_id)` is the last item of
+/// the previous page, or `(MAX_UTC, Uuid::max())` for the first page.
 pub async fn list_items_for<'e, E: sqlx::PgExecutor<'e>>(
     executor: E,
     environment_id: Uuid,
@@ -314,32 +307,17 @@ pub async fn get_counts(
     Ok(Json(counts))
 }
 
-/// The unread/unseen count: maintained direct counters + a live broadcast
-/// term. The broadcast term is evaluated EXACTLY as the list's broadcast arm
+/// The unread/unseen count: maintained direct counters plus a live broadcast
+/// term. The broadcast term is evaluated exactly as the list's broadcast arm
 /// (visible, above the watermark, no read exception, not muted) so the count
 /// agrees with the visible list at all times. It is a count over the
-/// broadcasts table (rows = announcements, not subscribers), so the per-row
+/// broadcasts table (rows are announcements, not subscribers) so the per-row
 /// `NOT EXISTS` probes stay cheap. Seen has no exceptions term.
 ///
-/// Category mutes ARE applied to the broadcast term here, unlike the
-/// maintained direct counters: the broadcast term is recomputed on every read
-/// (no stored counter to drift), so making it mute-aware is free and keeps the
-/// two-source invariant ("list, count, read state agree") exact for broadcasts
-/// instead of relying on a counter_rebuild that can never reconcile a live,
-/// unstored term.
-///
-/// DESIGN NOTE, Redis count cache epoch (risk M2, required this phase even
-/// though caching itself is deferred). When these computed totals are cached
-/// in Redis, the key MUST be
-/// `dronte:counts:{environment_id}:{epoch}:{subscriber_id}` where `epoch` is
-/// an environment-level counter (`INCR dronte:counts-epoch:{env}` or its
-/// Postgres-backed equivalent) bumped on every broadcast create. A broadcast
-/// changes EVERY subscriber's unread count at once. Bumping the epoch
-/// invalidates the whole environment's cached counts in O(1) without a key
-/// scan, and the old-epoch keys age out via TTL. Per-subscriber mutations
-/// (read/seen/deliver) invalidate just their own key. Redis stays the cache
-/// plane: a lost epoch key only causes recomputes from Postgres, never a
-/// stale count.
+/// Category mutes are applied to the broadcast term here, unlike the maintained
+/// direct counters. The broadcast term is recomputed on every read with no
+/// stored counter to drift, so making it mute-aware keeps the two-source
+/// invariant exact for broadcasts.
 pub async fn fetch_counts(
     conn: &mut sqlx::PgConnection,
     auth: &SubscriberAuth,
@@ -441,8 +419,8 @@ pub async fn mark_notification_read(
     .fetch_one(&mut *tx)
     .await
     .map_err(ApiError::from)?;
-    // Scheduled rows (visible_at > now()) are excluded from ALL subscriber
-    // queries — an invisible item cannot be marked read.
+    // Scheduled rows (visible_at > now()) are excluded from all subscriber
+    // queries. An invisible item cannot be marked read.
     let row = sqlx::query!(
         r#"SELECT visible_at, read_at, category FROM notifications
             WHERE environment_id = $1 AND id = $2 AND subscriber_id = $3
@@ -468,11 +446,11 @@ pub async fn mark_notification_read(
         .execute(&mut *tx)
         .await
         .map_err(ApiError::from)?;
-        // A visible row still owned by a pending deliver job is UNCOUNTED:
+        // A visible row still owned by a pending deliver job is uncounted:
         // its counter increment has not happened yet, so decrementing now
         // would drift the counter by -1 forever (the deliver bump skips rows
         // with read_at set). The deliver job is the only counter for those
-        // rows, and we hold the counters lock, so the job cannot complete
+        // rows. The counters lock held here blocks the job from completing
         // concurrently.
         let pending = sqlx::query_scalar!(
             r#"SELECT EXISTS (
@@ -516,7 +494,7 @@ pub async fn mark_notification_read(
         .execute(&mut *tx)
         .await
         .map_err(ApiError::from)?;
-        // The 'read' timeline row commits with the read_at flip; the guard
+        // The 'read' timeline row commits with the read_at flip. The guard
         // inside append runs under the counters lock taken above, so the
         // watermark timeline job can never double-append it.
         timeline::append(&mut tx, auth.environment_id, &[id], timeline::STATUS_READ)
@@ -584,8 +562,8 @@ pub async fn mark_broadcast_read(
     .filter(|created_at| *created_at >= auth.subscriber_created_at)
     .ok_or_else(|| ApiError::not_found("no such broadcast"))?;
 
-    // No-op if already below the read watermark (the watermark covers it;
-    // an exception row would be GC fodder).
+    // No-op if already below the read watermark. The watermark covers it and
+    // an exception row would be GC fodder.
     if broadcast_created_at > watermark {
         let inserted = sqlx::query!(
             r#"INSERT INTO broadcast_reads
@@ -649,7 +627,7 @@ pub async fn mark_all_read(
     auth: SubscriberAuth,
 ) -> Result<Json<InboxCounts>, ApiError> {
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    // Lock first; the old watermark bounds the timeline job's window below.
+    // Lock first. The old watermark bounds the timeline job's window below.
     let old_watermark = sqlx::query_scalar!(
         r#"SELECT read_watermark FROM subscriber_counters
             WHERE environment_id = $1 AND subscriber_id = $2 FOR UPDATE"#,
@@ -662,15 +640,15 @@ pub async fn mark_all_read(
     // Mark-all-read is a one-row watermark upsert, never a bulk UPDATE over
     // notification rows (MVCC bloat on the hottest write path).
     //
-    // clock_timestamp() (NOT now()) is evaluated while this statement holds the
+    // clock_timestamp() (not now()) is evaluated while this statement holds the
     // counters row lock taken above, so the watermark is the instant the move
     // actually takes effect, not the transaction's BEGIN. now() is pinned at
     // BEGIN, before the FOR UPDATE, so a direct insert or deliver bump that
-    // committed its +1 in the BEGIN->FOR UPDATE gap would land ABOVE a
-    // now()-watermark while unread_direct_count = 0 zeroed it — unread in the
-    // list but uncounted, permanent two-source drift. With clock_timestamp()
-    // read under the lock, any such row's visible_at precedes this instant, so
-    // it is correctly covered by the watermark (read) instead of clobbered.
+    // committed its +1 in the BEGIN->FOR UPDATE gap would land above a
+    // now()-watermark while unread_direct_count = 0 zeroed it. That is unread
+    // in the list but uncounted, a permanent two-source drift. With
+    // clock_timestamp() read under the lock, any such row's visible_at precedes
+    // this instant, so it is covered by the watermark (read) not clobbered.
     let new_watermark = sqlx::query_scalar!(
         r#"UPDATE subscriber_counters SET
                read_watermark = clock_timestamp(),
@@ -686,7 +664,7 @@ pub async fn mark_all_read(
     .map_err(ApiError::from)?;
     if new_watermark > old_watermark {
         // Timeline rows for the (old, new] window append asynchronously in
-        // chunks; the request path stays O(1).
+        // chunks. The request path stays O(1).
         jobs::enqueue_timeline(
             &mut tx,
             auth.environment_id,
@@ -698,11 +676,11 @@ pub async fn mark_all_read(
         .await
         .map_err(ApiError::from)?;
     }
-    // GC exception rows at or below the new watermark — they are redundant.
-    // Bind the watermark we just installed (not now()/clock_timestamp() again):
-    // it must match the watermark exactly so this never deletes an exception
-    // row ABOVE the watermark, which would resurrect an individually-read
-    // broadcast as unread.
+    // GC exception rows at or below the new watermark. They are redundant.
+    // Bind the watermark just installed, not now()/clock_timestamp() again. It
+    // must match the watermark exactly so this never deletes an exception row
+    // above the watermark, which would resurrect an individually-read broadcast
+    // as unread.
     sqlx::query!(
         r#"DELETE FROM broadcast_reads
             WHERE environment_id = $1 AND subscriber_id = $2

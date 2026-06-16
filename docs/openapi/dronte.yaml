@@ -1417,7 +1417,7 @@ paths:
                 created_at:
                   type: string
                   format: date-time
-                  description: Backdate on create only; ignored if the subscriber exists.
+                  description: Backdate on create only. Ignored if the subscriber exists.
         required: false
       responses:
         '200':
@@ -1532,7 +1532,7 @@ components:
           description: TypeID, `key_…`.
         key_prefix:
           type: string
-          description: Display prefix for recognition; the full key is never retrievable.
+          description: Display prefix for recognition. The full key is never retrievable.
         last_used_at:
           type: string
           nullable: true
@@ -1601,7 +1601,7 @@ components:
           type: string
         require_subscriber_hash:
           type: boolean
-          description: Production default true; set false for a dev/quickstart environment.
+          description: Production default true. Set false for a dev/quickstart environment.
         slug:
           type: string
     AdminCreateUserRequest:
@@ -1696,9 +1696,9 @@ components:
         subscriber_hmac_secret:
           type: string
           description: |-
-            The dedicated subscriber HMAC secret. Plaintext by design (the customer
-            backend computes hashes with it). Returned only to roles holding
-            `env:read_secret` (developer/admin). Omitted entirely otherwise.
+            The dedicated subscriber HMAC secret. Plaintext by design. The customer
+            backend computes hashes with it. Returned only to roles holding
+            `env:read_secret` (developer/admin). Omitted otherwise.
           nullable: true
     AdminHmacRotation:
       type: object
@@ -1714,7 +1714,7 @@ components:
         subscriber_hmac_secret:
           type: string
           description: |-
-            The new current secret. Update the customer backend with it; the
+            The new current secret. Update the customer backend with it. The
             previous secret keeps verifying until the rotation is completed.
     AdminInboxItem:
       type: object
@@ -1961,8 +1961,8 @@ components:
     BroadcastId:
       type: string
       description: 'TypeID: `bcast_` + UUIDv7 suffix (Crockford base32).'
-      example: bcast_01h455vb4pex5vsknk084sn02q
       pattern: ^bcast_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      example: bcast_01h455vb4pex5vsknk084sn02q
     CreateBroadcastRequest:
       type: object
       required:
@@ -1970,8 +1970,8 @@ components:
       properties:
         category:
           type: string
-          example: product.update
           maxLength: 255
+          example: product.update
         idempotency_key:
           type: string
           maxLength: 255
@@ -1985,8 +1985,8 @@ components:
       properties:
         category:
           type: string
-          example: payment.failed
           maxLength: 255
+          example: payment.failed
         deliver_at:
           type: string
           format: date-time
@@ -2106,8 +2106,8 @@ components:
     NotificationId:
       type: string
       description: 'TypeID: `notif_` + UUIDv7 suffix (Crockford base32).'
-      example: notif_01h455vb4pex5vsknk084sn02q
       pattern: ^notif_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      example: notif_01h455vb4pex5vsknk084sn02q
     NotificationTimeline:
       type: object
       required:

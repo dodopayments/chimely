@@ -1,7 +1,6 @@
-//! Task 6: HMAC subscriber-hash auth — enforced when
-//! `require_subscriber_hash = true`, optional in dev-mode environments,
-//! verified against current-then-previous secret slots, headers with query
-//! fallbacks.
+//! HMAC subscriber-hash auth. Enforced when `require_subscriber_hash = true`,
+//! optional in dev-mode environments, verified against current-then-previous
+//! secret slots, headers with query fallbacks.
 
 mod support;
 
@@ -84,7 +83,7 @@ async fn dev_mode_environments_accept_missing_but_not_invalid_hashes() {
         200,
         "the 30-second quickstart: no backend, no hash"
     );
-    // A PRESENT hash is still verified — a wrong one is rejected, not ignored.
+    // A present hash is still verified. A wrong one is rejected, not ignored.
     assert_eq!(
         get_counts_status(&app, headers(&app.env.slug, SUB, Some("deadbeef"))).await,
         401
@@ -117,13 +116,11 @@ async fn rotation_verifies_current_then_previous_secret() {
     .await
     .unwrap();
 
-    // Live <Inbox /> sessions on the old secret keep working (zero-downtime
-    // rotation overlap)…
+    // Old-secret sessions keep working through the rotation overlap.
     assert_eq!(
         get_counts_status(&app, headers(&app.env.slug, SUB, Some(&old_hash))).await,
         200
     );
-    // …and the new secret works too.
     let new_hash = compute_subscriber_hash(new_secret, SUB);
     assert_eq!(
         get_counts_status(&app, headers(&app.env.slug, SUB, Some(&new_hash))).await,

@@ -1,8 +1,7 @@
-//! Phase 3 chaos suite (specs/phase-3-hardening.md, deliverable 7): real
-//! Postgres + Redis via testcontainers, no mocks, every scenario ending in
-//! the full consistency sweep (`assert_consistent`): recounted counters ==
-//! maintained counters, list == merge of sources, no orphaned jobs,
-//! partitions cover the horizon.
+//! Chaos suite over real Postgres + Redis via testcontainers, no mocks. Every
+//! scenario ends in the full consistency sweep (`assert_consistent`).
+//! Recounted counters equal maintained counters, list equals the merge of
+//! sources, no orphaned jobs, partitions cover the horizon.
 
 mod support;
 
@@ -44,8 +43,7 @@ async fn worker_killed_after_partial_chunks_resumes_without_double_effects() {
             .await
             .unwrap();
     assert_eq!(all_ids.len(), 600);
-    // Past deliver_at: the rows are visible, the natural state for the
-    // consistency sweep at the end.
+    // Past deliver_at so the rows are visible for the final consistency sweep.
     tokio::time::sleep(Duration::from_millis(1_200)).await;
     sqlx::query("DELETE FROM jobs WHERE environment_id = $1")
         .bind(app.env.id)
@@ -64,13 +62,13 @@ async fn worker_killed_after_partial_chunks_resumes_without_double_effects() {
     .unwrap();
     drop(conn);
 
-    // Chunk 1 (500 rows) COMMITS.
+    // Chunk 1 (500 rows) commits.
     assert!(
         worker::process_one(&app.pool, app.pubsub.as_ref(), &app.cfg, app.env.id)
             .await
             .unwrap()
     );
-    // The worker dies mid-chunk-2: effects applied then rolled back.
+    // Worker dies mid-chunk-2. Effects are applied then rolled back.
     assert!(
         worker::crash_mid_deliver(&app.pool, app.env.id)
             .await
@@ -119,7 +117,7 @@ async fn server_killed_mid_sse_stream_reconnects_to_replica_without_missed_state
         .expect("hint before the kill");
     let event_id = support::event_id(&frame).expect("event id");
 
-    // Kill replica A mid-stream (listener closes, stream ends).
+    // Kill replica A mid-stream. The listener closes and the stream ends.
     app.shutdown_tx.send(true).unwrap();
     while stream
         .next_frame(Duration::from_millis(500))
@@ -139,7 +137,7 @@ async fn server_killed_mid_sse_stream_reconnects_to_replica_without_missed_state
     assert_eq!(res.status(), 201);
     app.drain_jobs().await;
 
-    // Reconnect to the surviving replica with Last-Event-ID: one immediate
+    // Reconnect to the surviving replica with Last-Event-ID. One immediate
     // resume hint, then the REST refetch shows everything.
     let mut resumed = SseStream::connect_to(&replica.base, &app, "usr_sse", Some(&event_id)).await;
     let frame = resumed
@@ -229,8 +227,8 @@ async fn racing_boot_migrations_serialize_under_the_advisory_lock() {
     let port = pg.get_host_port_ipv4(5432).await.expect("port");
     let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
 
-    // Wait for the container, then race 6 "replicas" through migrate + boot
-    // partition maintenance concurrently.
+    // Race 6 replicas through migrate plus boot partition maintenance
+    // concurrently once the container is up.
     let mut pool = None;
     for _ in 0..50 {
         if let Ok(p) = db::connect(&url).await
@@ -292,9 +290,8 @@ async fn redis_full_outage_delays_hints_loses_nothing_and_counters_recover() {
     assert_eq!(res.status(), 200, "Redis down must not fail readiness");
 
     // Counters stay recomputable from Postgres alone while Redis is dark.
-    // Park the pending hint jobs out of the sweep's way first, since
-    // claiming one would just burn the 5s publish timeout. They are retried
-    // after recovery below.
+    // Park the pending hint jobs out of the sweep's way first. Claiming one
+    // would burn the 5s publish timeout. They are retried after recovery.
     sqlx::query(
         "UPDATE jobs SET run_at = now() + interval '10 minutes'
           WHERE environment_id = $1 AND job_type = 'hint'",
@@ -371,7 +368,7 @@ async fn redis_full_outage_delays_hints_loses_nothing_and_counters_recover() {
     app.assert_consistent().await;
 }
 
-/// One environment floods the queue; a quiet environment's jobs still get
+/// One environment floods the queue. A quiet environment's jobs still get
 /// claimed promptly (round-robin fairness, one claim per env per sweep).
 #[tokio::test]
 async fn tenant_flood_cannot_starve_a_quiet_environment() {
@@ -437,10 +434,10 @@ async fn tenant_flood_cannot_starve_a_quiet_environment() {
     );
 }
 
-/// Sustained jobs-table churn at full speed: delete-on-complete plus the
+/// Sustained jobs-table churn at full speed. Delete-on-complete plus the
 /// table's aggressive autovacuum settings keep dead tuples and table size
-/// bounded. Nightly lane (see .github/workflows/nightly.yml); prints the
-/// measured sustained jobs/sec for the documented ceiling.
+/// bounded. Runs in the nightly lane and prints the measured sustained
+/// jobs/sec for the documented ceiling.
 #[tokio::test]
 #[ignore = "sustained-load chaos; run in the nightly lane (cargo nextest run --run-ignored all)"]
 async fn sustained_jobs_churn_stays_bounded_under_autovacuum() {
@@ -508,9 +505,9 @@ async fn sustained_jobs_churn_stays_bounded_under_autovacuum() {
     let cfg = std::sync::Arc::new(cfg);
     let pubsub = dronte::pubsub::build(None, &pool).await.unwrap();
 
-    // A deep single-environment backlog (the worst case for the claim
-    // query: one fairness slot, every worker contending on the same index
-    // head). Batched inserts so the enqueuer is not the bottleneck.
+    // Deep single-environment backlog is the worst case for the claim query.
+    // One fairness slot, every worker contending on the same index head.
+    // Batched inserts so the enqueuer is not the bottleneck.
     const BACKLOG: i64 = 20_000;
     for chunk in 0..(BACKLOG / 500) {
         sqlx::query(
@@ -526,9 +523,8 @@ async fn sustained_jobs_churn_stays_bounded_under_autovacuum() {
         .unwrap_or_else(|e| panic!("prefill chunk {chunk}: {e}"));
     }
 
-    // 4 workers drain it at full speed (each rebuild also enqueues a hint,
-    // so total processed work exceeds BACKLOG; the rate below is therefore
-    // a LOWER bound).
+    // 4 workers drain it at full speed. Each rebuild also enqueues a hint, so
+    // total processed work exceeds BACKLOG and the rate below is a lower bound.
     let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
     let mut workers = Vec::new();
     for _ in 0..4 {
@@ -583,10 +579,10 @@ async fn sustained_jobs_churn_stays_bounded_under_autovacuum() {
         BACKLOG as f64 / elapsed.as_secs_f64(),
         table_bytes / 1024,
     );
-    // Vacuum kept up. During the burn dead tuples peak between vacuum
-    // passes (naptime 5s) but stay bounded by the total churn (~2x BACKLOG
-    // rows inserted+deleted, rebuilds plus hints), and after one settle
-    // pass the table is back to near-empty with no lasting bloat.
+    // During the burn dead tuples peak between vacuum passes (naptime 5s) but
+    // stay bounded by the total churn (~2x BACKLOG rows inserted and deleted,
+    // rebuilds plus hints). After one settle pass the table is back to
+    // near-empty with no lasting bloat.
     assert!(
         peak_dead_tup < 3 * BACKLOG,
         "autovacuum fell behind: peak {peak_dead_tup} dead tuples"

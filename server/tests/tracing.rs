@@ -1,8 +1,8 @@
-//! Phase 3 observability: W3C trace context crosses the outbox. The
-//! enqueuing span's traceparent is stored inside the job payload and the
-//! worker adopts it as the remote parent, so ingest -> outbox -> worker ->
-//! hint is ONE trace. cargo-nextest gives this test its own process, so the
-//! global subscriber install below cannot leak elsewhere.
+//! W3C trace context crosses the outbox. The enqueuing span's traceparent is
+//! stored inside the job payload and the worker adopts it as the remote
+//! parent, so ingest -> outbox -> worker -> hint is one trace. nextest gives
+//! this test its own process, so the global subscriber install below cannot
+//! leak elsewhere.
 
 mod support;
 
@@ -13,8 +13,7 @@ use tracing_subscriber::layer::SubscriberExt as _;
 
 #[tokio::test]
 async fn trace_context_rides_the_outbox_and_survives_processing() {
-    // A real OTLP-style tracer (no exporter needed): spans get valid,
-    // sampled contexts, exactly like a production deployment.
+    // No exporter needed. Spans still get valid sampled contexts.
     let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder().build();
     let tracer = provider.tracer("test");
     let subscriber =
@@ -69,8 +68,7 @@ async fn trace_context_rides_the_outbox_and_survives_processing() {
     assert_ne!(parts[1], "0".repeat(32), "valid trace id");
     assert_eq!(parts[2].len(), 16);
 
-    // The worker adopts it and processes normally; the marker key must not
-    // confuse any handler.
+    // The _traceparent marker key in the payload must not confuse any handler.
     app.drain_jobs().await;
     assert_eq!(app.job_count(app.env.id).await, 0);
     app.assert_consistent().await;

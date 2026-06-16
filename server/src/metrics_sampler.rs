@@ -1,8 +1,8 @@
 //! Periodically sampled gauges. Everything here is recomputed from Postgres
 //! on every sample, never carried from in-process state, so the numbers stay
-//! true across restarts and a stalled subsystem cannot freeze its own alarm
-//! (`dronte_partitions_remaining` keeps decaying even when the maintenance
-//! job is dead, and that decay IS the W4 alert).
+//! true across restarts and a stalled subsystem cannot freeze its own alarm.
+//! `dronte_partitions_remaining` keeps decaying even when the maintenance job
+//! is dead, and that decay is the partition-headroom alert.
 //!
 //! Gauges emitted:
 //! * `dronte_queue_depth{environment,job_type}`: all pending job rows
@@ -41,7 +41,7 @@ pub async fn run(
     }
 }
 
-/// One sampling pass. Tests drive this directly.
+/// One sampling pass. Public so tests can drive it without the loop.
 pub async fn sample(pool: &PgPool, cfg: &Config) -> anyhow::Result<()> {
     sample_queue_depth(pool).await?;
     sample_dead_letters(pool).await?;

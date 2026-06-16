@@ -111,25 +111,35 @@ pub async fn ids_for_subscribers(
     .await
 }
 
-/// One chunk of a watermark-window timeline job: append `status` with
-/// `occurred_at = at` (the watermark move time) for visible notifications in
-/// `(from, to]`, keyset-resumable via `cursor`. Returns the new cursor when
+/// A watermark window for a timeline append. `status` is stamped with
+/// `occurred_at = at` (the watermark move time) on visible notifications in
+/// `(from, to]`, keyset-resumable via `cursor`.
+pub struct WatermarkWindow {
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+    pub at: DateTime<Utc>,
+    pub cursor: Option<(DateTime<Utc>, Uuid)>,
+}
+
+/// One chunk of a watermark-window timeline job. Returns the new cursor when
 /// more rows may remain, None when the window is exhausted.
 ///
 /// The caller holds the subscriber's counters-row lock and commits the
 /// cursor advance in the same transaction, so chunk replay after a crash is
 /// idempotent by construction.
-#[allow(clippy::too_many_arguments)]
 pub async fn append_window_chunk(
     conn: &mut sqlx::PgConnection,
     env: Uuid,
     subscriber: Uuid,
     status: &str,
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
-    at: DateTime<Utc>,
-    cursor: Option<(DateTime<Utc>, Uuid)>,
+    window: WatermarkWindow,
 ) -> sqlx::Result<Option<(DateTime<Utc>, Uuid)>> {
+    let WatermarkWindow {
+        from,
+        to,
+        at,
+        cursor,
+    } = window;
     // The window's own lower bound doubles as the initial keyset cursor:
     // rows at visible_at == from are excluded by the range predicate, so
     // (from, nil) is below every candidate row. chrono's MIN_UTC would

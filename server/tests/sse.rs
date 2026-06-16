@@ -1,7 +1,7 @@
-//! Task 5: the SSE hint stream — debounced hints over BOTH pub/sub planes
-//! (fred Redis and the LISTEN/NOTIFY fallback), Last-Event-ID resume,
-//! keep-alive comment frames, per-subscriber connection caps, graceful
-//! shutdown `retry:`, and the subscriber_hash log-scrubbing invariant.
+//! SSE hint stream: debounced hints over both pub/sub planes (fred Redis and
+//! the LISTEN/NOTIFY fallback), Last-Event-ID resume, keep-alive comment
+//! frames, per-subscriber connection caps, graceful shutdown `retry:`, and the
+//! subscriber_hash log-scrubbing invariant.
 
 mod support;
 
@@ -46,7 +46,6 @@ async fn hints_flow_end_to_end_over_listen_notify_fallback() {
 #[tokio::test]
 async fn hints_are_debounced_per_subscriber() {
     let app = support::spawn_with_redis().await;
-    // Subscriber + connection first, then a burst of 6 creates.
     app.create_notification(SUB, "seed").await;
     let mut stream = SseStream::connect(&app, SUB, None).await;
     app.spawn_worker();
@@ -54,10 +53,9 @@ async fn hints_are_debounced_per_subscriber() {
         app.create_notification(SUB, &format!("burst.{i}")).await;
     }
 
-    // Count hints over ~4 debounce windows (window = 250ms in tests).
-    // Exact-duplicate pending hint jobs coalesce on claim: a leading publish
-    // plus at most a trailing one per window for jobs enqueued after it —
-    // never one publish per create.
+    // Debounce window is 250ms in tests. Exact-duplicate pending hint jobs
+    // coalesce on claim: a leading publish plus at most a trailing one per
+    // window for jobs enqueued after it, never one publish per create.
     let mut hints = 0;
     let deadline = tokio::time::Instant::now() + Duration::from_millis(1000);
     while tokio::time::Instant::now() < deadline {
@@ -83,7 +81,7 @@ async fn broadcast_hints_reach_every_subscriber_with_one_publish() {
     app.create_broadcast("announce").await;
     app.drain_jobs().await;
 
-    // The seed hints may arrive first; wait for the broadcast reason.
+    // Seed hints may arrive first, so wait for the broadcast reason.
     for (name, stream) in [("a", &mut stream_a), ("b", &mut stream_b)] {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(4);
         loop {
@@ -108,7 +106,7 @@ async fn last_event_id_resume_answers_with_an_immediate_hint_only_if_changed() {
     app.drain_jobs().await;
     let mut stream = SseStream::connect(&app, SUB, None).await;
 
-    // Provoke one event to harvest a current resume token.
+    // Harvest a current resume token from one event.
     app.create_notification(SUB, "y").await;
     app.drain_jobs().await;
     let frame = stream
@@ -118,7 +116,7 @@ async fn last_event_id_resume_answers_with_an_immediate_hint_only_if_changed() {
     let token = support::event_id(&frame).expect("token");
     drop(stream);
 
-    // Nothing changed since the token ⇒ no immediate hint on resume.
+    // Nothing changed since the token, so no immediate hint on resume.
     let mut quiet = SseStream::connect(&app, SUB, Some(&token)).await;
     assert!(
         quiet.next_hint(Duration::from_millis(300)).await.is_none(),
@@ -126,8 +124,8 @@ async fn last_event_id_resume_answers_with_an_immediate_hint_only_if_changed() {
     );
     drop(quiet);
 
-    // A change after the token ⇒ exactly one immediate hint, no replay.
-    app.create_notification(SUB, "z").await; // job intentionally NOT drained:
+    // A change after the token yields exactly one immediate hint, no replay.
+    app.create_notification(SUB, "z").await; // job intentionally not drained
     let mut resumed = SseStream::connect(&app, SUB, Some(&token)).await;
     let frame = resumed
         .next_hint(Duration::from_millis(1500))
@@ -211,8 +209,8 @@ async fn graceful_shutdown_sends_a_retry_directive() {
     );
 }
 
-/// Tested invariant (risk: query-string credentials leak into logs):
 /// subscriber_hash never appears in access-log lines for the SSE endpoint.
+/// Guards against query-string credentials leaking into logs.
 #[tokio::test]
 async fn subscriber_hash_is_scrubbed_from_access_logs() {
     use std::sync::{Arc, Mutex};

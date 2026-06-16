@@ -18,15 +18,14 @@ pub struct AppState {
     pub pubsub: Arc<dyn PubSub>,
     pub ratelimit: Arc<dyn RateLimiter>,
     /// Per-replica SSE connection counts keyed by (environment, subscriber).
-    /// Enforces the per-subscriber cap (risk M3).
+    /// Enforces the per-subscriber cap.
     pub sse_connections: Arc<Mutex<HashMap<(Uuid, Uuid), usize>>>,
     /// Flips to `true` when shutdown begins. /readyz answers 503 from that
-    /// moment so load balancers drain the replica BEFORE the listener
-    /// closes; the listener itself stays open until `shutdown` flips.
+    /// moment so load balancers drain the replica before the listener closes.
+    /// The listener itself stays open until `shutdown` flips.
     pub draining: watch::Receiver<bool>,
-    /// Flips to `true` when the listener is about to close. SSE streams
-    /// answer with a jittered `retry:` directive and close; workers stop
-    /// claiming.
+    /// Flips to `true` when the listener is about to close. SSE streams answer
+    /// with a jittered `retry:` directive and close. Workers stop claiming.
     pub shutdown: watch::Receiver<bool>,
 }
 

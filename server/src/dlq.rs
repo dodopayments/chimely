@@ -1,10 +1,9 @@
-//! Dead-letter queue tooling: list parked jobs, replay them.
+//! Dead-letter queue tooling: list parked jobs and replay them.
 //!
-//! Replay moves the row back into `jobs` with a fresh attempt budget and
-//! `run_at = now()`, keeping the original id, payload, created_at and
-//! progress_cursor. A chunked job therefore resumes from its cursor, and the
-//! per-job effects stay keyed exactly as during a normal run, so a replayed
-//! job applies its side effects exactly-once-observably.
+//! Replay keeps the original id, payload, created_at and progress_cursor, so a
+//! chunked job resumes from its cursor and per-job effects stay keyed exactly
+//! as during a normal run. A replayed job applies its side effects
+//! exactly-once-observably.
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -41,23 +40,22 @@ pub async fn list(pool: &PgPool) -> anyhow::Result<Vec<DeadLetter>> {
     .await?)
 }
 
-/// Replay one parked job by id, optionally pinned to one environment
-/// (environment_id is part of every key; an unscoped id match would reach
-/// across environments). Returns false if no such dead letter.
+/// Replay one parked job by id, optionally pinned to one environment.
+/// environment_id is part of every key. An unscoped id match would reach
+/// across environments. Returns false if no such dead letter.
 pub async fn replay(pool: &PgPool, id: Uuid, environment: Option<Uuid>) -> anyhow::Result<bool> {
     let moved = replay_where(pool, Some(id), environment).await?;
     Ok(moved > 0)
 }
 
-/// Replay every parked job, optionally only one environment's. Returns the
-/// number moved.
+/// Replay every parked job, optionally only one environment's.
 pub async fn replay_all(pool: &PgPool, environment: Option<Uuid>) -> anyhow::Result<u64> {
     replay_where(pool, None, environment).await
 }
 
 /// The DELETE and the INSERT are one statement, so a replay can neither lose
-/// the job nor duplicate it. attempts resets to 0 (a replay grants a fresh
-/// budget); last_error stays for forensics until the job next succeeds.
+/// the job nor duplicate it. attempts resets to 0 to grant a fresh budget.
+/// last_error stays for forensics until the job next succeeds.
 async fn replay_where(
     pool: &PgPool,
     id: Option<Uuid>,

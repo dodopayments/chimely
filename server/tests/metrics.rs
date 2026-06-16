@@ -1,6 +1,5 @@
-//! Phase 3 observability: the Prometheus surface. cargo-nextest runs each
-//! test in its own process, so the process-global recorder is private to
-//! each test here.
+//! The Prometheus surface. cargo-nextest runs each test in its own process,
+//! so the process-global recorder is private to each test here.
 
 mod support;
 
@@ -26,7 +25,6 @@ async fn sampler_reports_queue_depth_dead_letters_partitions_and_zero_drift() {
     let app = support::spawn().await;
     app.create_notification("usr_m", "x").await;
 
-    // A parked job, directly: visible in dronte_dead_letters.
     sqlx::query(
         "INSERT INTO dead_letters (environment_id, id, job_type, payload, attempts,
                                    max_attempts, last_error, created_at)
@@ -55,7 +53,6 @@ async fn sampler_reports_queue_depth_dead_letters_partitions_and_zero_drift() {
     assert!(body.contains("dronte_counter_drift_unread 0"));
     assert!(body.contains("dronte_counter_drift_unseen 0"));
 
-    // Draining the queue zeroes the depth gauge instead of freezing it.
     app.drain_jobs().await;
     metrics_sampler::sample(&app.pool, &app.cfg).await.unwrap();
     let body = scrape(&app).await;
@@ -105,9 +102,8 @@ async fn counter_drift_detects_an_artificially_poisoned_counter() {
     app.drain_jobs().await;
 
     // A pending read-state hint carries an explicit JSON null in
-    // notification_ids. The drift recount's deliver-ownership probe walks
-    // job payloads and must not feed that null to
-    // jsonb_array_elements_text (scalar input raises an error).
+    // notification_ids. The drift recount's deliver-ownership probe must not
+    // feed that null to jsonb_array_elements_text. Scalar input raises an error.
     let subscriber: uuid::Uuid = sqlx::query_scalar(
         "SELECT id FROM subscribers WHERE environment_id = $1 AND subscriber_id = 'usr_m3'",
     )
@@ -127,8 +123,7 @@ async fn counter_drift_detects_an_artificially_poisoned_counter() {
     assert_eq!((unread, unseen), (0, 0));
     app.drain_jobs().await;
 
-    // Poison the maintained value; the sampled recount must see it. This is
-    // the proof the chaos suite's zero-drift assertion has teeth.
+    // Poison the maintained value. The sampled recount must surface it as drift.
     sqlx::query(
         "UPDATE subscriber_counters SET unread_direct_count = unread_direct_count + 7
           WHERE environment_id = $1",

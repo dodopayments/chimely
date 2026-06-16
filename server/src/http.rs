@@ -18,12 +18,11 @@ pub fn router(state: AppState) -> Router {
     let prometheus = prometheus_handle();
 
     // The subscriber plane is called by the <Inbox /> widget from arbitrary
-    // customer origins, so it is permissively CORS-enabled by design. The
-    // HMAC subscriber hash is the auth boundary, never the Origin. ETag is
-    // exposed explicitly: it is not on the CORS response-header safelist,
-    // and a hidden ETag silently disables the SDK's conditional refetch.
-    // The management plane gets no CORS on purpose. API keys do not belong
-    // in browsers.
+    // customer origins, so it is permissively CORS-enabled. The HMAC
+    // subscriber hash is the auth boundary, never the Origin. ETag is exposed
+    // explicitly. It is not on the CORS response-header safelist, and a hidden
+    // ETag silently disables the SDK's conditional refetch. The management
+    // plane gets no CORS. API keys do not belong in browsers.
     let widget_cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods([Method::GET, Method::POST, Method::PUT])
@@ -76,11 +75,11 @@ pub fn router(state: AppState) -> Router {
         )
         // Subscriber plane (CORS-enabled)
         .merge(subscriber_plane)
-        // Admin plane (the embedded /admin dashboard). The JSON API gates on
-        // AdminAuth (a server-side session cookie + per-endpoint capability).
-        // The SPA shell is public so it can render the login screen. No CORS:
-        // the dashboard is same-origin, served from this binary. Explicit
-        // API routes are matched before the SPA wildcard fallback.
+        // Admin plane. The JSON API gates on AdminAuth (a server-side session
+        // cookie plus per-endpoint capability). The SPA shell is public so it
+        // can render the login screen. No CORS. The dashboard is same-origin,
+        // served from this binary. Explicit API routes are matched before the
+        // SPA wildcard fallback.
         .merge(admin_plane())
         // Operational plane
         .route("/healthz", get(healthz))

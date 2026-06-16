@@ -59,9 +59,9 @@ export interface InboxAppearance {
  *   Connection props, when present, take precedence over the provider.
  *
  * Built-in behavior (part of the contract):
- * - Opening the popover calls markAllSeen (badge clears; unread untouched).
+ * - Opening the popover calls markAllSeen. The badge clears and unread is untouched.
  * - The list infinite-scrolls via fetchMore.
- * - A preferences panel (per-category in_app toggles) is included; hide it
+ * - A preferences panel (per-category in_app toggles) is included. Hide it
  *   with `preferencesPanel={false}`.
  */
 export interface InboxProps<TPayload = WellKnownPayload> {
@@ -82,7 +82,7 @@ export interface InboxProps<TPayload = WellKnownPayload> {
    * Item click handler. Default behavior (markRead + follow
    * `payload.action_url` if present) runs unless this returns false.
    */
-  // biome-ignore lint/suspicious/noConfusingVoidType: frozen contract type (specs/sdk-api.d.ts)
+  // biome-ignore lint/suspicious/noConfusingVoidType: frozen contract type
   onItemClick?: (item: InboxItem<TPayload>) => boolean | void;
 
   renderItem?: (ctx: { item: InboxItem<TPayload>; markRead: () => Promise<void> }) => ReactNode;
@@ -171,8 +171,6 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
     ensureStyles();
   }, []);
 
-  // Anchor the popover to the bell. Repositioning tracks scroll and resize
-  // where the runtime supports it.
   useEffect(() => {
     if (!open) {
       return undefined;
@@ -221,7 +219,6 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
     };
   }, [open]);
 
-  // Infinite scroll: page in via fetchMore when the end sentinel shows.
   useEffect(() => {
     if (!open || showPreferences) {
       return undefined;
@@ -265,7 +262,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
     const next = !open;
     setOpen(next);
     if (next) {
-      // The bell-open gesture: zero the badge, leave read state alone.
+      // markAllSeen zeroes the unseen badge. Read state is untouched.
       void client.markAllSeen();
     } else {
       setShowPreferences(false);

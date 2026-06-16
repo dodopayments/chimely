@@ -1,9 +1,9 @@
 //! The three auth planes.
 //!
-//! Management: `Authorization: Bearer <key>`; sha256(key) looked up over
+//! Management: `Authorization: Bearer <key>`. sha256(key) looked up over
 //! non-revoked api_keys rows. The environment is implied by the key.
 //!
-//! Subscriber: environment slug + customer subscriber id + (when the
+//! Subscriber: environment slug, customer subscriber id, and (when the
 //! environment requires it) `hex(HMAC-SHA256(subscriber_hmac_secret,
 //! subscriber_id))`, verified against the current then the previous secret
 //! slot so secret rotation never invalidates live sessions. Headers with
@@ -71,7 +71,7 @@ impl FromRequestParts<AppState> for ManagementAuth {
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::unauthorized("invalid API key"))?;
 
-        // Coarse last_used_at (at most ~1/min) — audit signal, not a hot write.
+        // Coarse last_used_at (at most ~1/min). Audit signal, not a hot write.
         if row
             .last_used_at
             .is_none_or(|t| Utc::now() - t > chrono::Duration::seconds(60))

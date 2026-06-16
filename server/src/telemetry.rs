@@ -1,12 +1,10 @@
-//! Tracing + OTLP wiring. Structured logs always (JSON by default,
-//! `DRONTE_LOG_FORMAT=text` for human eyes); an OTLP trace exporter is
-//! attached only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, so local dev and
-//! CI need no collector.
+//! Tracing + OTLP wiring. Logs are JSON by default, `DRONTE_LOG_FORMAT=text`
+//! for human eyes. The OTLP trace exporter attaches only when
+//! `OTEL_EXPORTER_OTLP_ENDPOINT` is set, so local dev and CI need no collector.
 //!
-//! Trace context crosses the outbox as a W3C `traceparent` riding inside the
-//! job payload (`_traceparent`): `jobs::enqueue` injects it, the worker
-//! claims it as the remote parent, so one trace spans
-//! ingest -> outbox -> worker -> hint publish.
+//! Trace context crosses the outbox as a W3C `traceparent` in the job payload
+//! (`_traceparent`). `jobs::enqueue` injects it and the worker claims it as the
+//! remote parent, so one trace spans ingest -> outbox -> worker -> hint publish.
 
 use anyhow::Context;
 use opentelemetry::trace::{
@@ -52,8 +50,8 @@ pub fn init() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The current span's context as a W3C traceparent, None when no sampled
-/// OTLP trace is active (no exporter configured, or outside any span).
+/// The current span's context as a W3C traceparent. None when no sampled OTLP
+/// trace is active, meaning no exporter is configured or there is no span.
 pub fn current_traceparent() -> Option<String> {
     let ctx = tracing::Span::current().context();
     let binding = ctx.span();
@@ -70,7 +68,7 @@ pub fn current_traceparent() -> Option<String> {
 }
 
 /// Adopt `traceparent` as the remote parent of `span`. Malformed input and
-/// registry errors are ignored: tracing is observability, never a failure
+/// registry errors are ignored. Tracing is observability, never a failure
 /// source.
 pub fn set_remote_parent(span: &tracing::Span, traceparent: &str) {
     if let Some(ctx) = parse_traceparent(traceparent) {

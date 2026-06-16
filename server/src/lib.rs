@@ -1,5 +1,5 @@
 //! Dronte server library. The `dronte` binary (`src/main.rs`) is a thin
-//! wrapper; everything lives here so integration tests (testcontainers) can
+//! wrapper. Everything lives here so integration tests (testcontainers) can
 //! drive the router, the worker loop, and maintenance jobs in-process.
 
 pub mod api;

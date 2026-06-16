@@ -1,6 +1,6 @@
-//! Phase 3: graceful shutdown. Readiness flips BEFORE the listener closes
-//! (load balancers drain first), in-flight requests finish, SSE closes with
-//! a retry directive (covered in sse.rs), workers stop claiming.
+//! Graceful shutdown. Readiness flips before the listener closes so load
+//! balancers drain first, in-flight requests finish, workers stop claiming.
+//! SSE close with a retry directive is covered in sse.rs.
 
 mod support;
 
@@ -20,7 +20,7 @@ async fn readiness_flips_to_503_while_the_listener_still_serves() {
         .unwrap();
     assert_eq!(res.status(), 200);
 
-    // Phase 1 of the drain: readiness 503, everything else still up.
+    // Readiness reports 503, everything else still up.
     app.draining_tx.send(true).unwrap();
     let res = app
         .client
@@ -46,7 +46,7 @@ async fn readiness_flips_to_503_while_the_listener_still_serves() {
         .unwrap();
     assert_eq!(res.status(), 201, "traffic still served during the grace");
 
-    // Phase 2: the listener closes; new connections fail.
+    // The listener closes. New connections fail.
     app.shutdown_tx.send(true).unwrap();
     tokio::time::sleep(Duration::from_millis(200)).await;
     let err = app
@@ -62,8 +62,8 @@ async fn readiness_flips_to_503_while_the_listener_still_serves() {
 async fn workers_stop_claiming_on_shutdown_and_leave_jobs_for_successors() {
     let app = support::spawn().await;
 
-    // A running worker loop observes the flip and exits. Its own shutdown
-    // switch: the HTTP listener must stay up for the assertions below.
+    // Separate worker stop switch. The HTTP listener must stay up for the
+    // assertions below.
     let (worker_stop_tx, worker_stop_rx) = tokio::sync::watch::channel(false);
     let handle = tokio::spawn(worker::run(
         app.pool.clone(),
@@ -78,8 +78,8 @@ async fn workers_stop_claiming_on_shutdown_and_leave_jobs_for_successors() {
         .expect("worker loop exits promptly on shutdown")
         .unwrap();
 
-    // Work enqueued after the stop is untouched: the next replica's
-    // workers (or a restart) claim it, and nothing is lost or half-done.
+    // Work enqueued after the stop is untouched. The next replica's workers
+    // or a restart claim it. Nothing is lost or half-done.
     app.create_notification("usr_w", "after-stop").await;
     assert!(
         app.job_count(app.env.id).await >= 1,

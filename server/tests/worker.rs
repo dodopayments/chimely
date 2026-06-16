@@ -1,7 +1,6 @@
-//! Task 3: the worker loop — fair SKIP LOCKED claims, deliver flow with
-//! exactly-once counter bumps keyed on job deletion, progress_cursor
-//! resumability (kill mid-deliver), counter_rebuild, delete-on-complete,
-//! failure parking.
+//! Worker loop. Fair SKIP LOCKED claims, deliver flow with exactly-once
+//! counter bumps keyed on job deletion, progress_cursor resumability across a
+//! mid-deliver kill, counter_rebuild, delete-on-complete, failure parking.
 
 mod support;
 
@@ -55,7 +54,7 @@ async fn deliver_bumps_counters_in_the_job_deletion_txn_and_completes_by_delete(
         assert_eq!(items.len(), 1, "item visible after deliver_at");
         assert_eq!(items[0]["read"], false);
     }
-    // Jobs are deleted on completion — never status-flagged.
+    // Jobs are deleted on completion, never status-flagged.
     assert_eq!(app.job_count(app.env.id).await, 0);
 }
 
@@ -90,11 +89,11 @@ async fn killing_the_worker_mid_deliver_is_replay_safe() {
 #[tokio::test]
 async fn large_deliver_jobs_advance_progress_cursor_per_chunk() {
     let app = support::spawn().await;
-    // Build a 600-row scheduled fan-out (> DELIVER_CHUNK) as 6 API batches,
-    // then splice them into ONE deliver job to exercise chunking. The
-    // deliver_at sits far in the future: the synthetic job below is due
-    // immediately regardless, the bump does not gate on visibility, and a
-    // near deadline 400s the later batches on slow CI runners.
+    // 600-row scheduled fan-out (> DELIVER_CHUNK) built as 6 API batches, then
+    // spliced into ONE deliver job to exercise chunking. deliver_at sits far in
+    // the future: the synthetic job below is due immediately regardless, the
+    // bump does not gate on visibility, and a near deadline 400s the later
+    // batches on slow CI runners.
     let deliver_at = Utc::now() + chrono::Duration::seconds(60);
     for batch in 0..6 {
         let recipients: Vec<String> = (0..100).map(|i| format!("usr_big_{batch}_{i}")).collect();
@@ -175,7 +174,7 @@ async fn claims_round_robin_so_one_environments_flood_cannot_starve_another() {
     let app = support::spawn().await;
     let env_b = app.create_environment(true).await;
 
-    // Flood env A with 50 due jobs; env B has 1 real-time job.
+    // Flood env A with 50 due jobs. Env B has 1 real-time job.
     let mut conn = app.pool.acquire().await.unwrap();
     for _ in 0..50 {
         jobs::enqueue(
@@ -199,8 +198,8 @@ async fn claims_round_robin_so_one_environments_flood_cannot_starve_another() {
     .unwrap();
     drop(conn);
 
-    // ONE fair sweep: each environment with pending work gets exactly one
-    // claim — env B's job is done while env A still has 49 queued.
+    // One fair sweep: each environment with pending work gets exactly one
+    // claim. Env B's job is done while env A still has 49 queued.
     let processed = worker::sweep_once(&app.pool, app.pubsub.as_ref(), &app.cfg)
         .await
         .unwrap();
@@ -235,8 +234,8 @@ async fn counter_rebuild_recounts_one_subscriber_mute_aware() {
     let (unread, _, _) = app.counter_row("usr_r").await;
     assert_eq!(unread, 3);
 
-    // Mute 'noisy' — the PUT enqueues counter_rebuild; counters stay
-    // mute-blind until the rebuild lands (documented eventual exactness).
+    // Muting 'noisy' enqueues counter_rebuild. Counters stay mute-blind until
+    // the rebuild lands. Mute correctness is eventual.
     let res = app
         .client
         .put(format!("{}/v1/inbox/preferences", app.base))
@@ -348,8 +347,8 @@ async fn failing_jobs_back_off_with_jitter_then_park_in_dead_letters() {
 #[tokio::test]
 async fn dead_letter_replay_reruns_the_job_exactly_once() {
     let app = support::spawn().await;
-    // A real deliver job, parked as an operator would find it after an
-    // exhausting outage: move it to dead_letters wholesale.
+    // A real deliver job moved to dead_letters wholesale, as it would be after
+    // an attempt-exhausting outage.
     create_due_scheduled(&app, "usr_dlq", 2).await;
     sqlx::query(
         "WITH moved AS (DELETE FROM jobs WHERE environment_id = $1 RETURNING *)
@@ -383,9 +382,9 @@ async fn dead_letter_replay_reruns_the_job_exactly_once() {
     app.assert_consistent().await;
 }
 
-/// C1(a) regression: a row can be VISIBLE (deliver_at passed) while still
-/// UNCOUNTED (deliver job not yet processed). Reading it in that window must
-/// not decrement a counter that was never incremented.
+/// A row can be VISIBLE (deliver_at passed) while still UNCOUNTED (deliver job
+/// not yet processed). Reading it in that window must not decrement a counter
+/// that was never incremented.
 #[tokio::test]
 async fn reading_a_visible_but_undelivered_notification_leaves_no_drift() {
     let app = support::spawn().await;
@@ -426,8 +425,8 @@ async fn reading_a_visible_but_undelivered_notification_leaves_no_drift() {
     assert_eq!(counts_a, 0, "no negative-drift masking");
 }
 
-/// C1(b) regression: a counter_rebuild running inside the deliver window must
-/// not count rows the deliver job will bump again afterwards.
+/// A counter_rebuild running inside the deliver window must not count rows the
+/// deliver job will bump again afterwards.
 #[tokio::test]
 async fn rebuild_during_the_deliver_window_does_not_double_count() {
     let app = support::spawn().await;
@@ -444,10 +443,9 @@ async fn rebuild_during_the_deliver_window_does_not_double_count() {
     assert_eq!(res.status(), 201);
     tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
 
-    // Force the rebuild to run FIRST: push the deliver job into the near
-    // future (far enough that a loaded CI runner cannot make it due before
-    // the rebuild claim below), enqueue a rebuild, process it, then let the
-    // deliver job run.
+    // Force the rebuild to run first. Push the deliver job far enough into the
+    // future that a loaded CI runner cannot make it due before the rebuild
+    // claim below, then enqueue and process the rebuild before the deliver job.
     sqlx::query(
         "UPDATE jobs SET run_at = now() + interval '2 seconds'
                   WHERE environment_id = $1 AND job_type = 'deliver'",
@@ -474,8 +472,7 @@ async fn rebuild_during_the_deliver_window_does_not_double_count() {
     .await
     .unwrap();
     drop(conn);
-    // Process exactly ONE job: the rebuild is the only due job (the deliver
-    // job is 300ms out), so a single claim runs it in isolation.
+    // The rebuild is the only due job, so a single claim runs it in isolation.
     assert!(
         worker::process_one(&app.pool, app.pubsub.as_ref(), &app.cfg, app.env.id)
             .await

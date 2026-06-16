@@ -46,8 +46,8 @@ describe('backoffDelayMs', () => {
   });
 
   test('many simulated drops do not reconnect in lockstep', () => {
-    // Deploy-time thundering-herd protection. A fleet of clients dropped at
-    // once must spread over the jitter window instead of sharing one delay.
+    // Thundering-herd guard. Clients dropped together spread over the jitter
+    // window instead of sharing one delay.
     const resolved = resolveBackoff();
     const fleet = Array.from({ length: 200 }, () => backoffDelayMs(3, resolved));
     const base = 4000;

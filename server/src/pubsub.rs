@@ -1,15 +1,15 @@
 //! The hint plane. Redis pub/sub (fred) when `REDIS_URL` is set, Postgres
 //! LISTEN/NOTIFY otherwise (`npx dronte dev` Redis-less mode).
 //!
-//! Hints are refetch triggers, not transports (CLAUDE.md): losing this plane
-//! delays hints and loses nothing — the jobs table rows survive and retry.
+//! Hints are refetch triggers, not transports (CLAUDE.md). Losing this plane
+//! delays hints and loses nothing. The jobs table rows survive and retry.
 //! Every replica subscribes once to a single channel and fans in to local SSE
 //! connections through a tokio broadcast channel.
 //!
-//! **PgBouncer warning (document loudly, per the plan):** the LISTEN/NOTIFY
-//! fallback opens a DEDICATED DIRECT connection to `DATABASE_URL`.
-//! Transaction-mode PgBouncer breaks LISTEN — in Redis-less mode the database
-//! URL must point at Postgres directly (or a session-mode pooler).
+//! The LISTEN/NOTIFY fallback opens a dedicated direct connection to
+//! `DATABASE_URL`. Transaction-mode PgBouncer breaks LISTEN. In Redis-less
+//! mode the database URL must point at Postgres directly or a session-mode
+//! pooler.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -45,8 +45,8 @@ pub trait PubSub: Send + Sync {
 
     /// Debounce slot acquisition. True means the caller may publish now and
     /// owns the window. False means a hint for this key was already published
-    /// within the window and the caller defers to the window end, so the
-    /// last change is never silently swallowed.
+    /// within the window and the caller defers to the window end, so the last
+    /// change is never silently swallowed.
     async fn try_acquire_debounce(&self, key: &str, window: Duration) -> anyhow::Result<bool>;
 }
 
@@ -70,7 +70,7 @@ pub struct RedisPubSub {
 /// indefinitely. A hanging Redis would then stall the worker inside its claim
 /// transaction and freeze deliver/counter_rebuild for every environment. With
 /// the timeout an outage surfaces as a job error, backs off via fail_job, and
-/// the worker stays live (hints delayed, nothing else).
+/// the worker stays live with hints delayed and nothing else.
 const REDIS_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
 impl RedisPubSub {
@@ -123,8 +123,8 @@ impl RedisPubSub {
                             let _ = fan_in.send(hint);
                         }
                     }
-                    // Lagging (or a reconnect-induced gap) loses hints, never
-                    // data — clients refetch on the next hint or reconnect.
+                    // Lagging or a reconnect-induced gap loses hints, never
+                    // data. Clients refetch on the next hint or reconnect.
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
                         tracing::warn!(skipped, "hint fan-in lagged; continuing");
                     }
@@ -143,11 +143,10 @@ impl PubSub for RedisPubSub {
         let payload = serde_json::to_string(hint)?;
         let receivers: i64 = self.client.publish(HINT_CHANNEL, payload).await?;
         // Every healthy replica holds exactly one subscription, so zero
-        // receivers is always the degraded window right after a Redis
-        // recovery, before any fan-in subscriber has reattached. A
-        // fire-and-forget publish there would LOSE the hint. Failing the
-        // job instead retries it via fail_job, which turns the loss into
-        // the delay the contract allows.
+        // receivers is always the degraded window right after a Redis recovery,
+        // before any fan-in subscriber has reattached. A fire-and-forget
+        // publish there would lose the hint. Failing the job retries it via
+        // fail_job, turning the loss into the delay the contract allows.
         anyhow::ensure!(receivers > 0, "hint published to zero receivers");
         Ok(())
     }

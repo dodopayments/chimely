@@ -1,7 +1,7 @@
-//! Task 4: the merged two-source inbox — keyset pagination across interleaved
-//! sources, watermark moves, broadcast read exceptions + GC, counts, ETag
-//! movement on EVERY read-state mutation, the conditional-increment race,
-//! preferences, and the EXPLAIN shape check.
+//! The merged two-source inbox. Keyset pagination across interleaved sources,
+//! watermark moves, broadcast read exceptions and GC, counts, ETag movement on
+//! every read-state mutation, the conditional-increment race, preferences, and
+//! the EXPLAIN shape check.
 
 mod support;
 
@@ -26,7 +26,7 @@ async fn etag(app: &support::TestApp, subscriber: &str) -> String {
 #[tokio::test]
 async fn merged_list_interleaves_both_sources_under_keyset_pagination() {
     let app = support::spawn().await;
-    // Force subscriber creation BEFORE the first broadcast (visibility rule).
+    // Subscriber must exist before the first broadcast to be visible to it.
     app.create_notification(SUB, "direct.0").await;
     let mut expected = vec!["direct.0".to_owned()];
     for i in 1..=4 {
@@ -56,7 +56,7 @@ async fn merged_list_interleaves_both_sources_under_keyset_pagination() {
         assert_eq!(item["read"], false);
     }
 
-    // occurred_at strictly descending with id tiebreak ⇒ total order.
+    // occurred_at strictly descending with id tiebreak gives a total order.
     let stamps: Vec<&str> = items
         .iter()
         .map(|i| i["occurred_at"].as_str().unwrap())
@@ -65,7 +65,7 @@ async fn merged_list_interleaves_both_sources_under_keyset_pagination() {
     sorted.sort_unstable_by(|a, b| b.cmp(a));
     assert_eq!(stamps, sorted);
 
-    // A short page means the end: next_cursor null.
+    // A short page is the last page. next_cursor is null.
     let page = app.list_items(SUB).await;
     assert!(page["next_cursor"].is_null());
     assert_eq!(page["items"].as_array().unwrap().len(), 9);
@@ -75,7 +75,7 @@ async fn merged_list_interleaves_both_sources_under_keyset_pagination() {
 async fn broadcast_visibility_follows_subscriber_created_at() {
     let app = support::spawn().await;
     app.create_broadcast("before").await;
-    app.create_notification("usr_new", "x").await; // subscriber born here
+    app.create_notification("usr_new", "x").await; // subscriber created here
     app.create_broadcast("after").await;
 
     let cats: Vec<String> = app
@@ -121,7 +121,7 @@ async fn mark_all_read_is_a_watermark_move_that_covers_both_sources() {
     app.create_notification(SUB, "d1").await;
     app.create_broadcast("b1").await;
     app.create_notification(SUB, "d2").await;
-    // Individual broadcast read first → exception row exists.
+    // Read a broadcast individually first so an exception row exists.
     let bcast_id = app
         .list_all_items(SUB, 10)
         .await
@@ -148,7 +148,7 @@ async fn mark_all_read_is_a_watermark_move_that_covers_both_sources() {
     let counts: serde_json::Value = res.json().await.unwrap();
     assert_eq!(counts["unread"], 0);
 
-    // Read state covers BOTH sources; no notification row was UPDATEd.
+    // Read state covers both sources. No notification row was UPDATEd.
     let items = app.list_all_items(SUB, 10).await;
     assert!(items.iter().all(|i| i["read"] == true), "{items:?}");
     let read_at_rows: i64 = sqlx::query_scalar(
@@ -328,8 +328,8 @@ async fn etag_moves_on_every_read_state_mutation_and_serves_304s() {
         .await;
     assert_moved(&app, "mark notification read", &mut seen_etags).await;
 
-    // Mark-broadcast-read changes no maintained counter — the updated_at bump
-    // is the only thing that moves the ETag here.
+    // Marking a broadcast read changes no maintained counter. The updated_at
+    // bump is the only thing that moves the ETag here.
     app.post_inbox(SUB, &format!("/v1/inbox/broadcasts/{bcast_id}/read"))
         .await;
     assert_moved(&app, "mark broadcast read", &mut seen_etags).await;
@@ -351,7 +351,7 @@ async fn etag_moves_on_every_read_state_mutation_and_serves_304s() {
     assert_eq!(res.status(), 200);
     assert_moved(&app, "preference flip", &mut seen_etags).await;
 
-    // Quiescent: If-None-Match → 304 with headers, no body.
+    // Quiescent: If-None-Match yields 304 with headers and no body.
     let current = seen_etags.last().unwrap().clone();
     let res = app
         .client
@@ -368,7 +368,7 @@ async fn etag_moves_on_every_read_state_mutation_and_serves_304s() {
         "private, max-age=0"
     );
 
-    // …and a change flips it back to 200.
+    // A change flips it back to 200.
     app.create_notification(SUB, "z").await;
     let res = app
         .client
@@ -548,8 +548,8 @@ async fn management_preference_endpoints_mirror_the_subscriber_plane() {
     assert_eq!(body["preferences"][0]["category"], "noisy");
 }
 
-/// Acceptance: EXPLAIN confirms notifications_inbox_idx and
-/// broadcasts_window_idx serve the two merge arms.
+/// EXPLAIN confirms notifications_inbox_idx and broadcasts_window_idx serve
+/// the two merge arms.
 #[tokio::test]
 async fn explain_confirms_the_two_arm_index_shapes() {
     let app = support::spawn().await;
@@ -557,7 +557,7 @@ async fn explain_confirms_the_two_arm_index_shapes() {
     app.create_broadcast("y").await;
 
     let mut conn = app.pool.acquire().await.unwrap();
-    // Tiny tables would seq-scan; prove the indexes CAN serve the shapes.
+    // Tiny tables would seq-scan. Disabling it forces the index shapes.
     sqlx::query("SET enable_seqscan = off")
         .execute(&mut *conn)
         .await
@@ -603,7 +603,6 @@ async fn cursor_pagination_is_stable_under_concurrent_inserts() {
     for i in 0..6 {
         app.create_notification(SUB, &format!("c{i}")).await;
     }
-    // First page…
     let res = app
         .client
         .get(format!("{}/v1/inbox/items?limit=3", app.base))
@@ -614,10 +613,10 @@ async fn cursor_pagination_is_stable_under_concurrent_inserts() {
     let page1: serde_json::Value = res.json().await.unwrap();
     let cursor = page1["next_cursor"].as_str().unwrap().to_owned();
 
-    // …a newer item arrives between pages…
+    // A newer item arrives between pages.
     app.create_notification(SUB, "newest").await;
 
-    // …and the second page neither skips nor repeats (keyset, not offset).
+    // The second page neither skips nor repeats. Keyset, not offset.
     let res = app
         .client
         .get(format!(
@@ -637,7 +636,7 @@ async fn cursor_pagination_is_stable_under_concurrent_inserts() {
         .collect();
     assert_eq!(cats, ["c2", "c1", "c0"]);
 
-    // Malformed cursor → 400, not 500.
+    // Malformed cursor is a 400, not a 500.
     let res = app
         .client
         .get(format!("{}/v1/inbox/items?cursor=%21%21%21", app.base))

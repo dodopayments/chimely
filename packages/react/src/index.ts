@@ -1,10 +1,8 @@
 /**
- * @dronte/react, the hooks and <Inbox /> on top of @dronte/client.
+ * Hooks and <Inbox /> on top of @dronte/client.
  *
- * The public surface is frozen in specs/sdk-api.d.ts (additive-only from
- * the contract-v1 tag). Zero styling dependencies: plain CSS custom
- * properties, slot classNames, render props. @floating-ui/dom is the only
- * runtime UI dependency.
+ * The public surface is additive-only against project/archive-v1/sdk-api.d.ts.
+ * Zero styling dependencies. @floating-ui/dom is the only runtime UI dependency.
  */
 
 export type { DronteProviderProps } from './context';

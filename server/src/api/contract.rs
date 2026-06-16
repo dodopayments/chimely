@@ -1,13 +1,9 @@
-//! Doc-only schema definitions converging the exported OpenAPI document on
-//! specs/openapi.yaml (the frozen contract). Built with utoipa builders so
-//! every description, constraint, and example is verbatim; the runtime
-//! request/response types live next to their handlers and the schemathesis
-//! CI job guards against drift between the two.
+//! Doc-only schema definitions for the exported OpenAPI document, built with
+//! utoipa builders. The runtime request/response types live next to their
+//! handlers.
 
-// The frozen contract is OpenAPI 3.0.3, which uses the singular `example`
-// keyword; utoipa deprecates it in favor of 3.1 `examples`. Converging on the
-// spec wins until v1.
-#![allow(deprecated)]
+// Schema examples use the 3.1 `examples` array. The 3.0.3 export folds it to
+// the singular `example` (openapi::to_contract_yaml).
 
 use std::borrow::Cow;
 
@@ -54,7 +50,7 @@ contract_schema!(
     NotificationId,
     string()
         .pattern(Some("^notif_[0-7][0-9a-hjkmnp-tv-z]{25}$"))
-        .example(Some(json!("notif_01h455vb4pex5vsknk084sn02q")))
+        .examples([json!("notif_01h455vb4pex5vsknk084sn02q")])
         .description(Some("TypeID: `notif_` + UUIDv7 suffix (Crockford base32)."))
         .into()
 );
@@ -63,7 +59,7 @@ contract_schema!(
     BroadcastId,
     string()
         .pattern(Some("^bcast_[0-7][0-9a-hjkmnp-tv-z]{25}$"))
-        .example(Some(json!("bcast_01h455vb4pex5vsknk084sn02q")))
+        .examples([json!("bcast_01h455vb4pex5vsknk084sn02q")])
         .description(Some("TypeID: `bcast_` + UUIDv7 suffix (Crockford base32)."))
         .into()
 );
@@ -110,7 +106,7 @@ contract_schema!(
         .property(
             "error",
             ObjectBuilder::new()
-                .property("code", string().example(Some(json!("invalid_request"))))
+                .property("code", string().examples([json!("invalid_request")]))
                 .property("message", string())
                 .required("code")
                 .required("message"),
@@ -145,7 +141,7 @@ contract_schema!(
             "category",
             string()
                 .max_length(Some(255))
-                .example(Some(json!("payment.failed"))),
+                .examples([json!("payment.failed")]),
         )
         .property("payload", Ref::from_schema_name("Payload"))
         .property(
@@ -190,7 +186,7 @@ contract_schema!(
             "category",
             string()
                 .max_length(Some(255))
-                .example(Some(json!("product.update"))),
+                .examples([json!("product.update")]),
         )
         .property("payload", Ref::from_schema_name("Payload"))
         .property("idempotency_key", string().max_length(Some(255)))
@@ -338,8 +334,7 @@ contract_schema!(
         .into()
 );
 
-/// The reusable 429 from specs/openapi.yaml `components.responses`. Paths
-/// reference it (`$ref`), exactly like the frozen contract does.
+/// The reusable 429 in `components.responses`. Paths reference it via `$ref`.
 pub struct RateLimited;
 
 impl utoipa::ToResponse<'_> for RateLimited {
@@ -348,9 +343,8 @@ impl utoipa::ToResponse<'_> for RateLimited {
             "RateLimited",
             ResponseBuilder::new()
                 .description("Per-API-key (management) or per-subscriber (widget) rate limit.")
-                // lowercase: kin-openapi (the oasdiff loader) normalizes
-                // header names to lowercase; matching avoids a phantom
-                // casing diff.
+                // kin-openapi (the oasdiff loader) lowercases header names.
+                // Matching it here avoids a phantom casing diff.
                 .header(
                     "retry-after",
                     HeaderBuilder::new()
@@ -406,9 +400,9 @@ contract_schema!(
 contract_schema!(
     SseEventStream,
     string()
-        .example(Some(json!(
+        .examples([json!(
             "id: 01h455vb4pex5vsknk084sn02q\nevent: hint\ndata: {\"reason\":\"notification\"}\n"
-        )))
+        )])
         .into()
 );
 
