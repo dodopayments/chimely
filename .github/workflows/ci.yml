@@ -124,16 +124,17 @@ jobs:
       - name: Fail if committed generated artifacts are stale
         run: git diff --exit-code -- packages/client/src/generated docs/openapi
 
-  # REQUIRED (the Phase 1/2 completion criterion, see CLAUDE.md "API
-  # contract rules"): the generated spec must equal specs/openapi.yaml,
-  # the frozen convergence target, and the delta stays permanently empty
-  # until the v1 release flips this gate to breaking-change detection
-  # against the last release. Mark this job required in branch protection.
-  # Post-freeze ADDITIVE surface sanctioned by phase specs is stripped from
-  # the generated document before the strict diff — anything not on that
-  # list still fails the gate.
+  # REQUIRED (post-v1 contract gate, see CLAUDE.md "API contract rules"): the
+  # generated spec is the published truth. CI exports the live spec and runs
+  # oasdiff breaking-change detection against project/openapi-baseline.yaml —
+  # the `dronte openapi` export frozen at the last release (v1.0.0). Additive
+  # changes pass; a breaking change fails the gate and is recorded only by
+  # bumping the baseline in the release commit. This replaces the pre-v1
+  # convergence diff against the now-retired hand-written spec (archived at
+  # project/archive-v1/openapi.yaml). Mark this job required in branch
+  # protection.
   contract:
-    name: contract convergence
+    name: contract breaking-change gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -142,49 +143,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: server
-      - name: Export the generated spec
+      - name: Export the live generated spec
         run: cargo run --manifest-path server/Cargo.toml -- openapi > /tmp/openapi.gen.yaml
-      - name: Strip sanctioned post-freeze additions (phase-3 status timeline, honest error codes)
-        run: |
-          python3 - <<'EOF'
-          import yaml
-          doc = yaml.safe_load(open('/tmp/openapi.gen.yaml'))
-          # specs/phase-3-hardening.md, deliverable 2: additive endpoint(s).
-          sanctioned_paths = ['/v1/notifications/{id}/timeline']
-          sanctioned_schemas = ['NotificationTimeline', 'TimelineEntry']
-          # Honest response codes the handler really returns that the frozen 3.0
-          # spec under-declares. The generated/served spec and @dronte/client
-          # keep them (schemathesis verifies annotation==handler); the strict
-          # convergence diff excludes them until the frozen spec retires at v1.
-          sanctioned_responses = [
-              ('/v1/inbox/items', 'get', '400'),
-              ('/v1/subscribers/{subscriber_id}', 'put', '400'),
-          ]
-          for path in sanctioned_paths:
-              assert doc['paths'].pop(path, None) is not None, f'{path} missing from generated spec'
-          for schema in sanctioned_schemas:
-              assert doc['components']['schemas'].pop(schema, None) is not None, f'{schema} missing'
-          for path, method, code in sanctioned_responses:
-              responses = doc['paths'][path][method]['responses']
-              assert responses.pop(code, None) is not None, f'{method} {path} {code} missing'
-          # specs/phase-4-admin.md + the admin multi-user-auth design: the
-          # embedded admin dashboard's API is an additive post-freeze plane
-          # (own `admin` tag, /admin/api paths, Admin* schemas, the
-          # Admin* security scheme). It is kept in the served/generated spec
-          # and stripped from the strict convergence diff, like the phase-3
-          # timeline above.
-          admin_paths = [p for p in list(doc['paths']) if p.startswith('/admin')]
-          assert admin_paths, 'admin plane missing from generated spec'
-          for path in admin_paths:
-              doc['paths'].pop(path)
-          doc['tags'] = [t for t in doc.get('tags', []) if t.get('name') != 'admin']
-          for schema in [s for s in list(doc['components']['schemas']) if s.startswith('Admin')]:
-              doc['components']['schemas'].pop(schema)
-          schemes = doc.get('components', {}).get('securitySchemes', {})
-          for scheme in [s for s in list(schemes) if s.startswith('Admin')]:
-              schemes.pop(scheme)
-          yaml.safe_dump(doc, open('/tmp/openapi.gen.stripped.yaml', 'w'), sort_keys=False)
-          EOF
       - uses: actions/setup-go@v5
         with:
           go-version: stable
@@ -192,8 +152,8 @@ jobs:
         run: |
           go install github.com/oasdiff/oasdiff@latest
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-      - name: Semantic diff against the frozen convergence target
-        run: oasdiff diff specs/openapi.yaml /tmp/openapi.gen.stripped.yaml --fail-on-diff
+      - name: Fail on breaking changes vs the last released spec
+        run: oasdiff breaking project/openapi-baseline.yaml /tmp/openapi.gen.yaml --fail-on ERR
 
   docker:
     name: docker image

@@ -8,7 +8,7 @@
   "files": {
     "includes": [
       "**",
-      "!specs",
+      "!project",
       "!server/.sqlx",
       "!packages/client/src/generated",
       "!docs/openapi",

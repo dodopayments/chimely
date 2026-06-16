@@ -47,7 +47,7 @@ Encoded in `specs/` in the same commit that added this file:
 | M2 | Redis count-cache invalidation on broadcast create is env-wide — without an env-level epoch in the cache key, every subscriber's cached count goes stale | First broadcast after Redis caching lands | Phase 1 design note, before counters hit Redis |
 | M3 | No per-subscriber SSE connection caps; dev environments (`require_subscriber_hash=false`) are an open connection-exhaustion relay | A staging URL leaks | Phase 1 |
 | M5 | Phase 1 scope is front-loaded by the contract (deliver_at, seen watermarks, ETag, fairness all published) — "2–3 weeks" is the plan's most optimistic number for a solo maintainer | Week 3 of Phase 1 | Re-plan openly if slipping; nothing can be cut silently anymore |
-| M6 | **Meta-risk**: nothing binds spec to implementation — the three spec files drift into aspirational documentation | Quietly, by month two | Phase 1 CI: schemathesis against openapi.yaml; schema.sql canonical queries as integration tests |
+| M6 | **Meta-risk**: nothing binds spec to implementation — the three spec files drift into aspirational documentation | Quietly, by month two | Bound: code-first utoipa + Rust contract-drift tests (`redteam_contract_drift*`) assert annotations == handler status codes; schema.sql canonical queries are integration tests; the `contract` CI job is oasdiff breaking-change detection on the generated spec. (The schemathesis run named here was never wired up.) |
 
 ## Parked — year horizon (revisit at Phase 3 and at launch)
 

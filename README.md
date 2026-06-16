@@ -5,9 +5,9 @@ One Rust binary + Postgres + Redis, a deliberately small HTTP API, and a
 drop-in `<Inbox />` React component. No workflow engine — the inbox is the
 primitive.
 
-> Early scaffolding. The plan lives in `docs/dronte-project-plan.md`; the
-> frozen v1 contracts in `specs/`; the per-phase specs in
-> `specs/phase-*.md`.
+> The plan lives in `docs/dronte-project-plan.md`. The frozen v1 contracts and
+> the per-phase specs are archived in `project/archive-v1/` (the generated
+> OpenAPI spec is the published truth as of v1.0.0).
 
 ## Repository layout
 
@@ -17,7 +17,7 @@ packages/client/   @dronte/client — headless TS core       (MIT)
 packages/react/    @dronte/react  — hooks + <Inbox />      (MIT)
 examples/          quickstarts and integration examples    (MIT)
 docs/              Fumadocs site + project plan            (MIT)
-specs/             frozen v1 contracts (read-only)
+project/           archived v1 contracts + OpenAPI baseline
 ```
 
 ## Admin dashboard

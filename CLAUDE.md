@@ -12,25 +12,35 @@ server/            Rust binary (single crate): API, SSE, workers
 packages/client/   @dronte/client — headless TS core
 packages/react/    @dronte/react  — hooks + <Inbox />
 docs/              Fumadocs site (+ project plan, risk register)
-specs/             FROZEN v1 contracts — read-only (see below)
+project/           archive-v1/ (frozen v1 contracts) + openapi-baseline.yaml
 ```
 
 ## Non-negotiable invariants
 
 Violating any of these is a bug even if all tests pass. They restate the
-contracts in `specs/schema.sql` (header comments) and the project plan.
+contracts in `project/archive-v1/schema.sql` (header comments) and the project
+plan.
 
 **The two-source inbox.** The inbox is a merge of two sources: direct
 notifications (fan-out on write, one row per recipient) and broadcasts
 (fan-out on read, one row per announcement, never materialized per
 subscriber). The list, the unread count, and read state must agree across
 both sources at all times — if a change touches one surface, prove the other
-two still agree.
+two still agree. A subscriber sees a broadcast iff `broadcast.created_at >=
+subscriber.created_at` (`subscribers.created_at` is backdatable on import, so
+the customer decides which historical broadcasts a migrated user sees).
 
 **Mark-all-read is a watermark upsert.** Moving the per-subscriber
 `read_watermark` is the ONLY implementation — never a bulk `UPDATE` over
 notification rows (MVCC bloat on the hottest write path). Read state =
 per-item exception OR at-or-below the watermark, for both sources.
+
+**Ordering timestamps come from Postgres.** `created_at`, `visible_at`, and
+every watermark move are computed inside the SQL statement
+(`now()`/`clock_timestamp()`), never by an app replica. The unread-counter
+increment is guarded against the mark-all-read race — the `+1` is conditioned
+on `visible_at > read_watermark` and read under the per-subscriber counters
+lock, so a concurrent watermark move can never be clobbered.
 
 **Transactional outbox.** The outbox/job row is inserted in the SAME Postgres
 transaction as the notification row. No dual-writes between Postgres and
@@ -56,7 +66,10 @@ burst must not starve another's real-time jobs.
 FK. Preferences carry a `channel` column (`'in_app'` is the only value for
 now; the column exists so push transports never need a migration).
 Subscribers are one-to-many endpoints — nothing may assume subscriber ↔
-device is 1:1.
+device is 1:1. No sequences anywhere — every id is an app-generated UUIDv7,
+and the migration lint rejects serial/sequence defaults alongside the
+missing-`environment_id` check, so id minting needs no cluster-wide
+coordination and the schema stays distributable by `environment_id`.
 
 **Single-org.** No organization concept anywhere — not in the schema, not in
 the API, not in the admin UI. Environments are the isolation unit;
@@ -85,22 +98,32 @@ require a CLA so exclusive commercialization rights hold.
 - The contract is **code-first via utoipa**; `dronte openapi` prints the
   generated spec (CI exports it; the docs site and `@dronte/client` types are
   built from it).
-- **Until v1:** `specs/openapi.yaml` is the convergence target. NEVER edit
-  `specs/openapi.yaml` to match the code — the oasdiff output (the `contract`
-  CI job) is the to-do list, and full equivalence is the Phase 1/2 completion
-  criterion.
-- **After v1:** the generated spec becomes the published truth, the
-  hand-written spec retires, and the CI gate flips to oasdiff
-  breaking-change detection against the last release.
+- **The generated spec is the published truth** (since v1.0.0). The
+  hand-written convergence target retired to
+  `project/archive-v1/openapi.yaml`; never converge code toward it again. The
+  `contract` CI job runs oasdiff **breaking-change detection** of the live
+  generated spec against `project/openapi-baseline.yaml` (the export frozen at
+  the last release). Additive changes pass; a breaking change fails the gate
+  and is recorded only by regenerating the baseline in the release commit
+  (`cargo run -- openapi > project/openapi-baseline.yaml`).
+- The frozen SDK surface (`project/archive-v1/sdk-api.d.ts`) is
+  **additive-only**; `pnpm conformance` type-checks the built packages against
+  it.
 - `packages/client/src/generated/` and `docs/openapi/` are **generated**
   (`pnpm generate`) — never hand-edit them; CI fails if they are stale.
+  `project/openapi-baseline.yaml` is NOT part of `pnpm generate`: it is a
+  frozen per-release snapshot, bumped by hand only when cutting a release.
 
-## specs/ is read-only
+## Archived v1 contracts (project/archive-v1, read-only)
 
-`specs/schema.sql`, `specs/openapi.yaml`, and `specs/sdk-api.d.ts` are frozen
-v1 contracts (tagged `contract-v1`). Do not edit them to make code or CI
-happy. `specs/phase-*.md` are the executable phase specs derived from the
-plan.
+`project/archive-v1/{schema.sql,openapi.yaml,sdk-api.d.ts}` are the frozen v1
+contracts (tagged `contract-v1`), archived at the v1.0.0 flip. They are
+historical: the generated spec is now the published truth, so do not edit them
+and do not converge code toward `openapi.yaml` anymore. `schema.sql` stays the
+reference for the schema invariants the migrations implement, and
+`sdk-api.d.ts` is still the additive-only SDK surface `pnpm conformance`
+checks. `project/archive-v1/phase-*.md` are the (completed) executable phase
+specs.
 
 ## Testing
 
@@ -119,8 +142,8 @@ plan.
   comment.
 - No semicolons and no em-dashes in comments. This applies doubly to doc
   comments (`///`). Write short declarative sentences instead.
-- Exception: text quoted verbatim from a frozen contract (specs/) keeps its
-  original punctuation.
+- Exception: text quoted verbatim from a frozen contract
+  (project/archive-v1/) keeps its original punctuation.
 - Long literal text (OpenAPI descriptions and similar) uses raw strings
   (`r#"..."#`) with real newlines, never `\n` escapes.
 
@@ -138,7 +161,7 @@ plan.
 
 **Server:** Rust stable (2024 edition, pinned via rust-toolchain.toml), axum 0.8 on tokio, sqlx (compile-time-checked raw SQL; built-in migrator, run on boot under advisory lock), Postgres ≥15, `fred` Redis client (resilient pub/sub), Redis Lua token bucket for cross-replica rate limiting, RustCrypto hmac+sha2, thiserror/anyhow, tracing + OTLP, metrics + Prometheus exporter. Single crate until compile times force a split.
 
-**Contract tooling:** code-first via utoipa, rendered docs served from the binary via utoipa-scalar at /docs. Until v1: specs/openapi.yaml (Session 0) is the convergence target — CI exports the generated spec (`cargo run -- openapi`) and gates on oasdiff equivalence; full match is the Phase 1/2 completion criterion. After v1: the hand-written spec retires, the generated spec is the published artifact, and the CI gate becomes oasdiff breaking-change detection against the last release. openapi-typescript consumes the generated spec for @dronte/client types in the same CI step. A light schemathesis run guards against annotation-vs-handler drift (utoipa response codes are hand-annotated).
+**Contract tooling:** code-first via utoipa, rendered docs served from the binary via utoipa-scalar at /docs. Since v1.0.0 the generated spec (`cargo run -- openapi`) is the published artifact; the hand-written convergence target retired to project/archive-v1/openapi.yaml. The `contract` CI job runs oasdiff breaking-change detection of the live spec against project/openapi-baseline.yaml (the export frozen at the last release). openapi-typescript consumes the generated spec for @dronte/client types in the same CI step. Annotation-vs-handler drift (utoipa response codes are hand-annotated) is guarded by the Rust contract-drift integration tests (server/tests/redteam_contract_drift*.rs), which assert the status a handler returns is the status its annotation declares. The light schemathesis run named in the original plan was never wired into CI; these tests are the guard in its place.
 
 **Testing:** testcontainers-rs (Postgres + Redis), cargo-nextest, proptest for two-source merge and watermark invariants.
 
