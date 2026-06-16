@@ -1505,12 +1505,18 @@ pub async fn set_user_password(
     }
     auth::validate_password(&req.password)?;
     let hash = auth::hash_password(&req.password).map_err(ApiError::from)?;
+
+    // The credential rotation and the session revocation are one transaction so
+    // an admin-forced reset that evicts a compromised account is atomic. A
+    // failure on the DELETE rolls back the password change rather than leaving
+    // old sessions valid against the new credential.
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     let affected = sqlx::query!(
         "UPDATE admin_users SET password_hash = $2, updated_at = now() WHERE id = $1",
         id,
         hash,
     )
-    .execute(&state.pool)
+    .execute(&mut *tx)
     .await
     .map_err(ApiError::from)?
     .rows_affected();
@@ -1519,7 +1525,11 @@ pub async fn set_user_password(
     }
     // Revoke every session for the target so an admin-forced reset evicts a
     // compromised account, and a self reset logs other devices out.
-    auth::delete_user_sessions(&state.pool, id).await?;
+    sqlx::query!("DELETE FROM admin_sessions WHERE user_id = $1", id)
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(StatusCode::NO_CONTENT)
 }
 

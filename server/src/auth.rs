@@ -297,16 +297,6 @@ pub async fn delete_session(pool: &PgPool, token: &str) -> Result<(), ApiError> 
     Ok(())
 }
 
-/// Drop every session for a user (on disable, so access stops immediately even
-/// without waiting for the live disabled_at check on their next request).
-pub async fn delete_user_sessions(pool: &PgPool, user_id: Uuid) -> Result<(), ApiError> {
-    sqlx::query!("DELETE FROM admin_sessions WHERE user_id = $1", user_id)
-        .execute(pool)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(())
-}
-
 /// `Set-Cookie` for a fresh session. `Secure` only with TLS terminated in
 /// front (config) so the cookie still works over plain HTTP in dev/tests.
 pub fn session_cookie(token: &str, ttl: Duration, secure: bool) -> String {
