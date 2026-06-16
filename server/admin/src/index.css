@@ -1,0 +1,169 @@
+@import 'tailwindcss';
+
+/* Manual dark mode: toggled by a `.dark` class on <html> (see theme.tsx),
+   not prefers-color-scheme, so the in-app toggle wins. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+  Dronte / Dodo brand palette.
+  --primary       #1264FF  accent: primary actions, links, focus, active nav
+  --primary-deep  #004F32  deep accent: hover/section accents
+  base dark       #0D0D0D  dark-mode foundation (inverted for light)
+  Semantic (state ONLY, never decoration):
+  --success #00D87D  --warning #FFD84B  --warning-hi #FF8B37  --danger #E83439
+  The lime green #C6FE1E is deliberately excluded.
+*/
+:root {
+  --radius: 0.625rem;
+
+  --background: #ffffff;
+  --foreground: #0d0d0d;
+  --card: #ffffff;
+  --card-foreground: #0d0d0d;
+  --popover: #ffffff;
+  --popover-foreground: #0d0d0d;
+
+  --primary: #1264ff;
+  --primary-foreground: #ffffff;
+  --primary-deep: #004f32;
+
+  --secondary: #f4f5f7;
+  --secondary-foreground: #0d0d0d;
+  --muted: #f4f5f7;
+  --muted-foreground: #5b6573;
+  --accent: #eef1f5;
+  --accent-foreground: #0d0d0d;
+
+  --destructive: #e83439;
+  --destructive-foreground: #ffffff;
+
+  --border: #e3e6ea;
+  --input: #e3e6ea;
+  --ring: #1264ff;
+
+  /* Semantic state colors. */
+  --success: #00d87d;
+  --success-foreground: #00351f;
+  --warning: #ffd84b;
+  --warning-foreground: #3d2f00;
+  --warning-hi: #ff8b37;
+  --warning-hi-foreground: #3a1c00;
+  --danger: #e83439;
+  --danger-foreground: #ffffff;
+
+  /* Charts read as success / accent / warning / warning-hi / danger so a
+     glance at a chart conveys state, not arbitrary hues. */
+  --chart-1: #00d87d;
+  --chart-2: #1264ff;
+  --chart-3: #ffd84b;
+  --chart-4: #ff8b37;
+  --chart-5: #e83439;
+}
+
+.dark {
+  --background: #0d0d0d;
+  --foreground: #f5f6f7;
+  --card: #141414;
+  --card-foreground: #f5f6f7;
+  --popover: #141414;
+  --popover-foreground: #f5f6f7;
+
+  --primary: #1264ff;
+  --primary-foreground: #ffffff;
+  --primary-deep: #1f8a5a;
+
+  --secondary: #1b1b1b;
+  --secondary-foreground: #f5f6f7;
+  --muted: #1b1b1b;
+  --muted-foreground: #a1a8b3;
+  --accent: #1f1f1f;
+  --accent-foreground: #f5f6f7;
+
+  --destructive: #e83439;
+  --destructive-foreground: #ffffff;
+
+  --border: #262626;
+  --input: #262626;
+  --ring: #1264ff;
+
+  --success: #00d87d;
+  --success-foreground: #d5fff0;
+  --warning: #ffd84b;
+  --warning-foreground: #fff6d6;
+  --warning-hi: #ff8b37;
+  --warning-hi-foreground: #ffe6d4;
+  --danger: #e83439;
+  --danger-foreground: #ffffff;
+
+  --chart-1: #00d87d;
+  --chart-2: #4d8bff;
+  --chart-3: #ffd84b;
+  --chart-4: #ff8b37;
+  --chart-5: #ff5a5f;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-deep: var(--primary-deep);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-hi: var(--warning-hi);
+  --color-warning-hi-foreground: var(--warning-hi-foreground);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}

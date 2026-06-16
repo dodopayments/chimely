@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.id, s.created_at,\n                  c.read_watermark AS \"read_watermark!\",\n                  c.seen_watermark AS \"seen_watermark!\"\n             FROM subscribers s\n             JOIN subscriber_counters c\n               ON c.environment_id = s.environment_id AND c.subscriber_id = s.id\n            WHERE s.environment_id = $1 AND s.subscriber_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "subscribers",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "subscribers",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "read_watermark!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "subscriber_counters",
+            "name": "read_watermark"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "seen_watermark!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "subscriber_counters",
+            "name": "seen_watermark"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "49ed8e2fa9e09aa6056d115b4aae2313cf158a87f9d1f5d81ced32dbaf4117d2"
+}

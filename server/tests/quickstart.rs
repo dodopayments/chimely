@@ -25,6 +25,15 @@ async fn dev_bootstrap_seeds_an_environment_and_key_idempotently() {
             .await
             .unwrap();
     assert_eq!(environments, 1, "rerun must not duplicate the environment");
+    let bootstrapped_secret: String =
+        sqlx::query_scalar("SELECT subscriber_hmac_secret FROM environments WHERE slug = 'demo'")
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert!(
+        bootstrapped_secret.starts_with("shmac_"),
+        "the dev bootstrap mints a shmac_-prefixed subscriber secret"
+    );
     let keys: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM api_keys WHERE name = 'dev-bootstrap' AND revoked_at IS NULL",
     )

@@ -2,6 +2,7 @@ packages:
   - packages/*
   - docs
   - examples/*
+  - server/admin
 allowBuilds:
   esbuild: true
   sharp: true

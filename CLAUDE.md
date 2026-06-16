@@ -118,6 +118,16 @@ plan.
 - Long literal text (OpenAPI descriptions and similar) uses raw strings
   (`r#"..."#`) with real newlines, never `\n` escapes.
 
+## Commit & PR style
+
+- Commit subjects and PR titles use Conventional Commits
+  (`type(scope): summary`, e.g. `feat(admin): embed the dashboard SPA`).
+  Common types: `feat`, `fix`, `refactor`, `docs`, `test`, `build`, `ci`,
+  `chore`.
+- Keep it concise. Commit summaries are short (target ≤ 50 chars); commit
+  bodies and PR descriptions state what changed and why in as few words as
+  possible. No verbose prose, no restating the diff.
+
 ## Stack decisions (settled — sessions do not relitigate)
 
 **Server:** Rust stable (2024 edition, pinned via rust-toolchain.toml), axum 0.8 on tokio, sqlx (compile-time-checked raw SQL; built-in migrator, run on boot under advisory lock), Postgres ≥15, `fred` Redis client (resilient pub/sub), Redis Lua token bucket for cross-replica rate limiting, RustCrypto hmac+sha2, thiserror/anyhow, tracing + OTLP, metrics + Prometheus exporter. Single crate until compile times force a split.

@@ -468,7 +468,7 @@ async fn sustained_jobs_churn_stays_bounded_under_autovacuum() {
     let env = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO environments (id, slug, name, subscriber_hmac_secret)
-         VALUES ($1, 'churn', 'churn', 'whsec_churn')",
+         VALUES ($1, 'churn', 'churn', 'shmac_churn')",
     )
     .bind(env)
     .execute(&pool)
@@ -489,6 +489,7 @@ async fn sustained_jobs_churn_stays_bounded_under_autovacuum() {
         sse_max_connections_per_subscriber: 8,
         dev_environment: None,
         dev_api_key: None,
+        admin_token: None,
         retry_backoff_base: Duration::from_millis(100),
         retry_backoff_cap: Duration::from_secs(2),
         metrics_sample_interval: Duration::from_secs(1),

@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 license = "FSL-1.1-MIT"
 description = "In-app notification inbox infrastructure: one binary + Postgres + Redis."
+# Ensures admin/dist exists (placeholder when the SPA is unbuilt) so the
+# rust-embed derive and `cargo nextest`/`cargo run -- openapi` work without a
+# Node build. The Docker/CI release build populates admin/dist first.
+build = "build.rs"
 
 [lib]
 name = "dronte"
@@ -31,6 +35,11 @@ opentelemetry = "0.32.0"
 opentelemetry-otlp = { version = "0.32.0", features = ["grpc-tonic"] }
 opentelemetry_sdk = { version = "0.32.1", features = ["rt-tokio"] }
 rand = "0.9.2"
+# Embeds the admin SPA (server/admin/dist) into the binary — the single-file
+# deploy story (specs/phase-4-admin.md). debug-embed: embed in every profile
+# so tests serve the same bytes the release binary ships, no runtime disk
+# dependency. mime-guess: content types for the served assets.
+rust-embed = { version = "8.5.0", features = ["mime-guess", "debug-embed"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 # Already in the tree via utoipa's yaml feature. Direct use: the 3.0.3

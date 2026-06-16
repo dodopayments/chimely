@@ -10,7 +10,7 @@ use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use tower_http::cors::{Any, CorsLayer};
 use utoipa_scalar::Servable as _;
 
-use crate::api::{inbox, management, preferences, sse};
+use crate::api::{admin, inbox, management, preferences, sse};
 use crate::state::AppState;
 use crate::{db, openapi};
 
@@ -76,6 +76,11 @@ pub fn router(state: AppState) -> Router {
         )
         // Subscriber plane (CORS-enabled)
         .merge(subscriber_plane)
+        // Admin plane (the embedded /admin dashboard). Every route gates on
+        // AdminAuth (HTTP Basic, the static DRONTE_ADMIN_TOKEN). No CORS:
+        // the dashboard is same-origin, served from this binary. Explicit
+        // API routes are matched before the SPA wildcard fallback.
+        .merge(admin_plane())
         // Operational plane
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
@@ -86,6 +91,66 @@ pub fn router(state: AppState) -> Router {
         .merge(utoipa_scalar::Scalar::with_url("/docs", openapi::api_doc()))
         .layer(middleware::from_fn(access_log))
         .with_state(state)
+}
+
+/// The embedded admin dashboard: its JSON API plus the rust-embedded SPA.
+/// Every handler resolves `AdminAuth` first, so an unauthenticated request to
+/// any path here — API or SPA — is a 401 with `WWW-Authenticate: Basic`.
+fn admin_plane() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/admin/api/environments",
+            get(admin::list_environments).post(admin::create_environment),
+        )
+        .route(
+            "/admin/api/environments/{env_id}",
+            get(admin::get_environment),
+        )
+        .route(
+            "/admin/api/environments/{env_id}/hmac/rotate",
+            post(admin::rotate_hmac),
+        )
+        .route(
+            "/admin/api/environments/{env_id}/hmac/rotate/complete",
+            post(admin::complete_hmac_rotation),
+        )
+        .route(
+            "/admin/api/environments/{env_id}/api-keys",
+            get(admin::list_api_keys).post(admin::create_api_key),
+        )
+        .route(
+            "/admin/api/environments/{env_id}/api-keys/{key_id}/revoke",
+            post(admin::revoke_api_key),
+        )
+        .route(
+            "/admin/api/environments/{env_id}/notifications",
+            get(admin::list_notifications),
+        )
+        .route(
+            "/admin/api/environments/{env_id}/notifications/{notif_id}/timeline",
+            get(admin::notification_timeline),
+        )
+        .route(
+            "/admin/api/environments/{env_id}/broadcasts",
+            post(admin::create_broadcast),
+        )
+        .route(
+            "/admin/api/environments/{env_id}/subscribers/{subscriber_id}",
+            get(admin::get_subscriber),
+        )
+        .route("/admin/api/dlq", get(admin::list_dlq))
+        .route(
+            "/admin/api/dlq/replay-all",
+            post(admin::replay_all_dead_letters),
+        )
+        .route(
+            "/admin/api/dlq/{job_id}/replay",
+            post(admin::replay_dead_letter),
+        )
+        // The SPA shell + assets. The wildcard is matched only after the
+        // explicit API routes above (matchit prefers specific routes).
+        .route("/admin", get(admin::serve_spa))
+        .route("/admin/{*path}", get(admin::serve_spa))
 }
 
 /// The recorder is process-global. Tests build many routers in one process.

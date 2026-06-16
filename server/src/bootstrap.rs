@@ -27,7 +27,7 @@ pub async fn run(pool: &PgPool, cfg: &Config) -> anyhow::Result<()> {
     // would silently break hashes computed against it, and downgrading
     // require_subscriber_hash would disable auth on an environment this
     // bootstrap does not own.
-    let hmac_secret = format!("whsec_{}", ids::new_uuid().as_simple());
+    let hmac_secret = format!("shmac_{}", ids::new_uuid().as_simple());
     let inserted = sqlx::query_scalar!(
         r#"INSERT INTO environments
                (id, slug, name, subscriber_hmac_secret, require_subscriber_hash)

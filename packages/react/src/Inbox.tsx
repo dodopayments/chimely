@@ -31,10 +31,14 @@ export type InboxSlot =
  */
 export interface InboxAppearance {
   variables?: {
+    /** Primary actions, links, unread badge and dot, focus rings. Default #1264FF. */
     colorPrimary?: string;
+    /** Hover/section accent. Default #004F32. */
+    colorPrimaryHover?: string;
     colorBackground?: string;
     colorForeground?: string;
     colorMuted?: string;
+    /** Unread badge background. Default #1264FF. */
     colorBadge?: string;
     borderRadius?: string;
     fontFamily?: string;

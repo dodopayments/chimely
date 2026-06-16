@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE api_keys SET revoked_at = COALESCE(revoked_at, now())\n           WHERE environment_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "878f52a0c78c70cf313950bd3568059b3a67d8d809cbe4281e7e33a399feaa66"
+}

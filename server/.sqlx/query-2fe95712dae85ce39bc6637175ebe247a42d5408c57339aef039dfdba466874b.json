@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE environments SET\n               subscriber_hmac_secret = $2,\n               subscriber_hmac_secret_previous = subscriber_hmac_secret,\n               subscriber_hmac_rotated_at = now(),\n               updated_at = now()\n           WHERE id = $1\n           RETURNING subscriber_hmac_secret, subscriber_hmac_secret_previous,\n                     subscriber_hmac_rotated_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "subscriber_hmac_secret",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "environments",
+            "name": "subscriber_hmac_secret"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "subscriber_hmac_secret_previous",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "environments",
+            "name": "subscriber_hmac_secret_previous"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "subscriber_hmac_rotated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "environments",
+            "name": "subscriber_hmac_rotated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "2fe95712dae85ce39bc6637175ebe247a42d5408c57339aef039dfdba466874b"
+}

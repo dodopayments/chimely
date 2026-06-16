@@ -13,7 +13,8 @@
       "!packages/client/src/generated",
       "!docs/openapi",
       "!docs/app/global.css",
-      "!conformance/.generated"
+      "!conformance/.generated",
+      "!server/admin"
     ]
   },
   "formatter": {

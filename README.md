@@ -20,6 +20,23 @@ docs/              Fumadocs site + project plan            (MIT)
 specs/             frozen v1 contracts (read-only)
 ```
 
+## Admin dashboard
+
+The server embeds an operator dashboard at `/admin` (status/timeline browser,
+broadcast composer, subscriber lookup, DLQ replay, environment + API key
+management, HMAC rotation). It ships inside the binary — `docker run dronte`
+serves it with no extra artifact.
+
+Set `DRONTE_ADMIN_TOKEN` to enable it. The dashboard and its API gate on that
+single static credential via HTTP Basic (any username, the token as the
+password); the browser prompts on first visit. Unset, the admin plane is
+disabled and every `/admin` route returns 401. The credential is read only
+from the env var and never logged.
+
+```bash
+DRONTE_ADMIN_TOKEN=$(openssl rand -hex 32) dronte serve
+```
+
 ## License FAQ
 
 **What is licensed how?** The server (`server/`) is

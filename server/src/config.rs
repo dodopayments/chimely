@@ -42,6 +42,12 @@ pub struct Config {
     /// the quickstart curl is copy-pasteable. Ignored without
     /// `dev_environment`.
     pub dev_api_key: Option<String>,
+    /// Static credential for the embedded `/admin` dashboard and its API
+    /// (the HTTP Basic password; the username is ignored). One credential
+    /// for the whole instance — there are no admin users (single-org).
+    /// `None` disables the admin plane: every `/admin` route answers 401.
+    /// Supplied only via env var; never logged or echoed.
+    pub admin_token: Option<String>,
     /// First retry delay for a failed job. Attempt n waits roughly
     /// `base * 2^(n-1)`, equal-jittered, capped below.
     pub retry_backoff_base: Duration,
@@ -92,6 +98,9 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
             dev_api_key: std::env::var("DRONTE_DEV_API_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            admin_token: std::env::var("DRONTE_ADMIN_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
             retry_backoff_base: Duration::from_millis(parse_var(

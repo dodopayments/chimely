@@ -294,16 +294,31 @@ pub async fn create_broadcast(
     let category = validate_category(&req.category)?.to_owned();
     let payload = validate_payload(req.payload)?;
     let key = validate_idempotency_key(req.idempotency_key)?;
+    let (status, snapshot) =
+        create_broadcast_idempotent(&state, env, category, payload, key).await?;
+    Ok((status, Json(snapshot)).into_response())
+}
 
+/// The single broadcast write-path, shared by the management plane and the
+/// admin composer (specs/phase-4-admin.md: "composing is creating, same
+/// idempotent management-plane semantics"). One row per announcement,
+/// fan-out on read, NEVER materialized per subscriber, plus one env-wide hint
+/// regardless of subscriber count. Returns 201 on first acceptance, 200 on
+/// idempotent replay (byte-identical snapshot).
+pub(crate) async fn create_broadcast_idempotent(
+    state: &AppState,
+    env: Uuid,
+    category: String,
+    payload: Value,
+    key: String,
+) -> Result<(StatusCode, Value), ApiError> {
     if let Some(snapshot) = fetch_snapshot(&state.pool, env, "broadcast", &key).await? {
-        return Ok((StatusCode::OK, Json(snapshot)).into_response());
+        return Ok((StatusCode::OK, snapshot));
     }
 
     let result: sqlx::Result<Value> = async {
         let mut tx = state.pool.begin().await?;
         let id = ids::new_uuid();
-        // One row per announcement, fan-out on read: NEVER materialized per
-        // subscriber, and one env-wide hint regardless of subscriber count.
         let row = sqlx::query!(
             r#"INSERT INTO broadcasts (environment_id, id, category, payload)
                VALUES ($1, $2, $3, $4) RETURNING created_at"#,
@@ -329,12 +344,12 @@ pub async fn create_broadcast(
     .await;
 
     match result {
-        Ok(snapshot) => Ok((StatusCode::CREATED, Json(snapshot)).into_response()),
+        Ok(snapshot) => Ok((StatusCode::CREATED, snapshot)),
         Err(err) if is_idempotency_conflict(&err) => {
             let snapshot = fetch_snapshot(&state.pool, env, "broadcast", &key)
                 .await?
                 .ok_or_else(|| ApiError::from(anyhow::anyhow!("idempotency snapshot vanished")))?;
-            Ok((StatusCode::OK, Json(snapshot)).into_response())
+            Ok((StatusCode::OK, snapshot))
         }
         Err(err) => Err(err.into()),
     }
@@ -548,14 +563,14 @@ fn validate_recipients(req: &CreateNotificationsRequest) -> Result<Vec<String>, 
         .collect())
 }
 
-fn validate_category(category: &str) -> Result<&str, ApiError> {
+pub(crate) fn validate_category(category: &str) -> Result<&str, ApiError> {
     if category.is_empty() || category.len() > 255 {
         return Err(ApiError::bad_request("category must be 1–255 characters"));
     }
     Ok(category)
 }
 
-fn validate_payload(payload: Option<Value>) -> Result<Value, ApiError> {
+pub(crate) fn validate_payload(payload: Option<Value>) -> Result<Value, ApiError> {
     let payload = payload.unwrap_or_else(|| json!({}));
     if !payload.is_object() {
         return Err(ApiError::bad_request("payload must be a JSON object"));
@@ -567,7 +582,7 @@ fn validate_payload(payload: Option<Value>) -> Result<Value, ApiError> {
     Ok(payload)
 }
 
-fn validate_idempotency_key(key: Option<String>) -> Result<String, ApiError> {
+pub(crate) fn validate_idempotency_key(key: Option<String>) -> Result<String, ApiError> {
     match key {
         Some(key) if key.is_empty() || key.len() > 255 => Err(ApiError::bad_request(
             "idempotency_key must be 1–255 characters",

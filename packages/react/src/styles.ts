@@ -36,7 +36,7 @@ export const INBOX_CSS = `
   height: 16px;
   padding: 0 4px;
   border-radius: 999px;
-  background: var(--dronte-colorBadge, #dc2626);
+  background: var(--dronte-colorBadge, #1264FF);
   color: #ffffff;
   font-size: 11px;
   font-weight: 600;
@@ -72,7 +72,7 @@ export const INBOX_CSS = `
 .dronte-header-action {
   border: none;
   background: transparent;
-  color: var(--dronte-colorPrimary, #2563eb);
+  color: var(--dronte-colorPrimary, #1264FF);
   font: inherit;
   cursor: pointer;
   padding: 2px 4px;
@@ -80,6 +80,13 @@ export const INBOX_CSS = `
 }
 .dronte-header-action:hover {
   background: var(--dronte-colorMuted, #f3f4f6);
+  color: var(--dronte-colorPrimaryHover, #004F32);
+}
+.dronte-bell:focus-visible,
+.dronte-header-action:focus-visible,
+.dronte-item:focus-visible {
+  outline: 2px solid var(--dronte-colorPrimary, #1264FF);
+  outline-offset: 2px;
 }
 .dronte-list {
   flex: 1;
@@ -140,7 +147,7 @@ export const INBOX_CSS = `
   margin-top: 6px;
   margin-left: auto;
   border-radius: 50%;
-  background: var(--dronte-colorPrimary, #2563eb);
+  background: var(--dronte-colorPrimary, #1264FF);
   flex: none;
 }
 .dronte-empty {
@@ -173,7 +180,7 @@ export const INBOX_CSS = `
   padding: 10px 14px;
 }
 .dronte-preference input {
-  accent-color: var(--dronte-colorPrimary, #2563eb);
+  accent-color: var(--dronte-colorPrimary, #1264FF);
 }
 `;
 
