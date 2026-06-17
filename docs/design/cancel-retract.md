@@ -108,15 +108,6 @@ create AND delete. With create-only bumping it is exactly equivalent to
 the current input, so the refactor can land ahead of the endpoints as a
 no-op.
 
-## Why implementation waits
-
-Until v1, `specs/openapi.yaml` is the frozen convergence target and the
-`contract` CI job gates on oasdiff EQUIVALENCE — any new endpoint breaks
-the build by construction. The endpoints above ship early Phase 3, after
-the v1 flip turns the gate into breaking-change detection, where additive
-endpoints pass. Settling the shape now (this note) is the Phase 2
-deliverable.
-
 ## Decided against for now
 
 - **Soft-delete / tombstones.** Nothing reads them. The idempotency

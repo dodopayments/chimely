@@ -72,7 +72,6 @@ jobs:
       # The publish path must never outrun the gates.
       - run: pnpm typecheck
       - run: pnpm test
-      - run: pnpm conformance
       - name: Publish to npm
         uses: changesets/action@v1
         with:

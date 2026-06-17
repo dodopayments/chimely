@@ -1,8 +1,7 @@
 /**
- * Domain types of the public SDK surface, frozen and additive-only against
- * project/archive-v1/sdk-api.d.ts. Wire shapes live in ./generated/api.d.ts
- * and are mapped at the fetch boundary. Payloads are the exception. They are
- * wire format, passed through verbatim.
+ * Domain types of the public SDK surface, stable and additive-only. Wire
+ * shapes live in ./generated/api.d.ts and are mapped at the fetch boundary.
+ * Payloads are the exception. They are wire format, passed through verbatim.
  */
 
 import type { DronteError } from './errors';

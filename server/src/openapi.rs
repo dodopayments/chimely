@@ -1,7 +1,5 @@
-//! Code-first OpenAPI document (utoipa). This generated spec is the published
-//! truth. `dronte openapi` exports it and the contract CI job runs oasdiff
-//! breaking-change detection of the export against
-//! project/openapi-baseline.yaml.
+//! Code-first OpenAPI document (utoipa). `dronte openapi` exports it. The docs
+//! site and `@dronte/client` types are generated from the export.
 
 use utoipa::OpenApi;
 use utoipa::openapi::content::ContentBuilder;
@@ -10,7 +8,7 @@ use utoipa::openapi::schema::{ObjectBuilder, Type};
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, SecurityScheme};
 use utoipa::openapi::{Ref, ServerBuilder};
 
-/// Verbatim from project/archive-v1/openapi.yaml `info.description`.
+/// Rendered as the OpenAPI `info.description`.
 const INFO_DESCRIPTION: &str = r#"Two planes, one binary:
 
 * **Management plane** — called by the customer's backend with a Bearer API
@@ -48,8 +46,7 @@ treat ids as opaque strings.
 conventional status codes. 429 carries `Retry-After`.
 "#;
 
-/// info.version is the published API contract version. The contract gate diffs
-/// the generated spec against project/openapi-baseline.yaml.
+/// info.version is the published API version.
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Dronte API", version = "0.1.0"),
@@ -287,8 +284,7 @@ fn fixups(doc: &mut utoipa::openapi::OpenApi) {
 ///   `nullable: true`
 /// - examples: 3.1 schema `examples` arrays become the 3.0 singular `example`
 /// - `components.parameters`: reusable path parameters, which utoipa has no
-///   components-level support for. Operations inline them and oasdiff resolves
-///   that as equivalent.
+///   components-level support for. Operations inline them, which is equivalent.
 pub fn to_contract_yaml() -> anyhow::Result<String> {
     let yaml = api_doc().to_yaml()?;
     let mut doc: serde_norway::Value = serde_norway::from_str(&yaml)?;
@@ -358,7 +354,7 @@ fn downconvert_examples(value: &mut serde_norway::Value) {
     }
 }
 
-/// Verbatim from project/archive-v1/openapi.yaml `components.parameters`.
+/// Reusable path parameters for the OpenAPI document.
 fn contract_parameters() -> serde_norway::Value {
     serde_norway::from_str(
         r#"

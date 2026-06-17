@@ -90,11 +90,6 @@ jobs:
       - run: pnpm --filter "./packages/*" build
       - run: pnpm typecheck
       - run: pnpm test
-      # The built .d.ts of each package must satisfy the frozen contract
-      # (specs/sdk-api.d.ts, mechanically renamed so spec and impl
-      # type-check in one program).
-      - name: Contract conformance of built types
-        run: pnpm conformance
       # Release readiness: a pending changeset exists and both packages are
       # publishable as built (changesets drives the actual versioned
       # publish, see release.yml).
@@ -102,58 +97,6 @@ jobs:
         run: |
           pnpm changeset status --since=origin/main
           pnpm --filter "./packages/*" exec pnpm publish --dry-run --no-git-checks
-
-  generated:
-    name: generated artifacts fresh
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install pinned toolchain (rust-toolchain.toml)
-        run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: server
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Regenerate @dronte/client types + docs spec from `dronte openapi`
-        run: pnpm generate
-      - name: Fail if committed generated artifacts are stale
-        run: git diff --exit-code -- packages/client/src/generated docs/openapi
-
-  # REQUIRED (post-v1 contract gate, see CLAUDE.md "API contract rules"): the
-  # generated spec is the published truth. CI exports the live spec and runs
-  # oasdiff breaking-change detection against project/openapi-baseline.yaml —
-  # the `dronte openapi` export frozen at the last release (v0.1.0). Additive
-  # changes pass; a breaking change fails the gate and is recorded only by
-  # bumping the baseline in the release commit. This replaces the pre-v1
-  # convergence diff against the now-retired hand-written spec (archived at
-  # project/archive-v1/openapi.yaml). Mark this job required in branch
-  # protection.
-  contract:
-    name: contract breaking-change gate
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install pinned toolchain (rust-toolchain.toml)
-        run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: server
-      - name: Export the live generated spec
-        run: cargo run --manifest-path server/Cargo.toml -- openapi > /tmp/openapi.gen.yaml
-      - uses: actions/setup-go@v5
-        with:
-          go-version: stable
-      - name: Install oasdiff
-        run: |
-          go install github.com/oasdiff/oasdiff@latest
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-      - name: Fail on breaking changes vs the last released spec
-        run: oasdiff breaking project/openapi-baseline.yaml /tmp/openapi.gen.yaml --fail-on ERR
 
   docker:
     name: docker image

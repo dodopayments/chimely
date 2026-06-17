@@ -1,7 +1,7 @@
 /**
  * Hooks and <Inbox /> on top of @dronte/client.
  *
- * The public surface is additive-only against project/archive-v1/sdk-api.d.ts.
+ * The public surface is stable and additive-only.
  * Zero styling dependencies. @floating-ui/dom is the only runtime UI dependency.
  */
 

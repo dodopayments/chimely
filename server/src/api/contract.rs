@@ -343,8 +343,6 @@ impl utoipa::ToResponse<'_> for RateLimited {
             "RateLimited",
             ResponseBuilder::new()
                 .description("Per-API-key (management) or per-subscriber (widget) rate limit.")
-                // kin-openapi (the oasdiff loader) lowercases header names.
-                // Matching it here avoids a phantom casing diff.
                 .header(
                     "retry-after",
                     HeaderBuilder::new()

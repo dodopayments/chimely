@@ -1,6 +1,6 @@
 # cargo-deny policy — wired into CI (see .github/workflows/ci.yml).
 #
-# Licensing is settled (docs/dronte-project-plan.md, "Licensing"): the server
+# Licensing is settled: the server
 # is FSL-1.1-MIT (fair source; converts to MIT two years per release), the
 # SDKs/examples are MIT. Dependencies of the server must be permissively
 # licensed: any copyleft (including weak copyleft like MPL/LGPL) transitive
