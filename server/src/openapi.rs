@@ -71,9 +71,7 @@ conventional status codes. 429 carries `Retry-After`.
         crate::api::preferences::get_inbox_preferences,
         crate::api::preferences::set_inbox_preferences,
         crate::api::sse::stream,
-        // Admin plane is an additive post-freeze surface, stripped from the
-        // contract diff (ci.yml) and kept in the generated spec under the
-        // `admin` tag.
+        // Admin plane is kept in the generated spec under the `admin` tag.
         crate::api::admin::login,
         crate::api::admin::logout,
         crate::api::admin::me,
