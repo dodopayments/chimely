@@ -1,4 +1,4 @@
-//! Task 2: POST /v1/notifications and /v1/broadcasts — transactional outbox,
+//! POST /v1/notifications and /v1/broadcasts. Transactional outbox,
 //! idempotency (byte-identical replay), deliver_at, validation, subscriber
 //! upsert.
 
@@ -27,7 +27,7 @@ async fn create_notification_commits_rows_counters_and_outbox_job_together() {
     let (unread, unseen, _) = app.counter_row("usr_1").await;
     assert_eq!((unread, unseen), (1, 1));
 
-    // The outbox hint job committed with the insert — no dual writes.
+    // The outbox hint job commits with the insert. No dual writes.
     let (job_type, payload): (String, serde_json::Value) =
         sqlx::query_as("SELECT job_type, payload FROM jobs WHERE environment_id = $1")
             .bind(app.env.id)
@@ -297,7 +297,6 @@ async fn management_plane_requires_a_valid_bearer_key() {
         .unwrap();
     assert_eq!(res.status(), 401, "unknown key");
 
-    // Revoked keys stop working.
     sqlx::query("UPDATE api_keys SET revoked_at = now() WHERE environment_id = $1")
         .bind(app.env.id)
         .execute(&app.pool)
@@ -326,7 +325,6 @@ async fn scheduled_creates_are_durable_but_invisible_and_uncounted() {
         .unwrap();
     assert_eq!(res.status(), 201);
 
-    // Durable immediately…
     let rows: i64 =
         sqlx::query_scalar("SELECT count(*) FROM notifications WHERE environment_id = $1")
             .bind(app.env.id)
@@ -334,7 +332,7 @@ async fn scheduled_creates_are_durable_but_invisible_and_uncounted() {
             .await
             .unwrap();
     assert_eq!(rows, 1);
-    // …but invisible to the subscriber and NOT counted at create.
+    // Invisible to the subscriber and not counted at create.
     let items = app.list_all_items("usr_s", 20).await;
     assert!(items.is_empty(), "scheduled item leaked into the list");
     let (unread, unseen) = app.counts("usr_s").await;

@@ -86,13 +86,13 @@ export interface UseCountResult {
   error: DronteError | null;
 }
 
-/** Live unread count (list styling / "N unread" copy). */
+/** Live unread count. */
 export function useUnreadCount(): UseCountResult {
   const snapshot = useInboxSnapshot<WellKnownPayload>();
   return { count: snapshot.counts.unread, isLoading: snapshot.isLoading, error: snapshot.error };
 }
 
-/** Live unseen count (the bell badge). Cleared by markAllSeen. */
+/** Live unseen count. Cleared by markAllSeen. */
 export function useUnseenCount(): UseCountResult {
   const snapshot = useInboxSnapshot<WellKnownPayload>();
   return { count: snapshot.counts.unseen, isLoading: snapshot.isLoading, error: snapshot.error };

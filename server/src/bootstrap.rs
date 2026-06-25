@@ -1,13 +1,13 @@
-//! Boot-time bootstrap: the dev-quickstart environment and the root admin.
+//! Boot-time bootstrap of the dev-quickstart environment and the root admin.
 //!
 //! Dev quickstart: `DRONTE_DEV_ENVIRONMENT` plus `DRONTE_DEV_API_KEY` seed one
-//! dev environment at boot: `require_subscriber_hash = false` so the widget
-//! connects without a backend, and the API key is the plaintext from the env
-//! var so the quickstart curl is copy-pasteable. Idempotent across restarts.
+//! dev environment with `require_subscriber_hash = false` so the widget
+//! connects without a backend, and the API key stored is the plaintext env
+//! value so the quickstart curl is copy-pasteable. Idempotent across restarts.
 //!
 //! Root admin: `DRONTE_ADMIN_EMAIL` + `DRONTE_ADMIN_PASSWORD` ensure a managed
-//! `admin` account (see `ensure_admin`). This is the lockout-recovery path:
-//! restart with the env vars set to restore admin access.
+//! `admin` account. This is the lockout-recovery path. Restart with the env
+//! vars set to restore admin access.
 
 use sha2::Digest as _;
 use sqlx::PgPool;
@@ -85,10 +85,10 @@ pub async fn run(pool: &PgPool, cfg: &Config) -> anyhow::Result<()> {
 
 /// Ensure the managed root `admin` account when both env vars are set.
 ///
-/// Idempotent: a no-op when the existing account already matches (same
+/// Idempotent. A no-op when the existing account already matches (same
 /// password, role `admin`, not disabled). Otherwise the password is reset to
-/// the env value, the role is forced to `admin`, and any disable is cleared,
-/// so the env var stays the source of truth for the root credential and a UI
+/// the env value, the role is forced to `admin`, and any disable is cleared.
+/// The env var stays the source of truth for the root credential, so a UI
 /// password change to it is overwritten on the next boot while the vars
 /// remain set. Humans get their own UI-created accounts. No-op when either
 /// var is unset.
@@ -117,7 +117,7 @@ pub async fn ensure_admin(pool: &PgPool, cfg: &Config) -> anyhow::Result<()> {
                 && row.disabled_at.is_none()
                 && crate::auth::verify_password(password, &row.password_hash) =>
         {
-            // Already matches: nothing to do.
+            // Already matches the env credential.
         }
         Some(row) => {
             let hash = crate::auth::hash_password(password)?;

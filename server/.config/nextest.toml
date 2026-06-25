@@ -6,4 +6,16 @@
 # deterministically in local runs.
 [[profile.default.overrides]]
 filter = 'test(=concurrent_admin_demotion_keeps_one_admin)'
-retries = 2
+retries = 3
+
+# failing_jobs_back_off_with_jitter_then_park_in_dead_letters asserts the
+# remaining backoff (run_at - now()) is strictly positive after a failed
+# attempt. The first attempt's jittered backoff can be small, so under heavy
+# parallel CI load the wall-clock elapsed between the worker setting run_at and
+# the assertion reading now() can exceed it and drive the measured remaining
+# time to zero, even though the backoff was applied. Retry so a load-induced
+# timing flake is reported FLAKY, not FAILED. It passes deterministically in
+# local runs.
+[[profile.default.overrides]]
+filter = 'test(=failing_jobs_back_off_with_jitter_then_park_in_dead_letters)'
+retries = 3

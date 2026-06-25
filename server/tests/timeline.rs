@@ -1,4 +1,4 @@
-//! Phase 3: the per-notification status timeline. Append-only rows
+//! Per-notification status timeline. Append-only rows
 //! (created -> delivered_hint -> seen -> read), watermark moves applied
 //! asynchronously by the chunked timeline job, exposed at
 //! GET /v1/notifications/{id}/timeline.
@@ -28,14 +28,13 @@ async fn immediate_create_appends_created_then_delivered_hint() {
     let body = app.create_notification("usr_t", "x").await;
     let id = notif_uuid(body["notifications"][0]["id"].as_str().unwrap());
 
-    // 'created' commits with the notification insert itself, before any
-    // worker runs.
+    // 'created' commits with the notification insert, before any worker runs.
     assert_eq!(statuses(&app, id).await, ["created"]);
 
     app.drain_jobs().await;
     assert_eq!(statuses(&app, id).await, ["created", "delivered_hint"]);
 
-    // At-least-once worker, exactly-once rows: nothing changes on re-sweeps.
+    // At-least-once worker, exactly-once rows. Re-sweeps change nothing.
     app.sweep().await;
     assert_eq!(statuses(&app, id).await, ["created", "delivered_hint"]);
     app.assert_consistent().await;
@@ -58,8 +57,8 @@ async fn scheduled_creates_get_delivered_hint_only_after_deliver_at() {
     let body: serde_json::Value = res.json().await.unwrap();
     let id = notif_uuid(body["notifications"][0]["id"].as_str().unwrap());
 
-    // Durable immediately ('created'), but not announced yet. No worker has
-    // run: the created row committed with the insert itself.
+    // Durable immediately ('created') but not announced yet. The created row
+    // committed with the insert before any worker ran.
     assert_eq!(statuses(&app, id).await, ["created"]);
 
     tokio::time::sleep(std::time::Duration::from_millis(1_000)).await;
@@ -96,7 +95,7 @@ async fn watermark_moves_backfill_their_window_through_the_timeline_job() {
     let early_id = notif_uuid(early["notifications"][0]["id"].as_str().unwrap());
     app.drain_jobs().await;
 
-    // seen-all then read-all: each enqueues one chunked timeline job.
+    // seen-all and read-all each enqueue one chunked timeline job.
     let res = app.post_inbox("usr_tw", "/v1/inbox/seen-all").await;
     assert_eq!(res.status(), 200);
     let res = app.post_inbox("usr_tw", "/v1/inbox/read-all").await;
@@ -118,8 +117,8 @@ async fn watermark_moves_backfill_their_window_through_the_timeline_job() {
         "post-watermark create must not be backfilled"
     );
 
-    // occurred_at for backfilled rows is the watermark move time, which is
-    // before the job ran: both seen/read times sit between create and now.
+    // occurred_at for backfilled rows is the watermark move time, before the
+    // job ran. Both seen/read times sit between create and now.
     let rows = app.timeline_rows(early_id).await;
     let read_at = rows.iter().find(|(s, _)| s == "read").unwrap().1;
     let seen_at = rows.iter().find(|(s, _)| s == "seen").unwrap().1;
@@ -173,8 +172,7 @@ async fn large_watermark_windows_advance_the_timeline_cursor_per_chunk() {
             .await
             .unwrap();
         assert_eq!(res.status(), 201);
-        // Distinct categories per batch. One row each is fine, we just
-        // need volume from repeated creates.
+        // Distinct categories supply volume. Row count per category is irrelevant.
         for i in 0..99 {
             let res = app
                 .mgmt_post(
@@ -192,7 +190,7 @@ async fn large_watermark_windows_advance_the_timeline_cursor_per_chunk() {
     let res = app.post_inbox("usr_big_t", "/v1/inbox/read-all").await;
     assert_eq!(res.status(), 200);
 
-    // The 600-row window takes more than one chunk: the cursor must advance
+    // The 600-row window takes more than one chunk. The cursor must advance
     // across claims until the job deletes itself.
     let mut claims = 0;
     loop {
@@ -300,7 +298,7 @@ async fn timeline_rows_are_never_updated_in_place() {
     assert_eq!(res.status(), 204);
     app.drain_jobs().await;
 
-    // Earlier rows are byte-identical after later transitions: append-only.
+    // Append-only. Earlier rows stay byte-identical after later transitions.
     let after = app.timeline_rows(id).await;
     assert_eq!(&after[..created_before.len()], &created_before[..]);
     assert_eq!(after.len(), created_before.len() + 1);

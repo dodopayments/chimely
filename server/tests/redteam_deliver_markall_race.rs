@@ -1,32 +1,19 @@
-//! REGRESSION GUARD (was a RED-TEAM finding; extends redteam_markall_counter_race):
-//! the now()-pinned-at-BEGIN watermark clobber is FIXED for the DELIVER trigger
-//! too. The hole was never specific to a concurrently-created direct
-//! notification — it also swallowed the worker's exactly-once DELIVER bump: a
-//! scheduled notification coming due *during* a mark-all-read lost its `+1`
-//! permanently, with NO second client racing the write.
+//! Regression guard for the now()-pinned-at-BEGIN watermark clobber on the
+//! DELIVER trigger. A scheduled notification coming due during a mark-all-read
+//! lost its deliver `+1` permanently, with no second client racing the write.
 //!
-//! INVARIANT (CLAUDE.md): "The list, the unread count, and read state must agree
-//! across both sources at all times."
+//! Invariant: the list, the unread count, and read state must agree across
+//! both sources at all times.
 //!
-//! HISTORICAL BUG: `mark_all_read` captured `now()` at BEGIN (before its FOR
-//! UPDATE) and wrote `read_watermark = now()` + `unread_direct_count = 0`. The
-//! deliver job's `+1` (committed by the unmodified worker inside the
-//! BEGIN->FOR UPDATE gap) was for a row whose `visible_at` (= its `deliver_at`)
-//! was newer than the pinned `now()`, so the row sat ABOVE the stale watermark
-//! (unread in the list) while the counter was zeroed — permanent drift, never
-//! reconciled.
+//! mark_all_read reads `clock_timestamp()` under the counters lock. By the time
+//! it holds the lock the deliver bump has committed, so the watermark is newer
+//! than the delivered row's visible_at and covers it as read. The exactly-once
+//! deliver bump and the watermark move compose into a consistent state.
 //!
-//! THE FIX: mark_all_read reads `clock_timestamp()` UNDER the counters lock. By
-//! the time it holds the lock the deliver bump has committed, so the watermark
-//! is NEWER than the delivered row's visible_at and correctly covers it (read).
-//! The exactly-once deliver bump and the watermark move now compose into a
-//! consistent state instead of permanent drift.
-//!
-//! This test produces the `+1` with the UNMODIFIED worker (`worker::sweep_once`)
-//! and transcribes the FIXED mark_all_read verbatim below (a real handler cannot
-//! be paused mid-transaction). The real-handler guard for the watermark-after-
-//! lock property is `redteam_markall_watermark_lock`; keep this transcription in
-//! sync with inbox.rs::mark_all_read.
+//! This test produces the `+1` with the unmodified worker and transcribes
+//! mark_all_read verbatim below, because a real handler cannot be paused
+//! mid-transaction. The real-handler guard is `redteam_markall_watermark_lock`.
+//! Keep this transcription in sync with inbox.rs::mark_all_read.
 
 mod support;
 
@@ -54,7 +41,7 @@ async fn internal_id(app: &support::TestApp, external: &str) -> Uuid {
 async fn mark_all_read_covers_a_scheduled_notification_delivered_in_its_begin_gap() {
     let app = support::spawn().await;
 
-    // Baseline: subscriber + counters row exist, unread = 0, watermark = epoch.
+    // Baseline: subscriber and counters row exist, unread = 0, watermark = epoch.
     let res = app
         .client
         .put(format!("{}/v1/subscribers/{SUB}", app.base))
@@ -65,10 +52,10 @@ async fn mark_all_read_covers_a_scheduled_notification_delivered_in_its_begin_ga
     assert_eq!(res.status(), 200);
     let sub_id = internal_id(&app, SUB).await;
 
-    // A SCHEDULED notification through the REAL handler: durable immediately,
-    // visible_at = deliver_at in the near future, UNCOUNTED until the deliver
+    // A scheduled notification through the real handler: durable immediately,
+    // visible_at = deliver_at in the near future, uncounted until the deliver
     // job bumps it. The 800ms/1100ms shape mirrors the worker suite's
-    // `create_due_scheduled`.
+    // create_due_scheduled.
     let deliver_at = Utc::now() + chrono::Duration::milliseconds(800);
     let created = app
         .mgmt_post(
@@ -83,9 +70,9 @@ async fn mark_all_read_covers_a_scheduled_notification_delivered_in_its_begin_ga
     let body: serde_json::Value = created.json().await.expect("create body");
     let scheduled_id = body["notifications"][0]["id"].as_str().unwrap().to_owned();
 
-    // --- mark-all-read transaction, step 1: BEGIN (pins now() = t_mar) -------
-    // t_mar is pinned BEFORE deliver_at and the counters row is NOT yet locked,
-    // mirroring the gap before the handler's FOR UPDATE.
+    // mark-all-read step 1: BEGIN pins now() = t_mar before deliver_at, with the
+    // counters row not yet locked, mirroring the gap before the handler's FOR
+    // UPDATE.
     let mut mark_tx = app.pool.begin().await.expect("begin mark-all txn");
     let t_mar: DateTime<Utc> = sqlx::query_scalar("SELECT now()")
         .fetch_one(&mut *mark_tx)
@@ -97,11 +84,9 @@ async fn mark_all_read_covers_a_scheduled_notification_delivered_in_its_begin_ga
          (t_mar={t_mar}, deliver_at={deliver_at})"
     );
 
-    // --- the REAL worker delivers, INSIDE the gap ----------------------------
-    // Wait out deliver_at so the deliver job is due, then run one real sweep.
-    // mark_tx holds no counters lock yet, so the deliver claims the counters
-    // row, bumps unread_direct_count += 1 against the still-epoch watermark, and
-    // DELETEs the job — all committed.
+    // The real worker delivers inside the gap. mark_tx holds no counters lock
+    // yet, so the deliver claims the counters row, bumps unread_direct_count += 1
+    // against the still-epoch watermark, and deletes the job, all committed.
     tokio::time::sleep(Duration::from_millis(1_100)).await;
     let processed = app.sweep().await;
     assert!(
@@ -120,13 +105,11 @@ async fn mark_all_read_covers_a_scheduled_notification_delivered_in_its_begin_ga
         "the unmodified deliver worker bumped unread_direct_count to 1"
     );
 
-    // --- mark-all-read transaction, step 2: lock + watermark move ------------
-    // Transcribed verbatim from the FIXED inbox.rs::mark_all_read. The FOR
-    // UPDATE takes the counters lock NOW (the deliver already committed and
-    // released it), and read_watermark = clock_timestamp() is evaluated UNDER
-    // the lock — AFTER the deliver committed, so NEWER than the delivered row's
-    // visible_at. The pre-fix `now()` here would land BELOW that row and strand
-    // it unread-uncounted.
+    // mark-all-read step 2: lock and watermark move, transcribed verbatim from
+    // inbox.rs::mark_all_read. The FOR UPDATE takes the counters lock after the
+    // deliver committed and released it, and read_watermark = clock_timestamp()
+    // is evaluated under the lock, so it is newer than the delivered row's
+    // visible_at and covers it.
     let _old_watermark: DateTime<Utc> = sqlx::query_scalar(
         "SELECT read_watermark FROM subscriber_counters
           WHERE environment_id = $1 AND subscriber_id = $2 FOR UPDATE",
@@ -149,9 +132,9 @@ async fn mark_all_read_covers_a_scheduled_notification_delivered_in_its_begin_ga
     .expect("move watermark");
     mark_tx.commit().await.expect("commit mark-all");
 
-    // The fix: the watermark (captured under the lock, after the deliver
-    // committed) covers the delivered row, so it is READ by the merge rule
-    // (visible_at <= read_watermark) — not stranded above the mark.
+    // The watermark, captured under the lock after the deliver committed, covers
+    // the delivered row, so the merge rule reads it (visible_at <= read_watermark)
+    // rather than stranding it above the mark.
     let row_read: bool = sqlx::query_scalar(
         "SELECT n.visible_at <= c.read_watermark
            FROM notifications n
@@ -170,7 +153,7 @@ async fn mark_all_read_covers_a_scheduled_notification_delivered_in_its_begin_ga
          (t_mar={t_mar}, new_watermark={new_watermark}, deliver_at={deliver_at})"
     );
 
-    // --- the two-source invariant holds --------------------------------------
+    // The two-source invariant holds.
     let items = app.list_all_items(SUB, 10).await;
     assert!(
         items.iter().any(|i| i["id"] == scheduled_id.as_str()),

@@ -1,5 +1,5 @@
-//! Task 1: migrations, typeid SQL helpers, partition maintenance, and the
-//! migration lint (risk W2) — all against real Postgres via testcontainers.
+//! Migrations, typeid SQL helpers, partition maintenance, and the migration
+//! lint, against real Postgres via testcontainers.
 
 mod support;
 
@@ -9,7 +9,7 @@ use dronte::{db, ids, partitions};
 #[tokio::test]
 async fn migrations_are_idempotent_and_gate_readiness() {
     let app = support::spawn().await;
-    // Boot already migrated; a second (racing-replica) run is a no-op.
+    // A second migration run from a racing replica is a no-op.
     db::migrate(&app.pool).await.expect("re-running migrations");
     assert!(db::ready(&app.pool).await.expect("readiness query"));
 }
@@ -35,7 +35,7 @@ async fn sql_typeid_helpers_match_the_rust_implementation() {
             assert_eq!(parsed, id);
         }
     }
-    // The canonical TypeID spec vector, end to end in SQL.
+    // Canonical TypeID spec vector, parsed in SQL.
     let parsed: uuid::Uuid =
         sqlx::query_scalar("SELECT typeid_parse('notif_01h455vb4pex5vsknk084sn02q')")
             .fetch_one(&app.pool)
@@ -85,8 +85,8 @@ async fn retention_detaches_and_drops_expired_partitions() {
     for parent in partitions::PARTITIONED_TABLES {
         before.push(partition_names(&app.pool, parent).await.len());
     }
-    // Re-run with a tighter retention window: the older partitions must be
-    // DETACHed + DROPped on every partitioned table, the rest untouched.
+    // A tighter retention window must DETACH and DROP the older partitions on
+    // every partitioned table and leave the rest untouched.
     partitions::run(&app.pool, 2, 30)
         .await
         .expect("maintenance with retention=2");
@@ -105,10 +105,10 @@ async fn retention_detaches_and_drops_expired_partitions() {
     }
 }
 
-/// W4: a stalled maintenance job must page LONG before headroom exhausts.
-/// `remaining_at` recomputes headroom from pg_inherits at any clock, which
-/// is exactly what the sampler exports. Simulate the stall by asking what
-/// the gauge reads months from now with no maintenance run in between.
+/// A stalled maintenance job must page long before headroom exhausts.
+/// `remaining_at` recomputes headroom from pg_inherits at any clock, which is
+/// what the sampler exports. The stall is modeled by reading the gauge months
+/// ahead with no maintenance run in between.
 #[tokio::test]
 async fn stalled_maintenance_decays_the_partitions_gauge_into_the_alert() {
     let app = support::spawn().await;
@@ -124,7 +124,7 @@ async fn stalled_maintenance_decays_the_partitions_gauge_into_the_alert() {
             .unwrap();
         assert_eq!(healthy, 13, "{parent}: full headroom after maintenance");
 
-        // The job dies today. Month by month the gauge decays by exactly 1.
+        // With the job stopped the gauge decays by exactly 1 each month.
         for months_stalled in 1..=13i64 {
             let later = now + Months::new(months_stalled as u32);
             let remaining = partitions::remaining_at(&mut conn, parent, later)
@@ -137,9 +137,9 @@ async fn stalled_maintenance_decays_the_partitions_gauge_into_the_alert() {
             );
         }
 
-        // Alert threshold is < 2 (see partitions.rs): it fires at +12
-        // months with a FULL month of pre-created headroom still left,
-        // well before the +13-month write outage.
+        // Alert threshold is < 2 in partitions.rs. It fires at +12 months with
+        // a full month of pre-created headroom left, before the +13-month
+        // write outage.
         let at_alert = partitions::remaining_at(&mut conn, parent, now + Months::new(12))
             .await
             .unwrap();
@@ -181,9 +181,9 @@ async fn month_boundary_insert_lands_in_a_precreated_partition() {
     assert_eq!(landed, expected);
 }
 
-/// Migration lint (risk W2): every table's PK/UNIQUE must include
-/// environment_id (environments itself is the allowlisted root), and no
-/// column may have a serial/sequence default (shard-readiness invariant 2).
+/// Every table's PK/UNIQUE must include environment_id (environments itself is
+/// the allowlisted root), and no column may have a serial/sequence default.
+/// These are the shard-readiness invariants.
 #[tokio::test]
 async fn migration_lint_environment_id_in_every_key_and_no_sequences() {
     let app = support::spawn().await;

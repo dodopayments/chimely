@@ -1,13 +1,12 @@
-//! `GET /v1/inbox/stream` — the SSE hint stream.
+//! `GET /v1/inbox/stream` SSE hint stream.
 //!
-//! SSE is a hint, not a transport: clients refetch via REST (conditional,
-//! ETag) on every hint and on every (re)connect, so a missed hint is harmless
-//! by construction. The server never replays missed events — `Last-Event-ID`
-//! is answered with ONE immediate hint if anything changed after that token.
+//! SSE is a hint, not a transport. Clients refetch via REST (conditional,
+//! ETag) on every hint and every (re)connect, so a missed hint is harmless by
+//! construction. The server never replays missed events. `Last-Event-ID` is
+//! answered with ONE immediate hint if anything changed after that token.
 //!
-//! Auth rides query parameters (EventSource cannot set headers), which is why
-//! `subscriber_hash` is scrubbed from access-log lines (see `http::scrub`;
-//! tested invariant).
+//! Auth rides query parameters because EventSource cannot set headers, so
+//! `subscriber_hash` is scrubbed from access-log lines (see `http::scrub`).
 
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -71,8 +70,8 @@ pub async fn stream(
     auth: SubscriberAuth,
     headers: HeaderMap,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    // Per-subscriber connection cap (risk M3): without it, a dev environment
-    // with optional subscriber hashes is an open connection-exhaustion relay.
+    // Per-subscriber connection cap. Without it a dev environment with
+    // optional subscriber hashes is an open connection-exhaustion relay.
     let key = (auth.environment_id, auth.subscriber_id);
     {
         let mut conns = state.sse_connections.lock().expect("sse connection map");
@@ -93,8 +92,8 @@ pub async fn stream(
 
     let rx = state.pubsub.subscribe();
 
-    // Resume: one immediate hint if anything changed after the token — the
-    // REST refetch is the recovery mechanism, not event replay.
+    // One immediate resume hint if anything changed after the token. The REST
+    // refetch is the recovery mechanism, not event replay.
     let resume_hint = match headers
         .get("last-event-id")
         .and_then(|v| v.to_str().ok())
@@ -142,8 +141,8 @@ pub async fn stream(
                         yield Ok(hint_event(&hint.reason));
                     }
                     Ok(_) => {}
-                    // Fan-in overflow: we may have dropped a hint — emit one;
-                    // the client's refetch reconciles.
+                    // Fan-in overflow may have dropped a hint. Emit one and
+                    // let the client's refetch reconcile.
                     Err(broadcast::error::RecvError::Lagged(_)) => {
                         yield Ok(hint_event("lagged"));
                     }
@@ -154,7 +153,7 @@ pub async fn stream(
     };
 
     Ok(Sse::new(stream).keep_alive(
-        // Comment frame (`: ping`) — deliberately invisible to EventSource
+        // Comment frame (`: ping`) is deliberately invisible to EventSource
         // listeners, unlike a real event.
         KeepAlive::new()
             .interval(state.cfg.sse_ping_interval)
@@ -191,8 +190,8 @@ fn hint_event(reason: &str) -> Event {
 /// EventSource consumers. The named `retry` event carries the same delay in
 /// milliseconds as data, because the protocol field is invisible to
 /// EventSource listeners and SDK clients run their own reconnect loop. The
-/// named event is additive per the contract: "Unknown future event types
-/// must be ignored by clients."
+/// named event is additive per the contract: "Unknown future event types must
+/// be ignored by clients."
 fn retry_event(retry_after: std::time::Duration) -> Event {
     Event::default()
         .event("retry")
@@ -201,8 +200,8 @@ fn retry_event(retry_after: std::time::Duration) -> Event {
 }
 
 /// Opaque resume token, hex-encoded app-clock microseconds. Cross-host clock
-/// skew can suppress or duplicate the resume hint, which is harmless by
-/// construction: clients refetch via REST on every reconnect anyway.
+/// skew can suppress or duplicate the resume hint. This is harmless because
+/// clients refetch via REST on every reconnect anyway.
 fn encode_token(t: DateTime<Utc>) -> String {
     format!("{:x}", t.timestamp_micros())
 }

@@ -1,8 +1,7 @@
 /**
- * Indirection over window navigation so the default item-click behavior
- * (follow payload.action_url after mark-read) is observable in tests.
- * jsdom's window.location properties are not configurable, which rules out
- * spying on location.assign directly.
+ * Indirection over window navigation so item-click navigation is spyable in
+ * tests. jsdom's window.location properties are not configurable, so
+ * location.assign cannot be spied directly.
  */
 export const navigation = {
   assign(url: string): void {
@@ -14,10 +13,10 @@ export const navigation = {
 
 /**
  * action_url is customer-supplied data stored verbatim by the server.
- * Following it blindly lets a `javascript:` (or `data:`, or custom-scheme)
- * URI execute in the embedding page's origin on item click. Only targets
- * that resolve to http(s) may navigate. Relative URLs resolve against the
- * embedding page and stay same-origin, so they pass.
+ * Following a `javascript:`, `data:`, or custom-scheme URI would execute in
+ * the embedding page's origin. Only targets that resolve to http(s) may
+ * navigate. Relative URLs resolve against the embedding page and stay
+ * same-origin, so they pass.
  */
 export function isSafeActionUrl(url: string): boolean {
   if (typeof window === 'undefined') {

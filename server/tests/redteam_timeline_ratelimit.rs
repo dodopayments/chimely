@@ -1,22 +1,14 @@
-//! RED-TEAM regression guard (REAL handler): GET
-//! /v1/notifications/{id}/timeline is a management-plane endpoint and must
-//! enforce the per-API-key token bucket like every other management call.
-//! get_notification_timeline was the only management endpoint that lacked the
-//! enforce_api_key_limit() call. Reverting that one line leaves the timeline
-//! read unmetered: the bucket never drains through it, the 429 below never
-//! arrives, and this test goes red.
-//!
-//! Contract: the 429 carries Retry-After and error.code = "rate_limited"
-//! (specs/openapi.yaml RateLimited).
+//! GET /v1/notifications/{id}/timeline is a management-plane endpoint and must
+//! enforce the per-API-key token bucket via enforce_api_key_limit(). It was the
+//! one management endpoint that lacked that call. The 429 carries Retry-After
+//! and error.code = "rate_limited".
 
 mod support;
 
 #[tokio::test]
 async fn timeline_reads_draw_down_the_api_key_bucket_and_429_past_the_burst() {
-    // burst = 2: the create below spends one token and the first timeline read
-    // spends the second, so the next timeline read finds the bucket empty. The
-    // near-zero refill rate means no wall-clock during the test can mint a
-    // replacement token.
+    // burst = 2 covers the create and the first timeline read. The near-zero
+    // refill rate cannot mint a replacement token within the test's wall-clock.
     let app = support::spawn_configured(false, |cfg| {
         cfg.api_key_rate_per_sec = 0.01;
         cfg.api_key_rate_burst = 2.0;
@@ -29,13 +21,9 @@ async fn timeline_reads_draw_down_the_api_key_bucket_and_429_past_the_burst() {
         .expect("notification id")
         .to_owned();
 
-    // First read is served within the burst: proof the endpoint works and is
-    // metered by the same bucket the create just drew from.
     let res = app.timeline_api(&id).await;
     assert_eq!(res.status(), 200, "first timeline read is within the burst");
 
-    // Bucket now empty (create + one read = the burst of 2). The next read on
-    // the SAME api key must be refused.
     let res = app.timeline_api(&id).await;
     assert_eq!(
         res.status(),

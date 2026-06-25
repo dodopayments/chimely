@@ -1,27 +1,18 @@
-//! RED-TEAM regression guard (REAL handler): mark_all_read's broadcast_reads GC
-//! must bind the watermark it just installed, never a fresh clock read. The fix
-//! changed the GC bound from a re-evaluated clock to the returned `new_watermark`
-//! so it "can never delete an exception row above the watermark and resurrect an
-//! individually-read broadcast as unread" (commit 18ea409).
+//! mark_all_read's broadcast_reads GC must bind the watermark it just installed,
+//! not a fresh clock read. A fresh clock read at DELETE time is later than the
+//! installed watermark W and deletes an above-W exception, resurrecting an
+//! individually-read broadcast as unread.
 //!
 //! The bug needs an exact interleaving: mark_all_read installs the watermark W
 //! (clock under the counters lock), and an above-W exception must be visible to
 //! the GC's DELETE. Within one transaction the GC runs microseconds after the
-//! UPDATE, and the counters lock serializes every production exception insert,
-//! so this state never arises by itself. We construct it deterministically:
-//!
-//!   1. Hold a table lock on `jobs` so the handler blocks at enqueue_timeline,
-//!      which runs AFTER the watermark UPDATE (W installed) but BEFORE the GC
-//!      DELETE.
-//!   2. While it is blocked, commit a broadcast read with broadcast_created_at
-//!      strictly after W. It commits before the (later) DELETE statement starts,
-//!      so READ COMMITTED puts it in the DELETE's snapshot.
-//!   3. Release the lock. The handler's DELETE now faces an above-watermark
-//!      exception.
-//!
-//! With the fix (bound = W) that exception is kept (created_at > W). With a fresh
-//! clock read (bound = clock at DELETE time, which is later than W) it is deleted
-//! and the broadcast resurrects as unread. The test asserts it survives.
+//! UPDATE, and the counters lock serializes every production exception insert, so
+//! this state never arises by itself. The test constructs it deterministically.
+//! A SHARE lock on `jobs` parks the handler at enqueue_timeline, which runs after
+//! the watermark UPDATE but before the GC DELETE. While parked, an above-W
+//! broadcast read commits before the DELETE statement starts, so READ COMMITTED
+//! puts it in the DELETE's snapshot. The lock releases and the DELETE faces an
+//! above-watermark exception that the correct bound (W) keeps.
 
 mod support;
 
@@ -44,18 +35,18 @@ async fn internal_id(app: &support::TestApp, external: &str) -> Uuid {
 }
 
 /// True once some other backend is blocked waiting for a lock on the `jobs`
-/// relation. Probing pg_locks by relation (not pg_stat_activity by query text)
+/// relation. Probing pg_locks by relation, not pg_stat_activity by query text,
 /// keeps this correct if the enqueue SQL is ever rephrased.
 ///
-/// REQUIRED INVARIANT this test depends on: the FIRST `jobs` write in
-/// mark_all_read (enqueue_timeline) runs AFTER the watermark UPDATE and BEFORE
-/// the broadcast_reads GC DELETE. The SHARE lock parks the handler at that
-/// write, which is the window we inject the above-watermark exception into. If
-/// the GC DELETE is ever moved ahead of enqueue_timeline, the handler would
-/// park at a `jobs` write that runs AFTER the DELETE: the injected exception
-/// would land too late for the DELETE's READ COMMITTED snapshot and survive
-/// regardless of the bound, turning this guard into a vacuous pass. Keep the GC
-/// DELETE after enqueue_timeline, or rewrite the pause point here.
+/// This test depends on the first `jobs` write in mark_all_read
+/// (enqueue_timeline) running after the watermark UPDATE and before the
+/// broadcast_reads GC DELETE. The SHARE lock parks the handler at that write,
+/// the window the above-watermark exception is injected into. If the GC DELETE
+/// ever moves ahead of enqueue_timeline, the handler parks at a `jobs` write
+/// after the DELETE, the injected exception lands too late for the DELETE's READ
+/// COMMITTED snapshot and survives regardless of the bound, and this guard
+/// passes vacuously. Keep the GC DELETE after enqueue_timeline or rewrite the
+/// pause point here.
 async fn markall_blocked_on_jobs_lock(app: &support::TestApp) -> bool {
     let n: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM pg_locks
@@ -87,7 +78,7 @@ async fn broadcast_read_exists(app: &support::TestApp, sub: Uuid, broadcast: Uui
 async fn mark_all_read_gc_keeps_an_above_watermark_exception() {
     let app = support::spawn().await;
 
-    // Create the subscriber (and its counters row, watermark = epoch).
+    // Creates the subscriber and its counters row at watermark = epoch.
     let res = app
         .client
         .put(format!("{}/v1/subscribers/{SUB}", app.base))
@@ -98,9 +89,8 @@ async fn mark_all_read_gc_keeps_an_above_watermark_exception() {
     assert_eq!(res.status(), 200);
     let sub_id = internal_id(&app, SUB).await;
 
-    // A broadcast read individually BEFORE the move: this exception is below
-    // the watermark mark_all_read will install, so the GC must remove it. Its
-    // removal proves the DELETE actually ran (the test is not vacuous).
+    // A broadcast read below the watermark mark_all_read will install. The GC
+    // must remove it, which proves the DELETE actually ran.
     app.create_broadcast("below").await;
     let below_id = app
         .list_all_items(SUB, 10)
@@ -118,16 +108,16 @@ async fn mark_all_read_gc_keeps_an_above_watermark_exception() {
     let below_uuid = dronte::ids::parse_typeid(dronte::ids::BROADCAST, &below_id).unwrap();
     assert!(broadcast_read_exists(&app, sub_id, below_uuid).await);
 
-    // Hold a SHARE lock on `jobs` so the handler's enqueue_timeline INSERT
-    // blocks AFTER it has installed the watermark but BEFORE the GC DELETE.
+    // SHARE lock on `jobs` so the handler's enqueue_timeline INSERT blocks after
+    // it installs the watermark but before the GC DELETE.
     let mut hold = app.pool.begin().await.expect("begin lock-holder txn");
     sqlx::query("LOCK TABLE jobs IN SHARE MODE")
         .execute(&mut *hold)
         .await
         .expect("share-lock jobs");
 
-    // Fire the REAL mark_all_read. It installs the watermark, then blocks at
-    // the enqueue_timeline write (see the invariant on the probe below).
+    // mark_all_read installs the watermark, then blocks at the enqueue_timeline
+    // write. See the invariant on markall_blocked_on_jobs_lock.
     let base = app.base.clone();
     let headers = app.subscriber_headers(SUB);
     let client = app.client.clone();
@@ -155,10 +145,10 @@ async fn mark_all_read_gc_keeps_an_above_watermark_exception() {
     // the watermark instant the handler captured.
     tokio::time::sleep(Duration::from_millis(150)).await;
 
-    // An ABOVE-watermark broadcast read, committed while the handler is parked
-    // between its watermark UPDATE and its GC DELETE. broadcast_created_at =
-    // clock_timestamp() now, which is strictly after the watermark W. It commits
-    // before the DELETE statement starts, so it lands in the DELETE's snapshot.
+    // An above-watermark broadcast read, committed while the handler is parked
+    // between its watermark UPDATE and its GC DELETE. broadcast_created_at is
+    // clock_timestamp() now, strictly after the watermark W. It commits before
+    // the DELETE statement starts, so it lands in the DELETE's snapshot.
     let above_uuid = dronte::ids::new_uuid();
     let above_created_at: DateTime<Utc> = sqlx::query_scalar(
         "INSERT INTO broadcasts (environment_id, id, category, created_at)
@@ -183,7 +173,7 @@ async fn mark_all_read_gc_keeps_an_above_watermark_exception() {
     .await
     .expect("insert above-watermark exception");
 
-    // Release the lock. The handler runs its GC DELETE and commits.
+    // Releasing the lock lets the handler run its GC DELETE and commit.
     hold.commit().await.expect("release jobs lock");
     let res = handle
         .await
@@ -207,13 +197,13 @@ async fn mark_all_read_gc_keeps_an_above_watermark_exception() {
          exception ({above_created_at})"
     );
 
-    // The GC ran: the below-watermark exception is gone (redundant).
+    // The GC ran. The below-watermark exception is gone.
     assert!(
         !broadcast_read_exists(&app, sub_id, below_uuid).await,
         "below-watermark exception should be GC'd"
     );
-    // The fix: the ABOVE-watermark exception survives. A fresh-clock GC bound
-    // would delete it and resurrect the broadcast as unread.
+    // The above-watermark exception survives. A fresh-clock GC bound would
+    // delete it and resurrect the broadcast as unread.
     assert!(
         broadcast_read_exists(&app, sub_id, above_uuid).await,
         "mark_all_read GC deleted an exception ABOVE the watermark, resurrecting an \

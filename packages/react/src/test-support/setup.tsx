@@ -21,7 +21,6 @@ export function makeClient(
   });
 }
 
-/** Connects, opens the stream, and waits for the initial load to settle. */
 export async function loadClient(client: DronteClient, stub: StubServer): Promise<void> {
   client.connect();
   stub.openStream();

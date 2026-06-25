@@ -1,17 +1,15 @@
-//! Admin plane: the embedded `/admin` dashboard's API (specs/phase-4-admin.md
-//! + the 2026-06-15 multi-user-auth design).
+//! Admin plane: the embedded `/admin` dashboard's API.
 //!
-//! Built-in admin users with instance-wide roles gate the plane (see
-//! `auth::AdminAuth` + `roles`). Still single-org: no organizations table, no
-//! per-environment user scoping. Every query is either scoped to one
-//! `environment_id` or is an explicit, documented cross-environment admin path
-//! (the DLQ browser), the schema's shard-readiness invariant #3 exception.
+//! Built-in admin users with instance-wide roles gate the plane (`auth::AdminAuth`
+//! and `roles`). Single-org: no organizations table, no per-environment user
+//! scoping. Every query is either scoped to one `environment_id` or is an
+//! explicit cross-environment admin path (the DLQ browser).
 //!
-//! Admin reads REUSE the canonical queries (`inbox::list_items_for`,
-//! `inbox::fetch_counts_for`) and admin writes REUSE the canonical write-path
+//! Admin reads reuse the canonical queries (`inbox::list_items_for`,
+//! `inbox::fetch_counts_for`) and admin writes reuse the canonical write-path
 //! (`management::create_broadcast_idempotent`, `dlq::replay`). A second
-//! implementation of the two-source merge or the broadcast write would be a
-//! bug by definition. Two implementations WILL disagree.
+//! implementation of the two-source merge or the broadcast write would
+//! disagree with the first.
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -43,19 +41,18 @@ const ADMIN_INBOX_PREVIEW: i64 = 20;
 const ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 
 // =============================================================================
-// Embedded SPA (rust-embed). The single-binary deploy story: `docker run`
-// ships the dashboard, no CDN and no separate static host.
+// Embedded SPA (rust-embed): the binary ships the dashboard, no CDN or
+// separate static host.
 // =============================================================================
 
 #[derive(rust_embed::RustEmbed)]
 #[folder = "admin/dist"]
 struct AdminAssets;
 
-/// Serve the embedded SPA. PUBLIC by design: the shell must load so it can
-/// render the login screen, then the SPA calls the session-gated JSON API
-/// (which 401s until login). The bundle carries no secrets. Unknown non-file
-/// paths fall back to `index.html` so client-side routing (TanStack Router)
-/// works on refresh.
+/// Serve the embedded SPA. Public by design. The shell must load to render the
+/// login screen, then the SPA calls the session-gated JSON API which 401s until
+/// login. The bundle carries no secrets. Unknown non-file paths fall back to
+/// `index.html` so client-side routing works on refresh.
 pub async fn serve_spa(uri: Uri) -> Response {
     let path = uri
         .path()
@@ -79,7 +76,7 @@ pub async fn serve_spa(uri: Uri) -> Response {
             .into_response();
     }
 
-    // A path that looks like a file but is missing is a real 404; anything
+    // A path that looks like a file but is missing is a real 404. Anything
     // else is a client-side route and gets the SPA shell.
     if path.contains('.') {
         return (StatusCode::NOT_FOUND, "not found").into_response();
@@ -121,9 +118,9 @@ pub struct AdminEnvironmentDetail {
     pub slug: String,
     pub name: String,
     pub require_subscriber_hash: bool,
-    /// The dedicated subscriber HMAC secret. Plaintext by design (the customer
-    /// backend computes hashes with it). Returned only to roles holding
-    /// `env:read_secret` (developer/admin). Omitted entirely otherwise.
+    /// The dedicated subscriber HMAC secret. Plaintext by design. The customer
+    /// backend computes hashes with it. Returned only to roles holding
+    /// `env:read_secret` (developer/admin). Omitted otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subscriber_hmac_secret: Option<String>,
     /// True while a rotation overlap is open (the previous secret still
@@ -137,7 +134,7 @@ pub struct AdminEnvironmentDetail {
 pub struct AdminCreateEnvironmentRequest {
     pub slug: String,
     pub name: String,
-    /// Production default true; set false for a dev/quickstart environment.
+    /// Production default true. Set false for a dev/quickstart environment.
     #[serde(default = "default_true")]
     pub require_subscriber_hash: bool,
 }
@@ -312,7 +309,7 @@ pub async fn get_environment(
 
 #[derive(Serialize, ToSchema)]
 pub struct AdminHmacRotation {
-    /// The new current secret. Update the customer backend with it; the
+    /// The new current secret. Update the customer backend with it. The
     /// previous secret keeps verifying until the rotation is completed.
     pub subscriber_hmac_secret: String,
     pub has_previous_secret: bool,
@@ -414,7 +411,7 @@ pub struct AdminApiKey {
     /// TypeID, `key_…`.
     pub id: String,
     pub name: String,
-    /// Display prefix for recognition; the full key is never retrievable.
+    /// Display prefix for recognition. The full key is never retrievable.
     pub key_prefix: String,
     pub created_at: String,
     pub last_used_at: Option<String>,
@@ -509,7 +506,7 @@ pub async fn create_api_key(
     }
 
     let id = ids::new_uuid();
-    // 256 bits of randomness in the key body; the prefix is for display only.
+    // 256 bits of randomness in the key body. The prefix is for display only.
     let key = format!("drnt_live_{}", ids::new_uuid().as_simple());
     let key_hash: Vec<u8> = Sha256::digest(key.as_bytes()).to_vec();
     let key_prefix = &key[..key.floor_char_boundary(14)];
@@ -657,8 +654,8 @@ pub async fn list_notifications(
         }
     };
 
-    // Cross-partition, env-scoped admin scan (not a hot path). Keyset on
-    // (visible_at, id) descending, mirroring the inbox ordering spine.
+    // Cross-partition, env-scoped admin scan, not a hot path. Keyset on
+    // (visible_at, id) descending, matching the inbox ordering.
     let rows = sqlx::query!(
         r#"SELECT n.id, s.subscriber_id AS "subscriber_id!", n.category, n.payload,
                   n.created_at, n.deliver_at, n.visible_at, n.read_at
@@ -761,8 +758,8 @@ pub async fn notification_timeline(
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("no such notification"))?;
 
-    // Same read as the management-plane timeline: min() per status is a
-    // defensive read-time dedupe (writers guarantee one row per status).
+    // Same read as the management-plane timeline. min() per status is a
+    // defensive read-time dedupe. Writers guarantee one row per status.
     let rows = sqlx::query!(
         r#"SELECT status, min(occurred_at) AS "occurred_at!"
              FROM notification_status_log
@@ -1429,7 +1426,7 @@ pub async fn update_user(
     let currently_disabled = current.disabled_at.is_some();
     let new_disabled = req.disabled.unwrap_or(currently_disabled);
 
-    // Guard rail: a user cannot disable themselves (no foot-gun lockout).
+    // Guard rail: a user cannot disable themselves.
     if id == auth.user.id && new_disabled && !currently_disabled {
         return Err(ApiError::conflict("you cannot disable your own account"));
     }
@@ -1603,7 +1600,6 @@ fn parse_user_id(user_id: &str) -> Result<Uuid, ApiError> {
     ids::parse_typeid(ids::ADMIN_USER, user_id).ok_or_else(|| ApiError::not_found("no such user"))
 }
 
-#[allow(clippy::too_many_arguments)]
 fn user_view(
     id: Uuid,
     email: String,
@@ -1626,8 +1622,7 @@ fn user_view(
 
 /// Transaction-scoped advisory lock serializing admin-roster mutations
 /// ("drntADMR" as big-endian i64). A single lock, so the last-admin guard
-/// cannot be raced (TOCTOU) and there is no row-order deadlock the way
-/// per-row FOR UPDATE locks could have.
+/// cannot be raced (TOCTOU) and there is no row-order deadlock.
 const ADMIN_ROSTER_LOCK_KEY: i64 = 0x64726e74_41444d52;
 
 /// Take the admin-roster advisory lock for the rest of the transaction.

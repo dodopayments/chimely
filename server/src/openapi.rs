@@ -1,10 +1,5 @@
-//! Code-first OpenAPI document (utoipa).
-//!
-//! Contract rule (see CLAUDE.md): the generated spec is the published truth.
-//! `dronte openapi` exports this document. The contract CI job runs oasdiff
-//! breaking-change detection of the export against
-//! project/openapi-baseline.yaml. The hand-written convergence target retired
-//! to project/archive-v1/openapi.yaml.
+//! Code-first OpenAPI document (utoipa). `dronte openapi` exports it. The docs
+//! site and `@dronte/client` types are generated from the export.
 
 use utoipa::OpenApi;
 use utoipa::openapi::content::ContentBuilder;
@@ -13,7 +8,7 @@ use utoipa::openapi::schema::{ObjectBuilder, Type};
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, SecurityScheme};
 use utoipa::openapi::{Ref, ServerBuilder};
 
-/// Verbatim from project/archive-v1/openapi.yaml `info.description`.
+/// Rendered as the OpenAPI `info.description`.
 const INFO_DESCRIPTION: &str = r#"Two planes, one binary:
 
 * **Management plane** — called by the customer's backend with a Bearer API
@@ -51,9 +46,7 @@ treat ids as opaque strings.
 conventional status codes. 429 carries `Retry-After`.
 "#;
 
-/// info.version is the published API contract version. The generated spec is
-/// the source of truth and the contract gate diffs it against
-/// project/openapi-baseline.yaml (see CLAUDE.md "API contract rules").
+/// info.version is the published API version.
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Dronte API", version = "0.1.0"),
@@ -78,10 +71,7 @@ conventional status codes. 429 carries `Retry-After`.
         crate::api::preferences::get_inbox_preferences,
         crate::api::preferences::set_inbox_preferences,
         crate::api::sse::stream,
-        // Phase 4 admin plane (specs/phase-4-admin.md + the 2026-06-15
-        // multi-user-auth design). Additive post-freeze surface: stripped from
-        // the contract convergence diff (ci.yml), kept in the served/generated
-        // spec under the `admin` tag.
+        // Admin plane is kept in the generated spec under the `admin` tag.
         crate::api::admin::login,
         crate::api::admin::logout,
         crate::api::admin::me,
@@ -188,10 +178,8 @@ pub fn api_doc() -> utoipa::openapi::OpenApi {
         SecurityScheme::ApiKey(ApiKey::Query(ApiKeyValue::new("subscriber_hash"))),
     );
 
-    // Reusable error responses (components.responses). Paths inline
-    // equivalent responses, which references resolve identically. RateLimited
-    // is registered through the derive (contract::RateLimited) because paths
-    // $ref it, exactly like the frozen spec.
+    // Reusable error responses. RateLimited is registered through the derive
+    // (contract::RateLimited) because paths $ref it.
     let error_content = || {
         ContentBuilder::new()
             .schema(Some(Ref::from_schema_name("Error")))
@@ -225,10 +213,9 @@ pub fn api_doc() -> utoipa::openapi::OpenApi {
     doc
 }
 
-/// Surgical overrides where utoipa's macro surface cannot express the frozen
-/// 3.0 contract: plain-`integer` query params with defaults, non-nullable
-/// optional header params, and an optional request body. Everything here is
-/// still code-first. It edits the generated document object, never the
+/// Overrides for shapes utoipa's macro surface cannot express: plain-integer
+/// query params with defaults, non-nullable optional header params, and an
+/// optional request body. Edits the generated document object, never the
 /// serialized output.
 fn fixups(doc: &mut utoipa::openapi::OpenApi) {
     use utoipa::openapi::Required;
@@ -246,7 +233,7 @@ fn fixups(doc: &mut utoipa::openapi::OpenApi) {
     {
         for param in params.iter_mut() {
             match param.name.as_str() {
-                // Option<i32> renders int32-formatted; the contract wants a
+                // Option<i32> renders int32-formatted. The contract wants a
                 // plain integer with bounds and a default.
                 "limit" => {
                     param.schema = Some(
@@ -286,24 +273,22 @@ fn fixups(doc: &mut utoipa::openapi::OpenApi) {
     }
 }
 
-/// Serializes the document in the frozen contract's OpenAPI 3.0.3 dialect.
+/// Serializes the document in the OpenAPI 3.0.3 dialect.
 ///
-/// utoipa 5 models OpenAPI 3.1 only, while the convergence target
-/// specs/openapi.yaml is 3.0.3. The bridge below covers the two dialect
-/// differences this document actually hits plus one model gap. It runs on
-/// the serialized value because none of the three is expressible in
-/// utoipa's 3.1 model:
+/// utoipa 5 models OpenAPI 3.1 only. The bridge below runs on the serialized
+/// value because none of these three is expressible in utoipa's 3.1 model:
 /// - the `openapi` version field itself
 /// - nullability: 3.1 `type: [T, "null"]` becomes 3.0 `type: T` with
 ///   `nullable: true`
-/// - `components.parameters`: the spec declares reusable path parameters
-///   and utoipa has no components-level parameters at all (operations
-///   inline them, which oasdiff resolves as equivalent)
+/// - examples: 3.1 schema `examples` arrays become the 3.0 singular `example`
+/// - `components.parameters`: reusable path parameters, which utoipa has no
+///   components-level support for. Operations inline them, which is equivalent.
 pub fn to_contract_yaml() -> anyhow::Result<String> {
     let yaml = api_doc().to_yaml()?;
     let mut doc: serde_norway::Value = serde_norway::from_str(&yaml)?;
     doc["openapi"] = serde_norway::Value::from("3.0.3");
     downconvert_nullable(&mut doc);
+    downconvert_examples(&mut doc);
     doc["components"]["parameters"] = contract_parameters();
     Ok(serde_norway::to_string(&doc)?)
 }
@@ -340,7 +325,34 @@ fn downconvert_nullable(value: &mut serde_norway::Value) {
     }
 }
 
-/// Verbatim from specs/openapi.yaml `components.parameters`.
+/// Folds a 3.1 schema `examples` array into the 3.0 singular `example`. utoipa
+/// 5 emits the 3.1 form. Only the first array entry survives the fold.
+fn downconvert_examples(value: &mut serde_norway::Value) {
+    use serde_norway::Value;
+    match value {
+        Value::Mapping(map) => {
+            let first = match map.get("examples") {
+                Some(Value::Sequence(examples)) => examples.first().cloned(),
+                _ => None,
+            };
+            if let Some(first) = first {
+                map.shift_remove("examples");
+                map.insert("example".into(), first);
+            }
+            for (_, nested) in map.iter_mut() {
+                downconvert_examples(nested);
+            }
+        }
+        Value::Sequence(seq) => {
+            for nested in seq {
+                downconvert_examples(nested);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Reusable path parameters for the OpenAPI document.
 fn contract_parameters() -> serde_norway::Value {
     serde_norway::from_str(
         r#"
@@ -389,6 +401,14 @@ mod tests {
             "3.1 null types must be downconverted"
         );
         assert!(yaml.contains("nullable: true"));
+        assert!(
+            yaml.contains("example: "),
+            "schema examples must fold to the singular example"
+        );
+        assert!(
+            !yaml.contains("examples:"),
+            "no 3.1 examples arrays may leak into the 3.0.3 export"
+        );
         for parameter in [
             "SubscriberIdPath:",
             "NotificationIdPath:",

@@ -1,23 +1,22 @@
-//! Partition + retention maintenance for the monthly-partitioned tables
+//! Partition and retention maintenance for the monthly-partitioned tables
 //! (risk W4): `notifications` and `notification_status_log`.
 //!
-//! Runs at boot and then daily, under a Postgres advisory lock so N replicas
+//! Runs at boot and then daily under a Postgres advisory lock so N replicas
 //! never race on DDL. Pre-creates monthly partitions covering
-//! `[now - retention, now + 13 months]` — 13 months because the API caps
-//! `deliver_at` at 13 months out, and there is deliberately NO DEFAULT
+//! `[now - retention, now + 13 months]`. The horizon is 13 months because the
+//! API caps `deliver_at` at 13 months out. There is deliberately no DEFAULT
 //! partition: a missing partition is a loud insert error, never silent
-//! unprunable growth. Retention is DETACH + DROP.
+//! unprunable growth. Retention is DETACH then DROP.
 //!
-//! Exposes the `dronte_partitions_remaining{table}` gauge: the number of
+//! Exposes the `dronte_partitions_remaining{table}` gauge: the count of
 //! pre-created partitions still entirely in the future. The metrics sampler
-//! recomputes it from pg_inherits on every sample, INDEPENDENTLY of this job
-//! (`remaining_at`), so a stalled maintenance job shows the gauge decaying
-//! by 1 per month instead of freezing at its last healthy value. **Alert at
-//! < 2**: two months of headroom left means the job has been dead for ~11
-//! months, and a stalled job plus exhausted headroom is a total write outage.
+//! recomputes it from pg_inherits on every sample independently of this job
+//! (`remaining_at`), so a stalled job shows the gauge decaying by 1 per month
+//! instead of freezing at its last healthy value. Alert at < 2: two months of
+//! headroom left means the job has been dead for ~11 months, and a stalled
+//! job plus exhausted headroom is a total write outage.
 //!
-//! Also purges aged idempotency snapshots (default 30 days), per the schema
-//! contract ("purged by age via the maintenance job").
+//! Also purges aged idempotency snapshots (default 30 days).
 
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use sqlx::{Connection, PgPool};
@@ -29,8 +28,7 @@ const MAINTENANCE_LOCK_KEY: i64 = 0x64726e74_50415254;
 /// `deliver_at` cap.
 const HEADROOM_MONTHS: i32 = 13;
 
-/// Every monthly-partitioned table. Each gets the same horizon and the same
-/// retention window.
+/// Every monthly-partitioned table.
 pub const PARTITIONED_TABLES: &[&str] = &["notifications", "notification_status_log"];
 
 pub async fn run(
@@ -38,8 +36,8 @@ pub async fn run(
     retention_months: u32,
     idempotency_retention_days: u32,
 ) -> anyhow::Result<()> {
-    // A dedicated connection owns the advisory lock for the whole run;
-    // session-scoped locks on pooled connections would leak across checkouts.
+    // A dedicated connection owns the advisory lock for the whole run.
+    // Session-scoped locks on pooled connections would leak across checkouts.
     let mut conn = pool.acquire().await?;
     sqlx::query("SELECT pg_advisory_lock($1)")
         .bind(MAINTENANCE_LOCK_KEY)
@@ -64,7 +62,7 @@ async fn run_locked(
     retention_months: u32,
     idempotency_retention_days: u32,
 ) -> anyhow::Result<()> {
-    // DB clock, not app clock — the same rule as every ordering timestamp.
+    // DB clock, not app clock. Same rule as every ordering timestamp.
     let now: DateTime<Utc> = sqlx::query_scalar("SELECT now()")
         .fetch_one(&mut *conn)
         .await?;
@@ -76,7 +74,6 @@ async fn run_locked(
         let mut month = from;
         while month <= to {
             let next = add_months(month, 1);
-            // Identifiers are derived from validated dates only, no user input.
             let ddl = format!(
                 "CREATE TABLE IF NOT EXISTS {} PARTITION OF {table} \
                  FOR VALUES FROM ('{}+00') TO ('{}+00')",
@@ -91,8 +88,7 @@ async fn run_locked(
             month = next;
         }
 
-        // Retention: drop partitions whose entire range is older than the
-        // window.
+        // Drop partitions whose entire range falls before the retention window.
         for name in partition_names(&mut *conn, table).await? {
             let Some(start) = parse_partition_name(table, &name) else {
                 tracing::warn!(partition = %name, parent = %table, "unrecognized partition; skipping");
@@ -126,8 +122,7 @@ async fn run_locked(
     .execute(&mut *conn)
     .await?;
 
-    // Admin sessions are server-side rows. Drop the expired ones (the admin
-    // multi-user auth design folds session GC into this job).
+    // Expired admin session rows are GCed here.
     sqlx::query("DELETE FROM admin_sessions WHERE expires_at < now()")
         .execute(&mut *conn)
         .await?;
@@ -137,8 +132,8 @@ async fn run_locked(
 
 /// Pre-created partitions of `table` still entirely in the future relative
 /// to `at`. Computed from pg_inherits on every call, never from maintenance
-/// state: with the maintenance job stalled this decays by 1 per elapsed
-/// month, which is exactly what the W4 alert needs to see.
+/// state. With the job stalled this decays by 1 per elapsed month, which is
+/// what the W4 headroom alert needs to see.
 pub async fn remaining_at(
     conn: &mut sqlx::PgConnection,
     table: &str,
@@ -167,11 +162,10 @@ async fn partition_names(
     .await?)
 }
 
-/// Boot ran `run()` already. This keeps it going daily.
 pub async fn run_daily(pool: PgPool, retention_months: u32, idempotency_retention_days: u32) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    interval.tick().await; // immediate first tick: boot already ran
+    interval.tick().await; // first tick returns immediately, boot already ran
     loop {
         interval.tick().await;
         if let Err(err) = run(&pool, retention_months, idempotency_retention_days).await {

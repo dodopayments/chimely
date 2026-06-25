@@ -2,8 +2,7 @@
 
 Fair-source, self-hostable in-app notification inbox infrastructure: one Rust
 binary + Postgres (source of truth) + Redis (real-time plane), a small HTTP
-API, and a drop-in `<Inbox />`. The full plan lives in
-`docs/dronte-project-plan.md`; week-scale risks in `docs/risk-register.md`.
+API, and a drop-in `<Inbox />`.
 
 ## Repo layout
 
@@ -11,15 +10,12 @@ API, and a drop-in `<Inbox />`. The full plan lives in
 server/            Rust binary (single crate): API, SSE, workers
 packages/client/   @dronte/client — headless TS core
 packages/react/    @dronte/react  — hooks + <Inbox />
-docs/              Fumadocs site (+ project plan, risk register)
-project/           archive-v1/ (frozen v1 contracts) + openapi-baseline.yaml
+docs/              Fumadocs site
 ```
 
 ## Non-negotiable invariants
 
-Violating any of these is a bug even if all tests pass. They restate the
-contracts in `project/archive-v1/schema.sql` (header comments) and the project
-plan.
+Violating any of these is a bug even if all tests pass.
 
 **The two-source inbox.** The inbox is a merge of two sources: direct
 notifications (fan-out on write, one row per recipient) and broadcasts
@@ -81,7 +77,7 @@ no per-environment user scoping. `admin_users`/`admin_sessions` are
 instance-level tables (no `environment_id`), allowlisted in the migration
 lint like the `environments` root.
 
-**Licensing is settled** (plan, "Licensing"): FSL-1.1-MIT for `server/`
+**Licensing is settled:** FSL-1.1-MIT for `server/`
 (fair source — free use/self-host, no competing commercialization, each
 release converts to MIT after two years), MIT for `packages/*` and
 `examples/`. Never call the server "open source" in docs or marketing —
@@ -93,44 +89,19 @@ and explicitly allowed in `server/deny.toml`, never waved through. The
 permissive (they embed in customer frontends). External code contributions
 require a CLA so exclusive commercialization rights hold.
 
-## API contract rules
+## OpenAPI spec
 
-- The contract is **code-first via utoipa**; `dronte openapi` prints the
-  generated spec (CI exports it; the docs site and `@dronte/client` types are
-  built from it).
-- **The generated spec is the published truth** (since the v1 flip). The
-  hand-written convergence target retired to
-  `project/archive-v1/openapi.yaml`; never converge code toward it again. The
-  `contract` CI job runs oasdiff **breaking-change detection** of the live
-  generated spec against `project/openapi-baseline.yaml` (the export frozen at
-  the last release). Additive changes pass; a breaking change fails the gate
-  and is recorded only by regenerating the baseline in the release commit
-  (`cargo run -- openapi > project/openapi-baseline.yaml`).
-- The frozen SDK surface (`project/archive-v1/sdk-api.d.ts`) is
-  **additive-only**; `pnpm conformance` type-checks the built packages against
-  it.
+- The spec is **code-first via utoipa**; `dronte openapi` exports it. The docs
+  site and `@dronte/client` types are built from the export.
 - `packages/client/src/generated/` and `docs/openapi/` are **generated**
-  (`pnpm generate`) — never hand-edit them; CI fails if they are stale.
-  `project/openapi-baseline.yaml` is NOT part of `pnpm generate`: it is a
-  frozen per-release snapshot, bumped by hand only when cutting a release.
-
-## Archived v1 contracts (project/archive-v1, read-only)
-
-`project/archive-v1/{schema.sql,openapi.yaml,sdk-api.d.ts}` are the frozen v1
-contracts (tagged `contract-v1`), archived at the v1 flip. They are
-historical: the generated spec is now the published truth, so do not edit them
-and do not converge code toward `openapi.yaml` anymore. `schema.sql` stays the
-reference for the schema invariants the migrations implement, and
-`sdk-api.d.ts` is still the additive-only SDK surface `pnpm conformance`
-checks. `project/archive-v1/phase-*.md` are the (completed) executable phase
-specs.
+  (`pnpm generate`) — never hand-edit them; regenerate and commit the result.
 
 ## Testing
 
 - All DB tests run against **real Postgres + Redis via testcontainers** —
   no mocks for storage or pub/sub, ever. (cargo-nextest is the runner; CI
   also provides Postgres/Redis service containers.)
-- Two-source merge and watermark invariants get proptest coverage (Phase 1).
+- Two-source merge and watermark invariants get proptest coverage.
 
 ## Comment style
 
@@ -142,8 +113,6 @@ specs.
   comment.
 - No semicolons and no em-dashes in comments. This applies doubly to doc
   comments (`///`). Write short declarative sentences instead.
-- Exception: text quoted verbatim from a frozen contract
-  (project/archive-v1/) keeps its original punctuation.
 - Long literal text (OpenAPI descriptions and similar) uses raw strings
   (`r#"..."#`) with real newlines, never `\n` escapes.
 
@@ -161,7 +130,7 @@ specs.
 
 **Server:** Rust stable (2024 edition, pinned via rust-toolchain.toml), axum 0.8 on tokio, sqlx (compile-time-checked raw SQL; built-in migrator, run on boot under advisory lock), Postgres ≥15, `fred` Redis client (resilient pub/sub), Redis Lua token bucket for cross-replica rate limiting, RustCrypto hmac+sha2, thiserror/anyhow, tracing + OTLP, metrics + Prometheus exporter. Single crate until compile times force a split.
 
-**Contract tooling:** code-first via utoipa, rendered docs served from the binary via utoipa-scalar at /docs. Since the v1 flip the generated spec (`cargo run -- openapi`) is the published artifact; the hand-written convergence target retired to project/archive-v1/openapi.yaml. The `contract` CI job runs oasdiff breaking-change detection of the live spec against project/openapi-baseline.yaml (the export frozen at the last release). openapi-typescript consumes the generated spec for @dronte/client types in the same CI step. Annotation-vs-handler drift (utoipa response codes are hand-annotated) is guarded by the Rust contract-drift integration tests (server/tests/redteam_contract_drift*.rs), which assert the status a handler returns is the status its annotation declares. The light schemathesis run named in the original plan was never wired into CI; these tests are the guard in its place.
+**OpenAPI tooling:** code-first via utoipa, rendered docs served from the binary via utoipa-scalar at /docs. The generated spec (`cargo run -- openapi`) is the published artifact. openapi-typescript consumes it for @dronte/client types. Annotation-vs-handler drift (utoipa response codes are hand-annotated) is guarded by the Rust contract-drift integration tests (server/tests/redteam_contract_drift*.rs), which assert the status a handler returns is the status its annotation declares.
 
 **Testing:** testcontainers-rs (Postgres + Redis), cargo-nextest, proptest for two-source merge and watermark invariants.
 

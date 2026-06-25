@@ -1,7 +1,6 @@
-//! Phase 3: token-bucket rate limiting. 429 + Retry-After exactly as
-//! specs/openapi.yaml declares; cross-replica correctness over one Redis;
-//! fail-open when Redis dies (the hint/cache plane must never take the API
-//! down).
+//! Token-bucket rate limiting. 429 carries Retry-After. The bucket is
+//! cross-replica correct over one Redis. The limiter fails open when Redis
+//! dies. The hint/cache plane must never take the API down.
 
 mod support;
 
@@ -176,8 +175,8 @@ async fn limiter_fails_open_when_redis_dies() {
         .await
         .expect("stopping redis");
 
-    // Way past the burst: every request must still be served (Redis is the
-    // cache plane; its loss must never reject traffic Postgres can serve).
+    // Past the burst, every request must still be served. Redis is the cache
+    // plane. Its loss must never reject traffic Postgres can serve.
     for i in 0..5 {
         let res = app
             .mgmt_post(

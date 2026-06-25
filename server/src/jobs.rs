@@ -1,6 +1,6 @@
 //! Outbox/job enqueue helpers. Always called with the transaction that owns
-//! the triggering write — the transactional-outbox invariant (no
-//! Postgres↔Redis dual writes anywhere) lives here by construction.
+//! the triggering write. Enforces the transactional-outbox invariant. No
+//! Postgres/Redis dual writes anywhere.
 
 use chrono::{DateTime, Utc};
 use serde_json::json;
@@ -21,8 +21,8 @@ pub async fn enqueue(
     mut payload: serde_json::Value,
     run_at: Option<DateTime<Utc>>,
 ) -> sqlx::Result<Uuid> {
-    // The enqueuing trace rides along so the worker's span can join it
-    // (ingest -> outbox -> worker -> hint as ONE trace).
+    // Carry the enqueuing trace so the worker span joins it into one trace
+    // spanning ingest, outbox, worker, and hint.
     if let Some(traceparent) = telemetry::current_traceparent()
         && let Some(object) = payload.as_object_mut()
     {
@@ -45,7 +45,7 @@ pub async fn enqueue(
 
 /// Debounced pub/sub hint. `subscriber_ids` empty ⇒ environment-wide (a
 /// broadcast: one job and one message regardless of subscriber count).
-/// `notification_ids` are the direct notifications this hint announces; the
+/// `notification_ids` are the direct notifications this hint announces. The
 /// hint worker appends their `delivered_hint` timeline rows when it
 /// publishes. Empty for read-state and broadcast hints.
 pub async fn enqueue_hint(

@@ -1,11 +1,11 @@
 //! Management plane: create notifications/broadcasts, upsert subscribers.
 //!
-//! Both creates follow the transactional-outbox shape from specs/schema.sql:
-//! resource rows + counter bumps + idempotency snapshot + outbox job commit
-//! in ONE transaction. Idempotent replay returns the stored snapshot
-//! byte-identically with HTTP 200 (first acceptance is 201) — both paths
-//! serialize a `serde_json::Value` decoded from Postgres jsonb, so the bytes
-//! cannot drift between the original response and a replay.
+//! Both creates use the transactional outbox: resource rows, counter bumps,
+//! idempotency snapshot, and outbox job commit in ONE transaction. Idempotent
+//! replay returns the stored snapshot byte-identically with HTTP 200 (first
+//! acceptance is 201). Both paths serialize a `serde_json::Value` decoded from
+//! Postgres jsonb, so the bytes cannot drift between the original response and
+//! a replay.
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -34,9 +34,9 @@ pub struct CreateNotificationsRequest {
     pub subscriber_ids: Option<Vec<String>>,
     pub category: String,
     pub payload: Option<Value>,
-    /// Client-supplied; server-generated and echoed if omitted.
+    /// Client-supplied. Server-generated and echoed if omitted.
     pub idempotency_key: Option<String>,
-    /// Scheduled delivery; must be in the future, at most 13 months out.
+    /// Scheduled delivery. Must be in the future, at most 13 months out.
     pub deliver_at: Option<DateTime<Utc>>,
 }
 
@@ -195,14 +195,14 @@ async fn create_notifications_txn(
     timeline::append(&mut tx, env, &notif_ids, timeline::STATUS_CREATED).await?;
 
     if deliver_at.is_none() {
-        // Conditional increment — the guard against the mark-all-read race:
-        // both paths write the counters row (row lock serializes them) and
-        // the condition makes the serialization order irrelevant. now() =
-        // this txn's visible_at. One row per subscriber (recipients dedup'd).
-        // The mute guard keeps the counter in step with the list arm so an
-        // item created into an already-muted category is not counted (the
-        // list hides it). A later preference flip still recounts via
-        // counter_rebuild, so muting an existing category stays exact too.
+        // Conditional increment guards against the mark-all-read race. Both
+        // paths write the counters row (the row lock serializes them) and the
+        // condition makes the serialization order irrelevant. now() is this
+        // txn's visible_at. One row per subscriber (recipients dedup'd). The
+        // mute guard keeps the counter in step with the list arm so an item
+        // created into an already-muted category is not counted (the list
+        // hides it). A later preference flip recounts via counter_rebuild, so
+        // muting an existing category stays exact too.
         sqlx::query!(
             r#"UPDATE subscriber_counters c SET
                    unread_direct_count = c.unread_direct_count + (now() > c.read_watermark
@@ -227,8 +227,8 @@ async fn create_notifications_txn(
         .await?;
         jobs::enqueue_hint(&mut tx, env, &internal, "notification", &notif_ids).await?;
     } else {
-        // Scheduled: counters NOT bumped at create — the deliver job bumps
-        // them in the same txn that deletes the job row (exactly-once key).
+        // Scheduled: counters NOT bumped at create. The deliver job bumps them
+        // in the same txn that deletes the job row (exactly-once key).
         jobs::enqueue(
             &mut tx,
             env,
@@ -300,11 +300,11 @@ pub async fn create_broadcast(
 }
 
 /// The single broadcast write-path, shared by the management plane and the
-/// admin composer (specs/phase-4-admin.md: "composing is creating, same
-/// idempotent management-plane semantics"). One row per announcement,
-/// fan-out on read, NEVER materialized per subscriber, plus one env-wide hint
-/// regardless of subscriber count. Returns 201 on first acceptance, 200 on
-/// idempotent replay (byte-identical snapshot).
+/// admin composer. Composing is creating, same idempotent management-plane
+/// semantics. One row per announcement, fan-out on read, NEVER materialized
+/// per subscriber, plus one env-wide hint regardless of subscriber count.
+/// Returns 201 on first acceptance, 200 on idempotent replay (byte-identical
+/// snapshot).
 pub(crate) async fn create_broadcast_idempotent(
     state: &AppState,
     env: Uuid,
@@ -357,10 +357,10 @@ pub(crate) async fn create_broadcast_idempotent(
 
 #[derive(Debug, Default, Deserialize, ToSchema)]
 pub struct UpsertSubscriberRequest {
-    // value_type String (not Option): the field is optional via `required`,
-    // not nullable — matches the 3.0 contract shape.
+    // value_type String (not Option) so the field is optional via `required`,
+    // not nullable. Matches the OpenAPI 3.0 shape.
     #[schema(value_type = String, format = DateTime, required = false)]
-    /// Backdate on create only; ignored if the subscriber exists.
+    /// Backdate on create only. Ignored if the subscriber exists.
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -379,9 +379,9 @@ sees (`broadcast.created_at >= subscriber.created_at`).
     params(("subscriber_id" = String, Path, max_length = 255, description = "Customer-provided subscriber id (e.g. `usr_42`).")),
     responses(
         (status = 200, description = "Upserted.", body = crate::api::contract::Subscriber),
-        // The handler rejects an out-of-range subscriber_id (empty or > 255
-        // chars) with 400; declaring it keeps the annotation honest about the
-        // status the handler returns and gives @dronte/client a 400 branch.
+        // 400 declared because the handler rejects an out-of-range
+        // subscriber_id (empty or over 255 chars). Annotated status must match
+        // returned status.
         (status = 400, description = "Validation error.", body = crate::api::contract::Error),
         (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
     ),
@@ -403,8 +403,8 @@ pub async fn upsert_subscriber(
 
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     // created_at backdate applies on first create only (DO NOTHING on
-    // conflict) — it is the knob controlling which historical broadcasts an
-    // imported user sees.
+    // conflict). It controls which historical broadcasts an imported user
+    // sees (broadcast.created_at >= subscriber.created_at).
     sqlx::query!(
         r#"INSERT INTO subscribers (environment_id, id, subscriber_id, created_at)
            VALUES ($1, $2, $3, COALESCE($4, now()))
@@ -493,7 +493,7 @@ pub async fn get_notification_timeline(
     .map_err(ApiError::from)?
     .ok_or_else(|| ApiError::not_found("no such notification"))?;
 
-    // min() per status is a defensive read-time dedupe; writers already
+    // min() per status is a defensive read-time dedupe. Writers already
     // guarantee at most one row per (notification, status).
     let rows = sqlx::query!(
         r#"SELECT status, min(occurred_at) AS "occurred_at!"
@@ -555,7 +555,7 @@ fn validate_recipients(req: &CreateNotificationsRequest) -> Result<Vec<String>, 
             "subscriber ids must be 1–255 characters",
         ));
     }
-    // One notification row per recipient; duplicates collapse.
+    // One notification row per recipient. Duplicates collapse.
     let mut seen = std::collections::HashSet::new();
     Ok(list
         .into_iter()

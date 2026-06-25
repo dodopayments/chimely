@@ -1,21 +1,19 @@
-//! The job worker: FOR UPDATE SKIP LOCKED claims, round-robin across
-//! environments with pending work, DELETE on completion — never status-flag
-//! in place (completed work leaves no row).
+//! Job worker. FOR UPDATE SKIP LOCKED claims, round-robin across environments
+//! with pending work, DELETE on completion. Completed work leaves no row.
 //!
 //! Fairness: each sweep claims at most ONE job per environment with pending
-//! work, then moves to the next environment — a broadcast burst from
-//! 'dashboard-prod' cannot starve 'mobile-prod' real-time jobs. Large jobs
-//! cooperate with the same rule: `deliver` and `timeline` process one
-//! `progress_cursor` chunk per claim and commit, so even a huge fan-out
-//! yields between chunks.
+//! work, then moves to the next environment, so a broadcast burst from one
+//! environment cannot starve another's real-time jobs. `deliver` and
+//! `timeline` process one `progress_cursor` chunk per claim and commit, so
+//! even a huge fan-out yields between chunks.
 //!
-//! Exactly-once side effects are keyed by job deletion: the deliver job's
+//! Exactly-once side effects are keyed by job deletion. The deliver job's
 //! counter bumps and every timeline append commit in the SAME transaction
 //! that deletes (or cursor-advances) the job row. Hints are at-least-once by
 //! design (refetch triggers, not transports).
 //!
-//! Failed jobs retry with jittered exponential backoff; a job exhausting
-//! max_attempts moves to dead_letters for replay (`dlq`).
+//! Failed jobs retry with jittered exponential backoff. A job exhausting
+//! max_attempts moves to dead_letters for replay.
 
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
@@ -28,7 +26,7 @@ use crate::jobs::{TYPE_COUNTER_REBUILD, TYPE_DELIVER, TYPE_HINT, TYPE_TIMELINE};
 use crate::pubsub::{Hint, PubSub};
 use crate::{ids, jobs, telemetry, timeline};
 
-/// Rows per deliver-chunk transaction: never one giant transaction, never N
+/// Rows per deliver-chunk transaction. Never one giant transaction, never N
 /// tiny rows.
 pub const DELIVER_CHUNK: usize = 500;
 
@@ -72,13 +70,13 @@ pub async fn run(
 }
 
 /// One fair pass: at most one job per environment with due work. Returns the
-/// number of jobs touched (tests drive this directly).
+/// number of jobs touched.
 ///
 /// Environment discovery is a loose index scan (recursive CTE over
-/// jobs_claim_idx): one index probe per distinct environment. A plain
-/// DISTINCT would scan the whole backlog on EVERY sweep, and with one claim
-/// per environment per sweep that makes draining a deep single-environment
-/// backlog quadratic.
+/// jobs_claim_idx), one index probe per distinct environment. A plain DISTINCT
+/// would scan the whole backlog on EVERY sweep, and with one claim per
+/// environment per sweep that makes draining a deep single-environment backlog
+/// quadratic.
 pub async fn sweep_once(pool: &PgPool, pubsub: &dyn PubSub, cfg: &Config) -> anyhow::Result<u64> {
     let envs = sqlx::query!(
         r#"WITH RECURSIVE pending AS (
@@ -237,20 +235,19 @@ pub async fn process_one(
     }
 }
 
-/// Failure bookkeeping happens OUTSIDE the rolled-back transaction, but
-/// inside ONE transaction of its own: the backoff lands in the same atomic
-/// UPDATE that bumps `attempts`, and the row lock it takes is held until
-/// the park decision commits. A concurrent claim (FOR UPDATE SKIP LOCKED)
-/// therefore skips the row for the whole bookkeeping window, so a failed
-/// job can never be re-claimed before its backoff is in place.
+/// Failure bookkeeping happens OUTSIDE the rolled-back transaction, but inside
+/// ONE transaction of its own. The backoff lands in the same atomic UPDATE
+/// that bumps `attempts`, and the row lock it takes is held until the park
+/// decision commits. A concurrent claim (FOR UPDATE SKIP LOCKED) therefore
+/// skips the row for the whole bookkeeping window, so a failed job can never
+/// be re-claimed before its backoff is in place.
 ///
 /// Backoff is exponential with equal jitter, computed in SQL from the
-/// pre-increment attempt count: attempt n sleeps in `[exp/2, exp]` where
+/// pre-increment attempt count. Attempt n sleeps in `[exp/2, exp]` where
 /// `exp = min(cap, base * 2^(n-1))`. The floor keeps a hot failure from
-/// hammering; the jitter keeps a burst of failures from retrying in
-/// lockstep. A job exhausting max_attempts moves to dead_letters instead
-/// (a parked job is not a completed job, and it must not live in the hot
-/// claim path).
+/// hammering. The jitter keeps a burst of failures from retrying in lockstep.
+/// A job exhausting max_attempts moves to dead_letters instead, because a
+/// parked job is not a completed job and must not live in the hot claim path.
 async fn fail_job(
     pool: &PgPool,
     cfg: &Config,
@@ -321,7 +318,7 @@ async fn fail_job(
 }
 
 // =============================================================================
-// hint — debounced pub/sub publish
+// hint: debounced pub/sub publish
 // =============================================================================
 
 /// Publishes hints for the subscribers in the payload (`null` = env-wide, the
@@ -333,7 +330,6 @@ async fn fail_job(
 /// announces. Their `delivered_hint` timeline rows are appended in this same
 /// claim transaction, so the append commits exactly once: if and only if the
 /// job row's deletion (or its deferred-payload rewrite) commits.
-#[allow(clippy::too_many_arguments)]
 async fn process_hint(
     tx: &mut sqlx::PgConnection,
     pubsub: &dyn PubSub,
@@ -433,7 +429,7 @@ async fn process_hint(
     if deferred.is_empty() && !deferred_env_wide {
         return Ok(Outcome::Done);
     }
-    // Only the still-unpublished ids ride in the deferred payload; the
+    // Only the still-unpublished ids ride in the deferred payload. The
     // published ones got their timeline rows above, in this transaction.
     let remaining = if deferred_env_wide {
         Value::Null
@@ -460,7 +456,7 @@ async fn process_hint(
 }
 
 // =============================================================================
-// deliver — scheduled notifications coming due
+// deliver: scheduled notifications coming due
 // =============================================================================
 
 /// One chunk per claim: conditional counter bumps for the chunk's rows, then
@@ -612,7 +608,13 @@ async fn process_timeline(
             serde_json::from_value(c["after_id"].clone()).ok()?,
         ))
     });
-    match timeline::append_window_chunk(tx, env, subscriber, status, from, to, to, cursor).await? {
+    let window = timeline::WatermarkWindow {
+        from,
+        to,
+        at: to,
+        cursor,
+    };
+    match timeline::append_window_chunk(tx, env, subscriber, status, window).await? {
         None => Ok(Outcome::Done),
         Some((after_ts, after_id)) => {
             sqlx::query!(
@@ -629,7 +631,7 @@ async fn process_timeline(
 }
 
 // =============================================================================
-// counter_rebuild — exact recount of one subscriber
+// counter_rebuild: exact recount of one subscriber
 // =============================================================================
 
 /// Mute-aware exact recount. Counters otherwise ignore category mutes, and

@@ -3,10 +3,7 @@ import type { components } from './generated/api';
 type ErrorEnvelope = components['schemas']['Error'];
 
 export class DronteError extends Error {
-  /**
-   * Machine-readable code from the server error envelope, or a client-side
-   * code ('network', 'unauthorized', ...).
-   */
+  /** Server error-envelope code, or a client-side code ('network', 'unauthorized'). */
   readonly code: string;
   /** HTTP status when the error came from the server. */
   readonly status?: number;

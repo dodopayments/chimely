@@ -1,11 +1,9 @@
-//! Dronte — in-app notification inbox infrastructure.
+//! Dronte in-app notification inbox infrastructure.
 //!
 //! Single binary, three entrypoints:
-//!   `dronte serve`   (default) — API plane + workers
-//!   `dronte openapi`           — print the utoipa-generated OpenAPI spec to
-//!                                stdout (the artifact CI diffs against
-//!                                specs/openapi.yaml until v1; see CLAUDE.md)
-//!   `dronte dlq`               lists and replays dead-lettered jobs
+//!   `dronte serve`   (default) API plane plus workers
+//!   `dronte openapi`           print the utoipa-generated OpenAPI spec to stdout
+//!   `dronte dlq`               list and replay dead-lettered jobs
 
 use std::sync::Arc;
 
@@ -18,8 +16,8 @@ use dronte::{
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     match args.next().as_deref() {
-        // Spec export must stay side-effect free: no runtime, no sockets, no
-        // tracing init — CI and the docs pipeline call this in tight loops.
+        // Spec export must stay side-effect free. No runtime, no sockets, no
+        // tracing init. CI and the docs pipeline call this in tight loops.
         Some("openapi") => {
             let yaml = openapi::to_contract_yaml().context("serializing OpenAPI document")?;
             print!("{yaml}");
@@ -121,9 +119,9 @@ async fn serve() -> anyhow::Result<()> {
     tracing::info!(addr = %cfg.listen_addr, "dronte listening");
 
     // Graceful shutdown, two phases:
-    //   1. readiness flips to 503 while the listener KEEPS serving, so load
-    //      balancers drain the replica without dropping in-flight requests;
-    //   2. after the grace period the shutdown watch flips: workers stop
+    //   1. readiness flips to 503 while the listener keeps serving, so load
+    //      balancers drain the replica without dropping in-flight requests.
+    //   2. after the grace period the shutdown watch flips. Workers stop
     //      claiming, SSE streams send a jittered `retry:` and close, the
     //      listener stops accepting.
     let grace = cfg.shutdown_readiness_grace;
@@ -142,9 +140,9 @@ async fn serve() -> anyhow::Result<()> {
         .await
         .context("server error")?;
 
-    // Phase 3 of the drain: the worker finishes its in-flight sweep within a
-    // deadline. Past it, abort: the open transaction rolls back and the job
-    // is re-claimed by the next replica (at-least-once by design).
+    // The worker finishes its in-flight sweep within a deadline. Past it,
+    // abort. The open transaction rolls back and the job is re-claimed by the
+    // next replica (at-least-once by design).
     if tokio::time::timeout(cfg.shutdown_drain_deadline, &mut worker_handle)
         .await
         .is_err()
@@ -165,7 +163,7 @@ async fn dlq_command(args: Vec<String>) -> anyhow::Result<()> {
         .context("connecting to Postgres")?;
 
     // `--env <slug>` pins replay to one environment. environment_id is part
-    // of every key; an unscoped id match would reach across environments.
+    // of every key. An unscoped id match would reach across environments.
     let mut args = args;
     let environment = match args.iter().position(|a| a == "--env") {
         Some(i) if i + 1 < args.len() => {

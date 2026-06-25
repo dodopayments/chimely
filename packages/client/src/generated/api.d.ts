@@ -675,7 +675,7 @@ export interface components {
             created_at: string;
             /** @description TypeID, `key_…`. */
             id: string;
-            /** @description Display prefix for recognition; the full key is never retrievable. */
+            /** @description Display prefix for recognition. The full key is never retrievable. */
             key_prefix: string;
             last_used_at?: string | null;
             name: string;
@@ -705,7 +705,7 @@ export interface components {
         };
         AdminCreateEnvironmentRequest: {
             name: string;
-            /** @description Production default true; set false for a dev/quickstart environment. */
+            /** @description Production default true. Set false for a dev/quickstart environment. */
             require_subscriber_hash?: boolean;
             slug: string;
         };
@@ -747,9 +747,9 @@ export interface components {
             slug: string;
             subscriber_hmac_rotated_at?: string | null;
             /**
-             * @description The dedicated subscriber HMAC secret. Plaintext by design (the customer
-             *     backend computes hashes with it). Returned only to roles holding
-             *     `env:read_secret` (developer/admin). Omitted entirely otherwise.
+             * @description The dedicated subscriber HMAC secret. Plaintext by design. The customer
+             *     backend computes hashes with it. Returned only to roles holding
+             *     `env:read_secret` (developer/admin). Omitted otherwise.
              */
             subscriber_hmac_secret?: string | null;
         };
@@ -757,7 +757,7 @@ export interface components {
             has_previous_secret: boolean;
             subscriber_hmac_rotated_at?: string | null;
             /**
-             * @description The new current secret. Update the customer backend with it; the
+             * @description The new current secret. Update the customer backend with it. The
              *     previous secret keeps verifying until the rotation is completed.
              */
             subscriber_hmac_secret: string;
@@ -2660,7 +2660,7 @@ export interface operations {
                 "application/json": {
                     /**
                      * Format: date-time
-                     * @description Backdate on create only; ignored if the subscriber exists.
+                     * @description Backdate on create only. Ignored if the subscriber exists.
                      */
                     created_at?: string;
                 };

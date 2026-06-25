@@ -1,12 +1,10 @@
-//! Rate limiting: a token bucket per key, evaluated atomically in Redis Lua
-//! so N replicas share ONE bucket. Cross-replica correctness holds because
-//! the script reads the Redis clock via TIME, so replica clock skew cannot
-//! double-fill a bucket.
+//! Token bucket per key, evaluated atomically in Redis Lua so N replicas
+//! share ONE bucket. The script reads the Redis clock via TIME, so replica
+//! clock skew cannot double-fill a bucket.
 //!
-//! Redis is the hint/cache plane: a Redis outage must never take the API
-//! down, so the limiter FAILS OPEN on Redis errors (logged + counted). In
-//! Redis-less mode an in-process bucket applies. That is correct for the
-//! single-binary dev path and degrades to per-replica buckets (more
+//! Redis is the hint/cache plane. A Redis outage must never take the API
+//! down, so the limiter FAILS OPEN on Redis errors. In Redis-less mode an
+//! in-process bucket applies. That degrades to per-replica buckets (more
 //! permissive, never stricter) when several replicas run without Redis.
 
 use std::collections::HashMap;
@@ -15,8 +13,8 @@ use std::time::{Duration, Instant};
 
 use fred::interfaces::ClientLike;
 
-/// One bucket decision. `retry_after` is the time until a single token is
-/// available again, which the contract surfaces as `Retry-After`.
+/// `retry_after` is the time until a single token is available again,
+/// surfaced as `Retry-After`.
 pub enum Decision {
     Allowed,
     Limited { retry_after: Duration },
@@ -36,7 +34,7 @@ pub async fn build(redis_url: Option<&str>) -> anyhow::Result<Arc<dyn RateLimite
     }
 }
 
-/// Take one token or answer the contract's 429 (`Retry-After` included).
+/// Take one token or return 429 with `Retry-After`.
 pub async fn enforce(
     limiter: &dyn RateLimiter,
     key: &str,
@@ -56,11 +54,11 @@ pub async fn enforce(
 // Redis (fred), the cross-replica implementation
 // =============================================================================
 
-/// Atomic refill-and-take. State is a hash {tokens, ts}; the clock is Redis
-/// TIME (one clock for all replicas; Redis >= 5 replicates script EFFECTS,
-/// so the non-determinism is safe). Returns {allowed, retry_after_seconds}.
-/// The key expires once a full bucket's refill has elapsed twice. An idle
-/// bucket reappears full, which is exactly the steady state.
+/// Atomic refill-and-take. State is a hash {tokens, ts}. The clock is Redis
+/// TIME, one clock for all replicas. Redis >= 5 replicates script EFFECTS, so
+/// the non-determinism is safe. Returns {allowed, retry_after_seconds}. The
+/// key expires once a full bucket's refill has elapsed twice. An idle bucket
+/// reappears full, the steady state.
 const TOKEN_BUCKET_LUA: &str = r#"
 local rate = tonumber(ARGV[1])
 local burst = tonumber(ARGV[2])
@@ -96,8 +94,8 @@ impl RedisRateLimiter {
     pub async fn connect(url: &str) -> anyhow::Result<Self> {
         let config = fred::types::config::Config::from_url(url)?;
         let mut builder = fred::types::Builder::from_config(config);
-        // Same resilience posture as the pub/sub clients: reconnect forever,
-        // but never hang a request on a dead Redis (fail open instead).
+        // Reconnect forever, but never hang a request on a dead Redis. Fail
+        // open instead.
         builder
             .set_policy(fred::types::config::ReconnectPolicy::new_exponential(
                 0, 100, 10_000, 2,
@@ -137,8 +135,8 @@ impl RateLimiter for RedisRateLimiter {
             Ok((_, retry)) => Decision::Limited {
                 retry_after: Duration::from_secs_f64(retry.parse::<f64>().unwrap_or(1.0).max(0.0)),
             },
-            // Fail OPEN: Redis loss may delay hints and loosen limits; it
-            // must never reject traffic Postgres could serve.
+            // Fail OPEN. Redis loss may loosen limits. It must never reject
+            // traffic Postgres could serve.
             Err(err) => {
                 metrics::counter!("dronte_rate_limit_errors_total").increment(1);
                 tracing::warn!(error = ?err, "rate limiter unavailable; failing open");
@@ -152,10 +150,10 @@ impl RateLimiter for RedisRateLimiter {
 // In-process fallback (Redis-less mode), single-node semantics
 // =============================================================================
 
-/// One bucket carries its OWN rate and burst. API-key and subscriber
-/// buckets share this map with different parameters, so the GC must
-/// evaluate each bucket's refill against the values it was created with,
-/// never the current caller's.
+/// Each bucket carries its OWN rate and burst. API-key and subscriber buckets
+/// share this map with different parameters, so the GC must evaluate each
+/// bucket's refill against the values it was created with, never the current
+/// caller's.
 #[derive(Clone, Copy)]
 struct Bucket {
     tokens: f64,
@@ -177,8 +175,8 @@ impl RateLimiter for LocalRateLimiter {
         }
         let mut buckets = self.buckets.lock().expect("rate limiter lock");
         let now = Instant::now();
-        // Opportunistic GC: drop buckets that have fully refilled (per their
-        // own parameters; a dropped bucket reappears full, the steady state).
+        // Opportunistic GC. Drop buckets that have fully refilled per their
+        // own parameters. A dropped bucket reappears full, the steady state.
         if buckets.len() > 10_000 {
             buckets.retain(|_, b| {
                 b.tokens + now.duration_since(b.sampled_at).as_secs_f64() * b.rate_per_sec < b.burst
@@ -244,8 +242,7 @@ mod tests {
     async fn gc_judges_each_bucket_by_its_own_parameters() {
         let limiter = LocalRateLimiter::default();
         // A spent API-key-shaped bucket that refills so slowly (0.01/s) it
-        // cannot return to full during the test, no matter how slow the
-        // runner. Its own parameters say "keep".
+        // cannot return to full during the test. Its own parameters say "keep".
         for _ in 0..60 {
             assert!(matches!(
                 limiter.check("api-key", 0.01, 200.0).await,
@@ -253,9 +250,9 @@ mod tests {
             ));
         }
         // Flood subscriber-shaped buckets past the GC threshold so the NEXT
-        // subscriber check (rate=10, burst=50) runs the GC. With the
-        // caller's parameters wrongly applied to every bucket, the API-key
-        // bucket (140 tokens >= burst 50) would be dropped and reborn full.
+        // subscriber check (rate=10, burst=50) runs the GC. With the caller's
+        // parameters wrongly applied to every bucket, the API-key bucket (140
+        // tokens >= burst 50) would be dropped and reborn full.
         for i in 0..10_001 {
             limiter.check(&format!("sub-{i}"), 10.0, 50.0).await;
         }

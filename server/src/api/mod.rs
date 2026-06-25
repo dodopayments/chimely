@@ -1,4 +1,4 @@
-//! The v1 HTTP surface (specs/openapi.yaml is the convergence target).
+//! The HTTP surface.
 
 pub mod admin;
 pub mod contract;

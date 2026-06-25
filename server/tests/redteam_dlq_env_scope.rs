@@ -1,12 +1,9 @@
-//! RED-TEAM regression guard: dead-letter replay is scoped to one environment.
-//! environment_id is part of every key (CLAUDE.md). The dead_letters primary
-//! key is (environment_id, id). The pre-fix replay predicate matched bare job
-//! ids ("$1 IS NULL OR id = $1"), so a replay reached across environments. The
-//! fix adds an environment scope to both replay_all and replay-by-id.
+//! Dead-letter replay is scoped to one environment. environment_id is part of
+//! every key. The dead_letters primary key is (environment_id, id). A replay
+//! predicate matching bare job ids reaches across environments, so both
+//! replay_all and replay-by-id must scope to an environment.
 //!
-//! Two environments each hold a parked job. Replaying ONLY environment A must
-//! leave environment B's dead_letters untouched. The unscoped pre-fix predicate
-//! replays B as well and these tests go red.
+//! Replaying environment A must leave environment B's dead_letters untouched.
 
 mod support;
 
@@ -67,9 +64,8 @@ async fn replay_by_id_replays_only_the_scoped_environment() {
     let app = support::spawn().await;
     let env_b = app.create_environment(true).await;
 
-    // The SAME job id parked in BOTH environments. The dead_letters PK is
-    // (environment_id, id), so this is legal. An id-only replay predicate
-    // would match (and replay) both copies.
+    // The same job id parked in both environments is legal under the
+    // (environment_id, id) PK. An id-only replay predicate replays both copies.
     let shared = dronte::ids::new_uuid();
     park_dead_letter_with_id(&app.pool, app.env.id, shared).await;
     park_dead_letter_with_id(&app.pool, env_b.id, shared).await;

@@ -23,7 +23,6 @@ function must<T>(value: T | undefined, label = 'value'): T {
   return value;
 }
 
-/** Connects, opens the stream, and waits for the initial load to settle. */
 async function connectAndLoad(client: DronteClient, stub: StubServer): Promise<void> {
   client.connect();
   stub.openStream();
@@ -224,8 +223,6 @@ describe('reconnect loop', () => {
 
   test('reconnect delays are jittered within ±jitter of the base delay', async () => {
     vi.useFakeTimers();
-    // The spy wraps the fake timer, so scheduled delays can be read directly
-    // instead of probing the clock millisecond by millisecond.
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
     const stub = createStubServer();
     const client = makeClient(stub, {
@@ -487,7 +484,6 @@ describe('optimistic read state', () => {
     const failing = makeClient(stub, {
       fetchFn: () => Promise.reject(new TypeError('fetch failed')),
     });
-    // Reuse the loaded snapshot shape by acting on the fresh client directly.
     await failing.markRead({ id: item.id as InboxItem['id'], source: 'notification' });
     expect(failing.getSnapshot().error?.code).toBe('network');
   });

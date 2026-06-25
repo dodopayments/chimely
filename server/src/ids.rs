@@ -1,7 +1,6 @@
 //! TypeIDs: `<prefix>_<uuidv7 as 26-char Crockford base32>`. The prefix is
-//! constant per table and never stored — the database holds the raw uuid.
-//! Mirrors the SQL helpers `typeid_format`/`typeid_parse` from the first
-//! migration.
+//! constant per table and never stored. The database holds the raw uuid.
+//! Mirrors the SQL helpers `typeid_format`/`typeid_parse`.
 
 use uuid::Uuid;
 

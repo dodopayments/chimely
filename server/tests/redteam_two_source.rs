@@ -1,29 +1,22 @@
-//! Regression guards for the two-source mute invariant (CLAUDE.md: "The list,
-//! the unread count, and read state must agree across both sources at all
-//! times").
+//! Regression guards for the two-source mute invariant: the list, the unread
+//! count, and read state agree across both sources at all times.
 //!
-//! These pin the fix for a class of bug where a muted item left the list but
-//! stayed in the unread count. Both count terms are now mute-aware:
-//!   * the live BROADCAST term in `fetch_counts` evaluates the list arm
-//!     exactly (visible, above the watermark, no read exception, not muted),
-//!     so it agrees with the list at all times rather than relying on a
-//!     `counter_rebuild` that can never reconcile a live, unstored term;
-//!   * the maintained DIRECT counter is mute-aware on every path that writes
-//!     it (immediate insert, scheduled deliver, individual read), so a
-//!     notification entering an already-muted category is never counted, and
-//!     marking a muted item read never steals a count from an unmuted one.
-//!
-//! Before the fix the proptest `Model` encoded the bug as expected (mute-blind
-//! broadcast term; `rebuild` skipping broadcasts) and never asserted
-//! count==visible-unread under mutes; that suite now does.
+//! Both count terms are mute-aware. The live BROADCAST term in `fetch_counts`
+//! evaluates the list arm exactly (visible, above the watermark, no read
+//! exception, not muted), so it agrees with the list rather than relying on a
+//! `counter_rebuild` that can never reconcile a live, unstored term. The
+//! maintained DIRECT counter is mute-aware on every path that writes it
+//! (immediate insert, scheduled deliver, individual read), so a notification
+//! entering an already-muted category is never counted, and marking a muted
+//! item read never steals a count from an unmuted one.
 
 mod support;
 
 use serde_json::json;
 
 /// Mute (enabled=false) or unmute (enabled=true) one category for a subscriber
-/// via the subscriber-plane preferences PUT. Returns once the 200 lands; the
-/// PUT has enqueued a `counter_rebuild` job (the documented reconciliation).
+/// via the subscriber-plane preferences PUT. The PUT enqueues a
+/// `counter_rebuild` job.
 async fn set_mute(app: &support::TestApp, subscriber: &str, category: &str, muted: bool) {
     let res = app
         .client
@@ -45,15 +38,15 @@ fn visible_unread(items: &[serde_json::Value]) -> i64 {
         .count() as i64
 }
 
-/// A muted broadcast must leave the unread count, not just the list. Even
-/// after a `counter_rebuild` runs, the live broadcast term stays mute-aware.
+/// A muted broadcast leaves the unread count, not just the list. The live
+/// broadcast term stays mute-aware even after a `counter_rebuild` runs.
 #[tokio::test]
 async fn broadcast_mute_unread_count_agrees_with_list_after_rebuild() {
     let app = support::spawn().await;
     let sub = "usr_bcast_mute";
 
-    // Subscriber exists before the broadcast, so the broadcast is visible to it
-    // (visibility rule: broadcast.created_at >= subscriber.created_at).
+    // Subscriber exists before the broadcast, so it is visible:
+    // broadcast.created_at >= subscriber.created_at.
     let res = app
         .client
         .put(format!("{}/v1/subscribers/{sub}", app.base))
@@ -66,16 +59,12 @@ async fn broadcast_mute_unread_count_agrees_with_list_after_rebuild() {
     app.create_broadcast("promo").await;
     app.drain_jobs().await;
 
-    // Pre-mute: count and list agree (1 unread broadcast on both surfaces).
     let (unread_before, _) = app.counts(sub).await;
     let items_before = app.list_all_items(sub, 10).await;
     assert_eq!(unread_before, 1, "pre-mute unread count");
     assert_eq!(visible_unread(&items_before), 1, "pre-mute visible unread");
 
-    // Mute the broadcast's category. The PUT enqueues counter_rebuild — the
-    // schema's documented "eventual exactness" mechanism.
     set_mute(&app, sub, "promo", true).await;
-    // Run it (and any hints). After this the reconciliation has completed.
     app.drain_jobs().await;
     assert_eq!(
         app.job_count(app.env.id).await,
@@ -83,14 +72,11 @@ async fn broadcast_mute_unread_count_agrees_with_list_after_rebuild() {
         "counter_rebuild must have been processed, not just enqueued",
     );
 
-    // The list now excludes the muted broadcast: zero visible items.
     let items_after = app.list_all_items(sub, 10).await;
     assert_eq!(items_after.len(), 0, "muted broadcast leaves the list");
 
     let (unread_after, _) = app.counts(sub).await;
 
-    // The invariant: unread count must equal the number of unread items the
-    // subscriber can actually see. The rebuild has run, yet they disagree.
     assert_eq!(
         unread_after,
         visible_unread(&items_after),
@@ -101,20 +87,19 @@ async fn broadcast_mute_unread_count_agrees_with_list_after_rebuild() {
     );
 }
 
-/// A direct notification created into an ALREADY-muted category must not be
-/// counted: the list excludes it, so the count must too. (Parallel to the
-/// broadcast hole: the mute-blind increment would otherwise count it forever,
-/// since no preference flip follows to trigger a reconciliation.)
+/// A direct notification created into an already-muted category must not be
+/// counted. The list excludes it, so the count must too. No preference flip
+/// follows to trigger a reconciliation, so a mute-blind increment would count
+/// it forever.
 #[tokio::test]
 async fn direct_notification_into_already_muted_category_is_not_counted() {
     let app = support::spawn().await;
     let sub = "usr_premute";
 
-    // Mute "promo" BEFORE any promo notification exists, then settle the rebuild.
+    // Mute "promo" before any promo notification exists.
     set_mute(&app, sub, "promo", true).await;
     app.drain_jobs().await;
 
-    // A direct notification now arrives in the muted category.
     app.create_notification(sub, "promo").await;
     app.drain_jobs().await;
 
@@ -132,23 +117,23 @@ async fn direct_notification_into_already_muted_category_is_not_counted() {
 }
 
 /// Marking an already-muted direct notification read must not under-count a
-/// legitimately-unread item (mute-aware increment must pair with a mute-aware
-/// decrement). With a mute-blind decrement, marking the muted item read
-/// decrements the counter that the rebuild had already excluded it from,
-/// stealing a count from the unmuted item. The `greatest(0, ...)` clamp hides
-/// this only when the count is already zero, so a non-muted unread item is
-/// present here to make the drift observable.
+/// legitimately-unread item. The mute-aware increment must pair with a
+/// mute-aware decrement. A mute-blind decrement decrements the counter the
+/// rebuild already excluded the muted item from, stealing a count from the
+/// unmuted item. The `greatest(0, ...)` clamp hides this only when the count
+/// is already zero, so a non-muted unread item is present to make the drift
+/// observable.
 #[tokio::test]
 async fn marking_a_muted_direct_notification_read_does_not_steal_a_count() {
     let app = support::spawn().await;
     let sub = "usr_mutedread";
 
-    let muted = app.create_notification(sub, "promo").await; // will be muted
+    let muted = app.create_notification(sub, "promo").await;
     let muted_id = muted["notifications"][0]["id"].as_str().unwrap().to_owned();
-    app.create_notification(sub, "news").await; // stays visible + unread
+    app.create_notification(sub, "news").await; // stays visible and unread
     app.drain_jobs().await;
 
-    set_mute(&app, sub, "promo", true).await; // rebuild recounts: only "news" is unread
+    set_mute(&app, sub, "promo", true).await;
     app.drain_jobs().await;
 
     let res = app
@@ -167,10 +152,10 @@ async fn marking_a_muted_direct_notification_read_does_not_steal_a_count() {
     );
 }
 
-/// CONTROL (passes): the identical flow with a DIRECT notification reconciles
-/// correctly — counter_rebuild rewrites the direct counter mute-aware, so after
-/// the drain the count matches the (empty) visible-unread list. This isolates
-/// the defect to the broadcast term specifically.
+/// Control: the same flow with a direct notification reconciles. counter_rebuild
+/// rewrites the direct counter mute-aware, so after the drain the count matches
+/// the empty visible-unread list. This isolates the broadcast term as the only
+/// path that needs the live mute-aware fix.
 #[tokio::test]
 async fn direct_mute_unread_count_reconciles_with_list_after_rebuild() {
     let app = support::spawn().await;

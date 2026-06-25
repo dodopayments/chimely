@@ -8,12 +8,10 @@
   "files": {
     "includes": [
       "**",
-      "!project",
       "!server/.sqlx",
       "!packages/client/src/generated",
       "!docs/openapi",
       "!docs/app/global.css",
-      "!conformance/.generated",
       "!server/admin"
     ]
   },

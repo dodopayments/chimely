@@ -1,6 +1,5 @@
-//! Task 7: /healthz, /readyz, and the Redis-degradation contract — Redis loss
-//! may DELAY hints; it must never LOSE data, and it must never fail
-//! readiness.
+//! /healthz, /readyz, and the Redis-degradation contract. Redis loss may
+//! DELAY hints. It must never LOSE data and never fail readiness.
 
 mod support;
 
@@ -37,21 +36,19 @@ async fn redis_loss_delays_hints_but_loses_nothing_and_keeps_readiness() {
     app.create_notification("usr_z", "seed").await;
     app.drain_jobs().await;
 
-    // Kill Redis.
     let redis = app.redis.as_ref().expect("redis container");
     redis
         .stop_with_timeout(Some(1))
         .await
         .expect("stopping redis");
 
-    // Creates still succeed — Postgres is the source of truth.
+    // Creates still succeed. Postgres is the source of truth.
     app.create_notification("usr_z", "during.outage").await;
     let items = app.list_all_items("usr_z", 10).await;
     assert_eq!(items.len(), 2, "no data loss during the outage");
     let (unread, _) = app.counts("usr_z").await;
     assert_eq!(unread, 2);
 
-    // Readiness is NOT Redis-gated.
     let res = app
         .client
         .get(format!("{}/readyz", app.base))
@@ -60,16 +57,15 @@ async fn redis_loss_delays_hints_but_loses_nothing_and_keeps_readiness() {
         .unwrap();
     assert_eq!(res.status(), 200, "Redis down must not fail readiness");
 
-    // The hint survives as a job row (transactional outbox, not dual-write).
+    // Transactional outbox, not dual-write: the hint survives as a job row.
     assert!(
         app.job_count(app.env.id).await >= 1,
         "hint job must persist through the outage"
     );
 
-    // Restore Redis and wait until the app's own client answers again. A
-    // fixed sleep flakes under machine load: fred's reconnect backoff slot
-    // can exceed the 5s command timeout, stacking job retries past the
-    // assertion window below.
+    // Poll until the app's own client answers again. A fixed sleep flakes
+    // under load. Fred's reconnect backoff can exceed the 5s command timeout,
+    // stacking job retries past the assertion window below.
     redis.start().await.expect("restarting redis");
     for attempt in 0u32.. {
         match app
@@ -93,9 +89,9 @@ async fn redis_loss_delays_hints_but_loses_nothing_and_keeps_readiness() {
 
     let mut rx = app.pubsub.subscribe();
     app.spawn_worker();
-    // Generous window: a publish attempted before fred finishes reconnecting
-    // hits the 5s command timeout and backs off via fail_job before the next
-    // try, and under full-suite load the container restart itself is slow.
+    // A publish before fred reconnects hits the 5s command timeout and backs
+    // off via fail_job before retrying. Under full-suite load the container
+    // restart is slow too, so the window is wide.
     let hint = tokio::time::timeout(Duration::from_secs(45), async {
         loop {
             if let Ok(hint) = rx.recv().await
@@ -109,7 +105,6 @@ async fn redis_loss_delays_hints_but_loses_nothing_and_keeps_readiness() {
     .expect("delayed hint delivered after Redis recovery");
     assert_eq!(hint.reason, "notification");
 
-    // Everything drained, nothing lost.
     let items = app.list_all_items("usr_z", 10).await;
     assert_eq!(items.len(), 2);
 }

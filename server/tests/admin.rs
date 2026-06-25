@@ -1,4 +1,4 @@
-//! Phase 4 admin plane (specs/phase-4-admin.md acceptance criteria).
+//! Admin plane.
 //!
 //! Auth gating, environment/API-key lifecycle, HMAC two-slot rotation,
 //! broadcast composing as ONE row, the subscriber-lookup golden test (admin
@@ -760,7 +760,7 @@ async fn bootstrap_reconcile_revokes_existing_sessions() {
         .await
         .unwrap();
 
-    // The pre-rotation session is revoked; the env credential still logs in.
+    // The pre-rotation session is revoked. The env credential still logs in.
     assert_eq!(
         get_status(&client, format!("{}/admin/api/me", app.base)).await,
         401
@@ -826,7 +826,7 @@ async fn environment_and_api_key_create_revoke_roundtrip() {
         .unwrap();
     assert_eq!(dup.status(), 400);
 
-    // Create an API key — plaintext returned exactly once.
+    // Create an API key. Plaintext returned exactly once.
     let key_res = app
         .admin_post(
             &format!("/admin/api/environments/{env_id}/api-keys"),
@@ -878,7 +878,7 @@ async fn environment_and_api_key_create_revoke_roundtrip() {
         "use should record last_used_at"
     );
 
-    // Revoke it; the key 401s immediately on the management plane.
+    // Revoke it. The key 401s immediately on the management plane.
     let revoke = app
         .admin_post(
             &format!("/admin/api/environments/{env_id}/api-keys/{key_id}/revoke"),
@@ -987,7 +987,7 @@ async fn hmac_rotation_overlap_then_completion() {
         .unwrap();
     assert_eq!(done.status(), 204);
 
-    // Old secret now dies; the new one still works.
+    // Old secret now dies. The new one still works.
     assert_eq!(
         counts_status_with_secret(&app, subscriber, &old_secret).await,
         401
@@ -1085,7 +1085,7 @@ async fn admin_broadcast_lands_as_one_row_and_respects_visibility() {
 }
 
 // =============================================================================
-// Subscriber lookup — golden test against the subscriber plane
+// Subscriber lookup: golden test against the subscriber plane
 // =============================================================================
 
 #[tokio::test]

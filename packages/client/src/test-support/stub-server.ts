@@ -1,9 +1,7 @@
 /**
- * In-process stub of the Dronte API for SDK tests, typed against the
- * exported OpenAPI spec (../generated/api). Implements the subscriber-plane
- * routes the SDK calls: keyset pagination with ETag/If-None-Match, the
- * mark-read endpoints, watermark moves, and preferences. It never touches
- * server/. The generated wire types are the contract.
+ * In-process stub of the Dronte subscriber-plane API, typed against the
+ * generated wire types in ../generated/api. Never touches server/. The
+ * generated types are the contract.
  */
 
 import type { components } from '../generated/api';
@@ -71,7 +69,7 @@ export class FakeEventSource implements EventSourceLike {
   }
 }
 
-// Opaque to the client either way. URLSearchParams handles the encoding.
+// Cursor format is opaque to the client.
 function encodeCursor(item: WireItem): string {
   return JSON.stringify([item.occurred_at, item.id]);
 }
@@ -115,7 +113,7 @@ export class StubServer {
 
   // ------------------------------------------------------- state control ---
 
-  /** Inserts a direct notification, newest-first ordering maintained. */
+  /** Inserts a direct notification. Items stay sorted newest-first. */
   addNotification(
     overrides: Partial<Pick<WireItem, 'category' | 'payload' | 'read' | 'occurred_at'>> & {
       seen?: boolean;
@@ -124,7 +122,7 @@ export class StubServer {
     return this.addItem('notification', overrides);
   }
 
-  /** Inserts a broadcast, newest-first ordering maintained. */
+  /** Inserts a broadcast. Items stay sorted newest-first. */
   addBroadcast(
     overrides: Partial<Pick<WireItem, 'category' | 'payload' | 'read' | 'occurred_at'>> & {
       seen?: boolean;
@@ -233,7 +231,7 @@ export class StubServer {
   }
 
   /**
-   * The graceful-close frame as the server emits it on shutdown: a named
+   * Mimics the graceful-close frame the server emits on shutdown. A named
    * retry event whose data is the next delay in milliseconds.
    */
   emitRetry(ms: number): void {

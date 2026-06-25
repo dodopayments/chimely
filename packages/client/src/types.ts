@@ -1,7 +1,7 @@
 /**
- * Domain types of the frozen public surface (specs/sdk-api.d.ts).
- * Wire shapes live in ./generated/api.d.ts and are mapped at the fetch
- * boundary. Payloads are the exception: wire format, passed through verbatim.
+ * Domain types of the public SDK surface, stable and additive-only. Wire
+ * shapes live in ./generated/api.d.ts and are mapped at the fetch boundary.
+ * Payloads are the exception. They are wire format, passed through verbatim.
  */
 
 import type { DronteError } from './errors';
@@ -40,12 +40,12 @@ export interface WellKnownPayload {
 export interface InboxItem<TPayload = WellKnownPayload> {
   /** The TypeID prefix encodes the source. `source` is the ergonomic discriminator. */
   id: InboxItemId;
-  /** Which table it came from. The client routes mark-read with this. */
+  /** Source table. The client routes mark-read with this. */
   source: InboxItemSource;
   /** Customer-defined category, e.g. `payment.failed`. Drives rendering. */
   category: string;
   payload: TPayload;
-  /** Ordering timestamp (RFC 3339): visible_at for direct, created_at for broadcast. */
+  /** Ordering timestamp (RFC 3339). visible_at for direct, created_at for broadcast. */
   occurredAt: string;
   read: boolean;
 }
@@ -88,8 +88,7 @@ export interface BackoffConfig {
   jitter?: number;
   /**
    * Give up after this many consecutive failures (status becomes 'closed',
-   * an 'error' event fires). Default: Infinity. An inbox should outlive
-   * any outage.
+   * an 'error' event fires). Default: Infinity.
    */
   maxAttempts?: number;
 }

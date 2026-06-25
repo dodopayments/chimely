@@ -1,11 +1,13 @@
-//! Integration-test harness: real Postgres (+ optional Redis) via
-//! testcontainers — no storage or pub/sub mocks, ever (CLAUDE.md).
+//! Integration-test harness: real Postgres and optional Redis via
+//! testcontainers. No storage or pub/sub mocks.
 //!
 //! Each test gets its own containers, its own environment row, and an
-//! in-process router served on an ephemeral port. The worker loop is NOT
-//! spawned by default — tests drive `worker::sweep_once` (or
-//! `spawn_worker()`) so job processing is deterministic.
+//! in-process router on an ephemeral port. The worker loop is not spawned by
+//! default. Tests drive `worker::sweep_once` or `spawn_worker()` so job
+//! processing is deterministic.
 
+// Each integration test is its own crate compiling this shared harness and
+// uses a subset of its helpers, so per-binary dead_code is a false positive.
 #![allow(dead_code)]
 
 use std::sync::Arc;
@@ -62,7 +64,7 @@ pub async fn spawn_with_redis() -> TestApp {
     spawn_inner(true, true, |_| {}).await
 }
 
-/// `require_hash = false` ⇒ a dev-mode environment (quickstart path).
+/// `require_hash = false` is a dev-mode environment (quickstart path).
 pub async fn spawn_dev_mode() -> TestApp {
     spawn_inner(false, false, |_| {}).await
 }
@@ -77,8 +79,8 @@ async fn spawn_inner(
     require_hash: bool,
     configure: impl FnOnce(&mut Config),
 ) -> TestApp {
-    // postgres:15 on purpose — the schema contract targets Postgres >=15, so
-    // tests pin the floor (a query needing 16+ features must fail here).
+    // The schema contract targets Postgres >=15. Pinning the floor makes a
+    // query needing 16+ features fail here.
     let pg = PostgresImage::default()
         .with_tag("15-alpine")
         .start()
@@ -91,9 +93,9 @@ async fn spawn_inner(
     let database_url = format!("postgres://postgres:postgres@127.0.0.1:{pg_port}/postgres");
 
     let (redis, redis_url) = if with_redis {
-        // A FIXED host port: docker reassigns ephemeral published ports on
+        // A fixed host port. Docker reassigns ephemeral published ports on
         // container restart, which would break the Redis kill/recover tests
-        // (clients must be able to reconnect to the same URL).
+        // because clients must reconnect to the same URL.
         let port = free_port();
         let redis = RedisImage::default()
             .with_tag("7-alpine")
@@ -126,19 +128,19 @@ async fn spawn_inner(
         sse_max_connections_per_subscriber: 2,
         dev_environment: None,
         dev_api_key: None,
-        // The harness seeds the admin user and logs in directly (see
-        // `spawn_inner`). Bootstrap-from-env is exercised by its own test.
+        // The harness seeds the admin user and logs in directly.
+        // Bootstrap-from-env has its own test.
         admin_bootstrap_email: None,
         admin_bootstrap_password: None,
         admin_session_ttl: Duration::from_secs(3600),
-        // No TLS in tests: cookies omit Secure so reqwest's cookie store
+        // No TLS in tests. Cookies omit Secure so reqwest's cookie store
         // replays them over plain HTTP to 127.0.0.1.
         admin_tls_terminated: false,
         retry_backoff_base: Duration::from_millis(40),
         retry_backoff_cap: Duration::from_millis(500),
         metrics_sample_interval: Duration::from_millis(200),
         counter_drift_sample_size: 100,
-        // Rate limits default OFF in tests; rate-limit tests opt in via
+        // Rate limits default off in tests. Rate-limit tests opt in via
         // spawn_configured.
         api_key_rate_per_sec: 0.0,
         api_key_rate_burst: 0.0,
@@ -186,7 +188,7 @@ async fn spawn_inner(
         pool,
         base: format!("http://{addr}"),
         // Cookie store so the admin session cookie set by /admin/api/login is
-        // replayed on later admin requests, the way a browser would.
+        // replayed on later admin requests.
         client: reqwest::Client::builder()
             .cookie_store(true)
             .build()
@@ -207,8 +209,8 @@ async fn spawn_inner(
         _pg: pg,
     };
     app.env = app.create_environment(require_hash).await;
-    // Seed a default admin user and log the harness client in, so admin_get /
-    // admin_post carry a live session by default (as the old Basic helper did).
+    // Seed a default admin user and log the harness client in so admin_get and
+    // admin_post carry a live session by default.
     app.seed_admin(ADMIN_TEST_EMAIL, ADMIN_TEST_PASSWORD, "admin")
         .await;
     app.login(ADMIN_TEST_EMAIL, ADMIN_TEST_PASSWORD).await;
@@ -236,8 +238,8 @@ async fn retry_connect(url: &str) -> PgPool {
 }
 
 impl TestApp {
-    /// Insert an environment + API key directly (key management is the Phase
-    /// 4 admin UI; v1 has no HTTP surface for it).
+    /// Insert an environment and API key directly. Key management lives in the
+    /// admin UI. There is no HTTP surface for it.
     pub async fn create_environment(&self, require_hash: bool) -> TestEnvironment {
         let id = ids::new_uuid();
         let slug = format!("env-{}", &id.as_simple().to_string()[..12]);
@@ -431,7 +433,7 @@ impl TestApp {
         res.json().await.expect("list body")
     }
 
-    /// Full pagination at the given page size; returns all items in order.
+    /// Full pagination at the given page size. Returns all items in order.
     pub async fn list_all_items(&self, subscriber: &str, limit: i64) -> Vec<serde_json::Value> {
         let mut items = Vec::new();
         let mut cursor: Option<String> = None;
@@ -492,8 +494,8 @@ impl TestApp {
             .expect("sweep")
     }
 
-    /// Sweep until the queue drains (bounded; debounce-deferred hints are
-    /// waited out so tests see the trailing-edge publish too).
+    /// Sweep until the queue drains, bounded. Debounce-deferred hints are
+    /// waited out so tests see the trailing-edge publish too.
     pub async fn drain_jobs(&self) {
         for _ in 0..200 {
             let due: i64 = sqlx::query_scalar(
@@ -628,10 +630,9 @@ impl TestApp {
         }
     }
 
-    /// The chaos suite's final consistency sweep (specs/phase-3-hardening.md,
-    /// acceptance criteria): recounted counters == maintained counters, the
-    /// API list == a recomputed merge of both sources, no orphaned or parked
-    /// jobs, partitions cover the horizon.
+    /// The chaos suite's final consistency sweep. Recounted counters equal
+    /// maintained counters, the API list equals a recomputed merge of both
+    /// sources, no orphaned or parked jobs, partitions cover the horizon.
     pub async fn assert_consistent(&self) {
         // Counter drift across EVERY subscriber, not a sample.
         let (unread_drift, unseen_drift) =
@@ -781,7 +782,7 @@ impl SseStream {
             .expect("sse connect attempt")
     }
 
-    /// Next full SSE frame (blank-line delimited) within the timeout; None on
+    /// Next full SSE frame (blank-line delimited) within the timeout. None on
     /// timeout. Comment-only frames are returned too (keep-alive assertions).
     pub async fn next_frame(&mut self, timeout: Duration) -> Option<String> {
         let deadline = tokio::time::Instant::now() + timeout;

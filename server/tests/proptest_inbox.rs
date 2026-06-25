@@ -1,13 +1,12 @@
-//! Task 4 acceptance: proptest suites driving random interleavings of
-//! create / schedule / read / read-all / seen-all / preference-flip /
-//! broadcast against a real server + Postgres, asserting that the list, the
-//! counts, and read state stay in agreement across both sources (the
-//! two-source merge and watermark invariants).
+//! Proptest suites drive random interleavings of create, schedule, read,
+//! read-all, seen-all, preference-flip, and broadcast against a real server
+//! and Postgres, asserting the list, the counts, and read state stay in
+//! agreement across both sources.
 //!
-//! One container per suite; each case runs in a fresh environment. Ops are
+//! One container per suite. Each case runs in a fresh environment. Ops are
 //! separated by a 1ms pause so distinct transactions cannot share a
-//! microsecond-identical now() (the watermark comparisons are intentionally
-//! strict about ordering).
+//! microsecond-identical now(). The watermark comparisons are strict about
+//! ordering.
 
 mod support;
 
@@ -27,8 +26,8 @@ enum Op {
     CreateDirect {
         category: usize,
     },
-    /// deliver_at one hour out: durable, but invisible and uncounted for the
-    /// whole test (the short-horizon deliver flow is covered in worker.rs).
+    /// deliver_at one hour out. Durable but invisible and uncounted for the
+    /// whole test. The short-horizon deliver flow is covered in worker.rs.
     CreateScheduledFar {
         category: usize,
     },
@@ -73,7 +72,7 @@ fn op_strategy(with_preferences: bool) -> impl Strategy<Value = Op> {
 
 #[derive(Clone, Debug)]
 struct ModelItem {
-    /// Sequence position; the proxy for the DB ordering timestamp.
+    /// Sequence position. Proxy for the DB ordering timestamp.
     order: usize,
     api_id: String,
     category: usize,
@@ -87,8 +86,8 @@ struct Model {
     /// Ops with order <= these are covered by the corresponding watermark.
     read_watermark: Option<usize>,
     seen_watermark: Option<usize>,
-    /// The maintained direct counters, tracked by the documented rules
-    /// (mute-blind increments; mute-aware recount on preference flips).
+    /// Maintained direct counters. Mute-blind increments, mute-aware recount
+    /// on preference flips.
     unread_direct: i64,
     unseen_direct: i64,
     muted: HashSet<usize>,
@@ -114,10 +113,9 @@ impl Model {
     }
 
     fn expected_unread(&self) -> i64 {
-        // Maintained direct counter + the live broadcast term. The broadcast
-        // term is evaluated exactly as the list arm (visible, above the
-        // watermark, no read exception, NOT muted) so the count agrees with
-        // the visible list at all times.
+        // The broadcast term is evaluated exactly as the list arm (visible,
+        // above the watermark, no read exception, not muted) so the count
+        // agrees with the visible list at all times.
         let broadcast_unread = self
             .items
             .iter()
@@ -172,7 +170,7 @@ fn app() -> &'static TestApp {
 async fn run_case(app: &TestApp, ops: Vec<Op>, check_list_equality: bool) {
     let env = app.create_environment(true).await;
 
-    // Subscriber exists before any broadcast — every broadcast is visible.
+    // Subscriber exists before any broadcast, so every broadcast is visible.
     let res = app
         .client
         .put(format!("{}/v1/subscribers/{SUB}", app.base))
@@ -210,11 +208,10 @@ async fn run_case(app: &TestApp, ops: Vec<Op>, check_list_equality: bool) {
     assert_eq!(unread, model.expected_unread(), "unread count");
     assert_eq!(unseen, model.expected_unseen(), "unseen count");
 
-    // ---- the user-facing invariant: count == visible unread items ----------
-    // Exact at all times, including under mutes: every counter path (insert,
-    // deliver, individual read, broadcast term) is mute-aware, and watermark
-    // moves rebuild before the assertion drains. A muted item drops from BOTH
-    // the list and the count together.
+    // count == visible unread items, exact at all times including under
+    // mutes. Every counter path (insert, deliver, individual read, broadcast
+    // term) is mute-aware, and watermark moves rebuild before the assertion
+    // drains. A muted item drops from both the list and the count together.
     if check_list_equality {
         let visible_unread = items
             .iter()
@@ -250,8 +247,7 @@ async fn apply_op(app: &TestApp, env: &TestEnvironment, model: &mut Model, order
                 broadcast: false,
                 read_exception: false,
             });
-            // Conditional increment, mute-aware (watermark is always behind
-            // us): a create into an already-muted category is not counted,
+            // A create into an already-muted category is not counted,
             // matching the list arm.
             if !model.muted.contains(&category) {
                 model.unread_direct += 1;
@@ -259,7 +255,6 @@ async fn apply_op(app: &TestApp, env: &TestEnvironment, model: &mut Model, order
             }
         }
         Op::CreateScheduledFar { category } => {
-            // Durable but invisible + uncounted for the whole test.
             let deliver_at = chrono::Utc::now() + chrono::Duration::hours(1);
             mgmt(
                 app,
@@ -288,9 +283,9 @@ async fn apply_op(app: &TestApp, env: &TestEnvironment, model: &mut Model, order
             });
         }
         Op::MarkDirectRead { pick } => {
-            // Any direct item, muted or not: the mute-aware decrement makes
-            // marking a muted item read a counter no-op (it was never counted),
-            // so this is now safe to exercise rather than an avoided drift.
+            // Any direct item, muted or not. The mute-aware decrement makes
+            // marking a muted item read a counter no-op since it was never
+            // counted.
             let candidates: Vec<usize> = model
                 .items
                 .iter()
@@ -305,9 +300,8 @@ async fn apply_op(app: &TestApp, env: &TestEnvironment, model: &mut Model, order
             let id = model.items[idx].api_id.clone();
             let res = inbox_post(app, env, &format!("/v1/inbox/notifications/{id}/read")).await;
             assert_eq!(res, 204);
-            // Mute-aware decrement: a muted row was never counted, so marking
-            // it read must not decrement (else it steals a count from an
-            // unmuted item).
+            // A muted row was never counted, so marking it read must not
+            // decrement, else it steals a count from an unmuted item.
             let muted = model.muted.contains(&model.items[idx].category);
             if !muted && !model.read(&model.items[idx]) {
                 model.unread_direct -= 1;
@@ -329,7 +323,7 @@ async fn apply_op(app: &TestApp, env: &TestEnvironment, model: &mut Model, order
             let id = model.items[idx].api_id.clone();
             let res = inbox_post(app, env, &format!("/v1/inbox/broadcasts/{id}/read")).await;
             assert_eq!(res, 204);
-            // Below the watermark this is a server-side no-op; the model's
+            // Below the watermark this is a server-side no-op. The model's
             // read() already reports it read either way.
             model.items[idx].read_exception = true;
         }
@@ -363,7 +357,7 @@ async fn apply_op(app: &TestApp, env: &TestEnvironment, model: &mut Model, order
                 model.muted.insert(category)
             };
             if changed {
-                // The PUT enqueued counter_rebuild; run it AT this sequence
+                // The PUT enqueued counter_rebuild. Run it at this sequence
                 // position so the model's recount matches the real one.
                 drain(app).await;
                 model.rebuild();
@@ -422,7 +416,7 @@ async fn list_all(app: &TestApp, env: &TestEnvironment) -> Vec<serde_json::Value
     let mut items = Vec::new();
     let mut cursor: Option<String> = None;
     loop {
-        let mut url = format!("{}/v1/inbox/items?limit=3", app.base); // tiny pages: exercise the keyset
+        let mut url = format!("{}/v1/inbox/items?limit=3", app.base); // tiny pages exercise the keyset
         if let Some(c) = &cursor {
             url.push_str(&format!("&cursor={c}"));
         }
@@ -468,24 +462,24 @@ proptest! {
         .. ProptestConfig::default()
     })]
 
-    /// No preference ops ⇒ the strongest form of the invariant: the unread
-    /// count ALWAYS equals the number of unread items visible in the list.
+    /// No preference ops. The unread count always equals the number of unread
+    /// items visible in the list.
     #[test]
     fn unread_count_always_equals_visible_unread_items(
         ops in proptest::collection::vec(op_strategy(false), 1..14)
     ) {
-        let app = app(); // initialized outside the runtime: block_on nests otherwise
+        let app = app(); // initialized outside the runtime, else block_on nests
         runtime().block_on(run_case(app, ops, true));
     }
 
-    /// With preference flips: the unread count STILL always equals the number
+    /// With preference flips, the unread count still always equals the number
     /// of unread items visible in the list. Every counter path is mute-aware,
     /// so a muted item leaves the list and the count together.
     #[test]
     fn two_source_state_agrees_under_preference_flips(
         ops in proptest::collection::vec(op_strategy(true), 1..14)
     ) {
-        let app = app(); // initialized outside the runtime: block_on nests otherwise
+        let app = app(); // initialized outside the runtime, else block_on nests
         runtime().block_on(run_case(app, ops, true));
     }
 }

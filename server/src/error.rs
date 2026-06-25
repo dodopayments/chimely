@@ -1,5 +1,5 @@
-//! The single error envelope from specs/openapi.yaml:
-//! `{"error": {"code", "message"}}` with conventional status codes.
+//! The single error envelope: `{"error": {"code", "message"}}` with
+//! conventional status codes.
 
 use axum::Json;
 use axum::http::{StatusCode, header};
@@ -11,7 +11,7 @@ pub struct ApiError {
     pub status: StatusCode,
     pub code: &'static str,
     pub message: String,
-    /// The contract says "429 carries `Retry-After`". Set on every 429.
+    /// Set on every 429. Maps to the `Retry-After` header.
     pub retry_after_seconds: Option<u64>,
 }
 
@@ -44,8 +44,8 @@ impl ApiError {
     }
 
     /// Authenticated but lacking the capability the endpoint requires.
-    /// Distinct from `unauthorized` (no/invalid session) so the SPA can tell
-    /// "log in" apart from "your role cannot do this".
+    /// Distinct from `unauthorized` (no/invalid session) so the client can
+    /// tell "log in" apart from "your role cannot do this".
     pub fn forbidden(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::FORBIDDEN,
@@ -80,7 +80,7 @@ impl ApiError {
             status: StatusCode::TOO_MANY_REQUESTS,
             code: "rate_limited",
             message: "rate limit exceeded".to_owned(),
-            // Ceil to a whole second; Retry-After: 0 invites an instant retry.
+            // Ceil to a whole second. Retry-After: 0 invites an instant retry.
             retry_after_seconds: Some((retry_after.as_secs_f64().ceil() as u64).max(1)),
         }
     }

@@ -1,8 +1,8 @@
 import type { InboxSnapshot } from './types';
 
 /**
- * Holds the immutable snapshot. Every patch produces a new snapshot object
- * so `useSyncExternalStore` consumers can compare by identity.
+ * Every patch produces a new snapshot object so `useSyncExternalStore`
+ * consumers can compare by identity.
  */
 export class InboxStore<TPayload> {
   private snapshot: InboxSnapshot<TPayload>;

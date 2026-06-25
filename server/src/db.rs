@@ -1,9 +1,9 @@
 //! Pool construction and boot-time migrations.
 //!
 //! Migrations are embedded (`sqlx::migrate!`) and run on boot. sqlx's
-//! Postgres migrator takes a database-scoped advisory lock for the whole run,
-//! so N replicas racing on a fresh deploy apply each migration exactly once;
-//! the losers block until the winner commits, then no-op.
+//! Postgres migrator takes a database-scoped advisory lock for the whole run.
+//! N replicas racing on a fresh deploy apply each migration exactly once. The
+//! losers block until the winner commits, then no-op.
 
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
