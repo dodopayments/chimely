@@ -5,7 +5,7 @@
 
 mod support;
 
-use dronte::openapi::api_doc;
+use chimely::openapi::api_doc;
 
 /// `upsertSubscriber` returns 400 for an over-long `subscriber_id`. The
 /// code-first utoipa document must declare it.
@@ -44,7 +44,7 @@ async fn upsert_subscriber_400_is_declared_in_the_generated_spec() {
         op.responses.responses.contains_key("400"),
         "CONTRACT DRIFT: the upsertSubscriber annotation must declare the 400 the \
          handler returns for an out-of-range subscriber_id; the generated spec declares \
-         only {declared:?}. @dronte/client is built without a 400 branch and schemathesis \
+         only {declared:?}. @chimely/client is built without a 400 branch and schemathesis \
          would report an undocumented HTTP status code.",
     );
 }

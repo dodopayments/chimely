@@ -1,7 +1,7 @@
 {
-  "name": "@dronte/react",
+  "name": "@chimely/react",
   "version": "0.0.0",
-  "description": "React bindings and the drop-in <Inbox /> component for Dronte.",
+  "description": "React bindings and the drop-in <Inbox /> component for Chimely.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -27,7 +27,7 @@
     "react": "^18.0.0 || ^19.0.0"
   },
   "dependencies": {
-    "@dronte/client": "workspace:*",
+    "@chimely/client": "workspace:*",
     "@floating-ui/dom": "^1.7.6"
   },
   "devDependencies": {
@@ -47,7 +47,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/that-ambuj/dronte.git",
+    "url": "git+https://github.com/that-ambuj/chimely.git",
     "directory": "packages/react"
   }
 }

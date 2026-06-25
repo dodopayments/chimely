@@ -1,5 +1,5 @@
 /**
- * In-process stub of the Dronte subscriber-plane API, typed against the
+ * In-process stub of the Chimely subscriber-plane API, typed against the
  * generated wire types in ../generated/api. Never touches server/. The
  * generated types are the contract.
  */
@@ -25,7 +25,7 @@ export interface RecordedRequest {
 export interface StubServerOptions {
   environment?: string;
   subscriberId?: string;
-  /** When set, X-Dronte-Subscriber-Hash must equal it or the stub returns 401. */
+  /** When set, X-Chimely-Subscriber-Hash must equal it or the stub returns 401. */
   requireHash?: string;
   baseTimeMs?: number;
 }
@@ -286,9 +286,9 @@ export class StubServer {
     }
 
     if (
-      headers['x-dronte-environment'] !== this.environment ||
-      headers['x-dronte-subscriber'] !== this.subscriberId ||
-      (this.requireHash !== undefined && headers['x-dronte-subscriber-hash'] !== this.requireHash)
+      headers['x-chimely-environment'] !== this.environment ||
+      headers['x-chimely-subscriber'] !== this.subscriberId ||
+      (this.requireHash !== undefined && headers['x-chimely-subscriber-hash'] !== this.requireHash)
     ) {
       return json(401, errorBody('unauthorized', 'missing or invalid subscriber auth'));
     }

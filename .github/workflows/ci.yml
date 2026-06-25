@@ -34,13 +34,13 @@ jobs:
       postgres:
         image: postgres:15
         env:
-          POSTGRES_USER: dronte
-          POSTGRES_PASSWORD: dronte
-          POSTGRES_DB: dronte
+          POSTGRES_USER: chimely
+          POSTGRES_PASSWORD: chimely
+          POSTGRES_DB: chimely
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U dronte"
+          --health-cmd "pg_isready -U chimely"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -54,7 +54,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgres://dronte:dronte@localhost:5432/dronte
+      DATABASE_URL: postgres://chimely:chimely@localhost:5432/chimely
       REDIS_URL: redis://localhost:6379
       SQLX_OFFLINE: "true"
     steps:
@@ -86,7 +86,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
-      # @dronte/react typechecks against @dronte/client's build output
+      # @chimely/react typechecks against @chimely/client's build output
       - run: pnpm --filter "./packages/*" build
       - run: pnpm typecheck
       - run: pnpm test

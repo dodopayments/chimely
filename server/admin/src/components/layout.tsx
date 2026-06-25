@@ -52,7 +52,7 @@ export function Layout() {
       <aside className="flex flex-col border-r border-border bg-card max-md:hidden">
         <div className="flex h-14 items-center gap-2 px-5">
           <span className="inline-block size-2.5 rounded-full bg-primary" />
-          <span className="text-lg font-semibold tracking-tight">Dronte</span>
+          <span className="text-lg font-semibold tracking-tight">Chimely</span>
           <span className="text-xs text-muted-foreground">admin</span>
         </div>
         <nav className="flex flex-1 flex-col gap-1 p-3">
@@ -94,7 +94,7 @@ export function Layout() {
       </aside>
       <main className="min-w-0 overflow-x-hidden">
         <header className="flex h-14 items-center justify-between gap-4 border-b border-border px-6 md:hidden">
-          <span className="font-semibold">Dronte admin</span>
+          <span className="font-semibold">Chimely admin</span>
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <Button variant="outline" size="icon" aria-label="Sign out" onClick={() => void logout()}>

@@ -1,10 +1,10 @@
 import type { ResolvedBackoff } from './backoff';
 import { backoffDelayMs, resolveBackoff } from './backoff';
-import { DronteError, errorFromResponse, networkError } from './errors';
+import { ChimelyError, errorFromResponse, networkError } from './errors';
 import type { components } from './generated/api';
 import { InboxStore } from './store';
 import type {
-  DronteClientConfig,
+  ChimelyClientConfig,
   EventSourceLike,
   InboxItem,
   InboxItemId,
@@ -43,14 +43,14 @@ function isOlderThan<T>(item: InboxItem<T>, boundary: InboxItem<T>): boolean {
   return item.id < boundary.id;
 }
 
-function asDronteError(cause: unknown): DronteError {
-  return cause instanceof DronteError ? cause : networkError(cause);
+function asChimelyError(cause: unknown): ChimelyError {
+  return cause instanceof ChimelyError ? cause : networkError(cause);
 }
 
 const defaultCreateEventSource = (url: string): EventSourceLike => {
   const Ctor = (globalThis as { EventSource?: new (url: string) => EventSourceLike }).EventSource;
   if (!Ctor) {
-    throw new DronteError(
+    throw new ChimelyError(
       'no EventSource implementation available, pass createEventSource in the client config',
       { code: 'no_event_source' },
     );
@@ -67,11 +67,11 @@ const defaultCreateEventSource = (url: string): EventSourceLike => {
  * - Mutations are optimistic. The snapshot updates synchronously, the
  *   server call follows, and a failure rolls back and surfaces on the
  *   'error' channel. Void mutations resolve either way. Calls that return
- *   data (getPreferences, setPreferences) also reject with the DronteError.
+ *   data (getPreferences, setPreferences) also reject with the ChimelyError.
  * - markAllSeen() zeroes unseen without touching read state.
  */
-export class DronteClient<TPayload = WellKnownPayload> {
-  private readonly config: DronteClientConfig;
+export class ChimelyClient<TPayload = WellKnownPayload> {
+  private readonly config: ChimelyClientConfig;
   private readonly baseUrl: string;
   private readonly pageSize: number;
   private readonly backoff: ResolvedBackoff;
@@ -99,7 +99,7 @@ export class DronteClient<TPayload = WellKnownPayload> {
   private refreshAgain = false;
   private fetchingMore: Promise<void> | null = null;
 
-  constructor(config: DronteClientConfig) {
+  constructor(config: ChimelyClientConfig) {
     this.config = config;
     this.baseUrl = config.serverUrl.replace(/\/+$/, '');
     this.pageSize = Math.min(100, Math.max(1, config.pageSize ?? 20));
@@ -203,7 +203,7 @@ export class DronteClient<TPayload = WellKnownPayload> {
       this.clearError();
     } catch (cause) {
       const rollback = changed ? { items: prev.items, counts: prev.counts } : {};
-      this.store.patch({ ...rollback, error: asDronteError(cause) });
+      this.store.patch({ ...rollback, error: asChimelyError(cause) });
       this.reconcileAfterFailedMutation();
     }
   }
@@ -226,7 +226,7 @@ export class DronteClient<TPayload = WellKnownPayload> {
         error: null,
       });
     } catch (cause) {
-      this.store.patch({ items: prev.items, counts: prev.counts, error: asDronteError(cause) });
+      this.store.patch({ items: prev.items, counts: prev.counts, error: asChimelyError(cause) });
       this.reconcileAfterFailedMutation();
     }
   }
@@ -247,7 +247,7 @@ export class DronteClient<TPayload = WellKnownPayload> {
         error: null,
       });
     } catch (cause) {
-      this.store.patch({ counts: prev.counts, error: asDronteError(cause) });
+      this.store.patch({ counts: prev.counts, error: asChimelyError(cause) });
       this.reconcileAfterFailedMutation();
     }
   }
@@ -274,7 +274,7 @@ export class DronteClient<TPayload = WellKnownPayload> {
       void this.refresh();
       return body.preferences;
     } catch (cause) {
-      const error = asDronteError(cause);
+      const error = asChimelyError(cause);
       this.store.patch({ error });
       throw error;
     }
@@ -319,7 +319,7 @@ export class DronteClient<TPayload = WellKnownPayload> {
       }
       this.store.patch(patch);
     } catch (cause) {
-      this.store.patch({ isLoading: false, error: asDronteError(cause) });
+      this.store.patch({ isLoading: false, error: asChimelyError(cause) });
     }
   }
 
@@ -376,7 +376,7 @@ export class DronteClient<TPayload = WellKnownPayload> {
         error: null,
       });
     } catch (cause) {
-      this.store.patch({ error: asDronteError(cause) });
+      this.store.patch({ error: asChimelyError(cause) });
     }
   }
 
@@ -386,11 +386,11 @@ export class DronteClient<TPayload = WellKnownPayload> {
     init?: { ifNoneMatch?: string | null; body?: unknown },
   ): Promise<Response> {
     const headers: Record<string, string> = {
-      'X-Dronte-Environment': this.config.environment,
-      'X-Dronte-Subscriber': this.config.subscriberId,
+      'X-Chimely-Environment': this.config.environment,
+      'X-Chimely-Subscriber': this.config.subscriberId,
     };
     if (this.config.subscriberHash !== undefined) {
-      headers['X-Dronte-Subscriber-Hash'] = this.config.subscriberHash;
+      headers['X-Chimely-Subscriber-Hash'] = this.config.subscriberHash;
     }
     if (init?.ifNoneMatch) {
       headers['If-None-Match'] = init.ifNoneMatch;
@@ -489,7 +489,7 @@ export class DronteClient<TPayload = WellKnownPayload> {
       this.generation += 1;
       this.store.patch({
         status: 'closed',
-        error: new DronteError('stream closed after maxAttempts consecutive failures', {
+        error: new ChimelyError('stream closed after maxAttempts consecutive failures', {
           code: 'connection_failed',
         }),
       });

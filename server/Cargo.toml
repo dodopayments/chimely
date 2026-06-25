@@ -1,5 +1,5 @@
 [package]
-name = "dronte"
+name = "chimely"
 version = "0.1.0"
 edition = "2024"
 license = "FSL-1.1-MIT"
@@ -10,11 +10,11 @@ description = "In-app notification inbox infrastructure: one binary + Postgres +
 build = "build.rs"
 
 [lib]
-name = "dronte"
+name = "chimely"
 path = "src/lib.rs"
 
 [[bin]]
-name = "dronte"
+name = "chimely"
 path = "src/main.rs"
 
 [dependencies]

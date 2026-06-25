@@ -3,8 +3,8 @@ import type { ReactNode } from 'react';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Dronte quickstart',
-  description: 'The drop-in <Inbox /> running against a local dronte.',
+  title: 'Chimely quickstart',
+  description: 'The drop-in <Inbox /> running against a local chimely.',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

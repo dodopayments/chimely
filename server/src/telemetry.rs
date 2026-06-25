@@ -1,4 +1,4 @@
-//! Tracing + OTLP wiring. Logs are JSON by default, `DRONTE_LOG_FORMAT=text`
+//! Tracing + OTLP wiring. Logs are JSON by default, `CHIMELY_LOG_FORMAT=text`
 //! for human eyes. The OTLP trace exporter attaches only when
 //! `OTEL_EXPORTER_OTLP_ENDPOINT` is set, so local dev and CI need no collector.
 //!
@@ -15,7 +15,7 @@ use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::Subscribe
 
 pub fn init() -> anyhow::Result<()> {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let json = std::env::var("DRONTE_LOG_FORMAT").as_deref() != Ok("text");
+    let json = std::env::var("CHIMELY_LOG_FORMAT").as_deref() != Ok("text");
     let fmt_layer = if json {
         tracing_subscriber::fmt::layer().json().boxed()
     } else {
@@ -31,11 +31,11 @@ pub fn init() -> anyhow::Result<()> {
             .with_batch_exporter(exporter)
             .with_resource(
                 opentelemetry_sdk::Resource::builder()
-                    .with_service_name("dronte")
+                    .with_service_name("chimely")
                     .build(),
             )
             .build();
-        let tracer = provider.tracer("dronte");
+        let tracer = provider.tracer("chimely");
         Some(tracing_opentelemetry::layer().with_tracer(tracer))
     } else {
         None

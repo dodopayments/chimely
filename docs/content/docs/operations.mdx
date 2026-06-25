@@ -11,48 +11,48 @@ data, drift a counter, or starve a neighbor.
 ## Metrics
 
 `GET /metrics` (Prometheus text format). Gauges marked *sampled* are
-recomputed from Postgres on a fixed cadence (`DRONTE_METRICS_SAMPLE_MS`,
+recomputed from Postgres on a fixed cadence (`CHIMELY_METRICS_SAMPLE_MS`,
 default 15s) — they survive restarts and cannot freeze when a subsystem
 stalls.
 
 | Metric | Kind | Meaning |
 |---|---|---|
-| `dronte_queue_depth{environment,job_type}` | gauge, sampled | All pending job rows |
-| `dronte_queue_due{environment,job_type}` | gauge, sampled | Jobs past `run_at` |
-| `dronte_job_wait_seconds{job_type}` | histogram | Due-to-claim latency (the fairness signal) |
-| `dronte_jobs_processed_total{environment}` | counter | Completed claims |
-| `dronte_jobs_failed_total{environment}` | counter | Failed claims (will retry) |
-| `dronte_jobs_retried_total{job_type}` | counter | Backoff reschedules |
-| `dronte_jobs_parked_total{job_type}` | counter | Moves into `dead_letters` |
-| `dronte_dead_letters{job_type}` | gauge, sampled | Parked jobs awaiting replay |
-| `dronte_hint_publish_duration_seconds` | histogram | Pub/sub round trip |
-| `dronte_hint_delivery_lag_seconds` | histogram | Enqueue-to-publish lag (includes queue wait + debounce) |
-| `dronte_sse_connections` | gauge | Open SSE streams on this replica |
-| `dronte_counter_drift_unread` / `_unseen` | gauge, sampled | Σ&#124;recount − maintained&#124; over recently-active subscribers |
-| `dronte_partitions_remaining{table}` | gauge, sampled | Pre-created future partitions |
-| `dronte_rate_limited_total` | counter | Requests answered 429 |
-| `dronte_rate_limit_errors_total` | counter | Limiter fail-opens (Redis unreachable) |
+| `chimely_queue_depth{environment,job_type}` | gauge, sampled | All pending job rows |
+| `chimely_queue_due{environment,job_type}` | gauge, sampled | Jobs past `run_at` |
+| `chimely_job_wait_seconds{job_type}` | histogram | Due-to-claim latency (the fairness signal) |
+| `chimely_jobs_processed_total{environment}` | counter | Completed claims |
+| `chimely_jobs_failed_total{environment}` | counter | Failed claims (will retry) |
+| `chimely_jobs_retried_total{job_type}` | counter | Backoff reschedules |
+| `chimely_jobs_parked_total{job_type}` | counter | Moves into `dead_letters` |
+| `chimely_dead_letters{job_type}` | gauge, sampled | Parked jobs awaiting replay |
+| `chimely_hint_publish_duration_seconds` | histogram | Pub/sub round trip |
+| `chimely_hint_delivery_lag_seconds` | histogram | Enqueue-to-publish lag (includes queue wait + debounce) |
+| `chimely_sse_connections` | gauge | Open SSE streams on this replica |
+| `chimely_counter_drift_unread` / `_unseen` | gauge, sampled | Σ&#124;recount − maintained&#124; over recently-active subscribers |
+| `chimely_partitions_remaining{table}` | gauge, sampled | Pre-created future partitions |
+| `chimely_rate_limited_total` | counter | Requests answered 429 |
+| `chimely_rate_limit_errors_total` | counter | Limiter fail-opens (Redis unreachable) |
 
 ## Alerts
 
-- **`dronte_partitions_remaining < 2`** — the partition-maintenance job has
+- **`chimely_partitions_remaining < 2`** — the partition-maintenance job has
   been dead for ~11 months; with headroom exhausted, inserts fail loudly
   (there is deliberately no DEFAULT partition). The gauge decays by one per
   month while the job is stalled, so this alert fires with a full month of
   pre-created headroom still left.
-- **`dronte_counter_drift_unread > 0` (sustained)** — a counter-maintenance
+- **`chimely_counter_drift_unread > 0` (sustained)** — a counter-maintenance
   bug. Transient nonzero readings right after a preference flip resolve as
   soon as the enqueued `counter_rebuild` lands.
-- **`dronte_dead_letters > 0`** — jobs exhausted `max_attempts` and need an
+- **`chimely_dead_letters > 0`** — jobs exhausted `max_attempts` and need an
   operator (see below).
-- **`dronte_job_wait_seconds` p99 growing without a matching queue-depth
+- **`chimely_job_wait_seconds` p99 growing without a matching queue-depth
   flood** — claim starvation; check for a stuck worker.
 - **Timeline write latency vs retention.** The status log's idempotency
   guard probes every `notification_status_log` partition (the table is
   range-partitioned on `occurred_at`, and a prior status row can live in
   any month), so each append costs one index probe per partition. With
   the default 12-month retention that is ~26 cheap B-tree probes; if you
-  raise `DRONTE_RETENTION_MONTHS` substantially, watch notification
+  raise `CHIMELY_RETENTION_MONTHS` substantially, watch notification
   create/read latency grow with the partition count.
 
 ## Dead-letter replay
@@ -63,9 +63,9 @@ table itself stays near-empty (completed work leaves no row; parked work
 does not live in the hot claim path).
 
 ```bash
-dronte dlq list                 # one line per parked job
-dronte dlq replay job_01h4…     # replay one (fresh attempt budget, runs now)
-dronte dlq replay --all
+chimely dlq list                 # one line per parked job
+chimely dlq replay job_01h4…     # replay one (fresh attempt budget, runs now)
+chimely dlq replay --all
 ```
 
 Replay re-enqueues the original row (same id, payload, and cursor), so a
@@ -76,11 +76,11 @@ chunked fan-out resumes where it died and side effects apply exactly once.
 On SIGTERM/SIGINT, in order:
 
 1. `/readyz` flips to 503 while the listener keeps serving
-   (`DRONTE_SHUTDOWN_GRACE_MS`, default 5000) so load balancers drain the
+   (`CHIMELY_SHUTDOWN_GRACE_MS`, default 5000) so load balancers drain the
    replica without dropping in-flight requests.
 2. The listener stops accepting; SSE streams receive a jittered `retry:`
    directive and close (no reconnect stampede); workers stop claiming.
-3. In-flight jobs get `DRONTE_SHUTDOWN_DRAIN_DEADLINE_MS` (default 30000)
+3. In-flight jobs get `CHIMELY_SHUTDOWN_DRAIN_DEADLINE_MS` (default 30000)
    to finish. Past the deadline the worker is aborted — the open
    transaction rolls back and the job is re-claimed elsewhere
    (at-least-once by design, side effects keyed by job deletion).
@@ -96,8 +96,8 @@ applies per replica.
 
 | Knob | Default | Applies to |
 |---|---|---|
-| `DRONTE_API_KEY_RATE_PER_SEC` / `_BURST` | 50 / 200 | per API key: `POST /v1/notifications`, `POST /v1/broadcasts` |
-| `DRONTE_SUBSCRIBER_RATE_PER_SEC` / `_BURST` | 10 / 50 | per subscriber: `GET /v1/inbox/items` |
+| `CHIMELY_API_KEY_RATE_PER_SEC` / `_BURST` | 50 / 200 | per API key: `POST /v1/notifications`, `POST /v1/broadcasts` |
+| `CHIMELY_SUBSCRIBER_RATE_PER_SEC` / `_BURST` | 10 / 50 | per subscriber: `GET /v1/inbox/items` |
 
 A rate of `0` disables the limit.
 
@@ -105,15 +105,15 @@ A rate of `0` disables the limit.
 
 Failed jobs reschedule with equal-jittered exponential backoff: attempt
 *n* waits in `[exp/2, exp]` where
-`exp = min(DRONTE_RETRY_BACKOFF_CAP_MS, DRONTE_RETRY_BACKOFF_BASE_MS × 2^(n−1))`
+`exp = min(CHIMELY_RETRY_BACKOFF_CAP_MS, CHIMELY_RETRY_BACKOFF_BASE_MS × 2^(n−1))`
 (defaults 5s base, 15min cap).
 
 ## Retention
 
 Monthly partitions on `notifications` and `notification_status_log` are
 pre-created 13 months ahead (covering the `deliver_at` cap) and dropped
-(DETACH + DROP) past `DRONTE_RETENTION_MONTHS` (default 12). Idempotency
-snapshots are purged after `DRONTE_IDEMPOTENCY_RETENTION_DAYS` (default
+(DETACH + DROP) past `CHIMELY_RETENTION_MONTHS` (default 12). Idempotency
+snapshots are purged after `CHIMELY_IDEMPOTENCY_RETENTION_DAYS` (default
 30).
 
 ## Measured capacity

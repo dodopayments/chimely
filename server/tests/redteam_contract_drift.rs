@@ -5,11 +5,11 @@
 //! `GET /v1/inbox/items` returns 400 from request validation (out-of-range
 //! `limit`, malformed `cursor`) and from the query extractor (non-integer
 //! `limit`). The generated OpenAPI document must declare that 400 so it
-//! matches the handler and `@dronte/client` has a 400 branch.
+//! matches the handler and `@chimely/client` has a 400 branch.
 
 mod support;
 
-use dronte::openapi::api_doc;
+use chimely::openapi::api_doc;
 
 /// `listInboxItems` returns 400 for bad input, and the annotation declares it.
 #[tokio::test]

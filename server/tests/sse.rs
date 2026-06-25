@@ -235,7 +235,7 @@ async fn subscriber_hash_is_scrubbed_from_access_logs() {
         .expect("install capture subscriber");
 
     let app = support::spawn().await;
-    let hash = dronte::auth::compute_subscriber_hash(&app.env.hmac_secret, SUB);
+    let hash = chimely::auth::compute_subscriber_hash(&app.env.hmac_secret, SUB);
     let mut stream = SseStream::connect(&app, SUB, None).await;
     // Force the response (and its access-log line) to materialize.
     stream.next_frame(Duration::from_secs(2)).await;

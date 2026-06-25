@@ -836,7 +836,7 @@ async fn compute_etag(
     .map_err(ApiError::from)?;
 
     let mut hasher = Sha256::new();
-    hasher.update(b"dronte-inbox-v1|");
+    hasher.update(b"chimely-inbox-v1|");
     hasher.update(cursor.unwrap_or("").as_bytes());
     hasher.update(format!("|{limit}|{}", row.counters_updated_at.timestamp_micros()).as_bytes());
     hasher.update(

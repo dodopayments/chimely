@@ -7,8 +7,8 @@
 
 mod support;
 
-use dronte::auth::compute_subscriber_hash;
-use dronte::ids;
+use chimely::auth::compute_subscriber_hash;
+use chimely::ids;
 use serde_json::{Value, json};
 
 fn env_typeid(app: &support::TestApp) -> String {
@@ -24,7 +24,7 @@ async fn get_status(client: &reqwest::Client, url: String) -> u16 {
 async fn post_status(client: &reqwest::Client, url: String, body: Value) -> u16 {
     client
         .post(url)
-        .header("x-dronte-admin", "1")
+        .header("x-chimely-admin", "1")
         .json(&body)
         .send()
         .await
@@ -42,9 +42,9 @@ async fn counts_status_with_secret(
     let hash = compute_subscriber_hash(secret, subscriber);
     app.client
         .get(format!("{}/v1/inbox/counts", app.base))
-        .header("X-Dronte-Environment", app.env.slug.clone())
-        .header("X-Dronte-Subscriber", subscriber)
-        .header("X-Dronte-Subscriber-Hash", hash)
+        .header("X-Chimely-Environment", app.env.slug.clone())
+        .header("X-Chimely-Subscriber", subscriber)
+        .header("X-Chimely-Subscriber-Hash", hash)
         .send()
         .await
         .expect("counts")
@@ -121,7 +121,7 @@ async fn login_success_failure_and_cookie_flags() {
     ] {
         let res = client
             .post(&login_url)
-            .header("x-dronte-admin", "1")
+            .header("x-chimely-admin", "1")
             .json(&body)
             .send()
             .await
@@ -147,7 +147,7 @@ async fn login_success_failure_and_cookie_flags() {
     // Correct login.
     let ok = client
         .post(&login_url)
-        .header("x-dronte-admin", "1")
+        .header("x-chimely-admin", "1")
         .json(
             &json!({"email": support::ADMIN_TEST_EMAIL, "password": support::ADMIN_TEST_PASSWORD}),
         )
@@ -162,7 +162,7 @@ async fn login_success_failure_and_cookie_flags() {
         .to_str()
         .unwrap()
         .to_owned();
-    assert!(set_cookie.contains("dronte_admin="));
+    assert!(set_cookie.contains("chimely_admin="));
     assert!(set_cookie.contains("HttpOnly"));
     assert!(set_cookie.contains("SameSite=Strict"));
     assert!(set_cookie.contains("Path=/admin"));
@@ -203,7 +203,7 @@ async fn logout_invalidates_the_session() {
 
     let out = client
         .post(format!("{}/admin/api/logout", app.base))
-        .header("x-dronte-admin", "1")
+        .header("x-chimely-admin", "1")
         .send()
         .await
         .unwrap();
@@ -278,7 +278,7 @@ async fn disabled_user_cannot_authenticate() {
     );
     let relogin = reqwest::Client::new()
         .post(format!("{}/admin/api/login", app.base))
-        .header("x-dronte-admin", "1")
+        .header("x-chimely-admin", "1")
         .json(&json!({"email": "v@disable.test", "password": "viewer-password-1"}))
         .send()
         .await
@@ -552,13 +552,13 @@ async fn concurrent_admin_demotion_keeps_one_admin() {
     // admin while the seed client demotes the other admin.
     let demote_seed = other_client
         .patch(format!("{}/admin/api/users/{seed_id}", app.base))
-        .header("x-dronte-admin", "1")
+        .header("x-chimely-admin", "1")
         .json(&json!({"role": "viewer"}))
         .send();
     let demote_other = app
         .client
         .patch(format!("{}/admin/api/users/{other_id}", app.base))
-        .header("x-dronte-admin", "1")
+        .header("x-chimely-admin", "1")
         .json(&json!({"role": "viewer"}))
         .send();
     let (r1, r2) = tokio::join!(demote_seed, demote_other);
@@ -608,7 +608,7 @@ async fn password_change_then_relogin() {
     // Self-service change.
     let chg = user
         .post(format!("{}/admin/api/users/{uid}/password", app.base))
-        .header("x-dronte-admin", "1")
+        .header("x-chimely-admin", "1")
         .json(&json!({"password": "new-password-456"}))
         .send()
         .await
@@ -618,7 +618,7 @@ async fn password_change_then_relogin() {
     // Old password no longer logs in, new one does.
     let old = reqwest::Client::new()
         .post(format!("{}/admin/api/login", app.base))
-        .header("x-dronte-admin", "1")
+        .header("x-chimely-admin", "1")
         .json(&json!({"email": "p@pw.test", "password": "old-password-123"}))
         .send()
         .await
@@ -695,7 +695,7 @@ async fn bootstrap_admin_is_idempotent() {
     })
     .await;
 
-    dronte::bootstrap::ensure_admin(&app.pool, &app.cfg)
+    chimely::bootstrap::ensure_admin(&app.pool, &app.cfg)
         .await
         .unwrap();
     let hash1: String =
@@ -705,7 +705,7 @@ async fn bootstrap_admin_is_idempotent() {
             .unwrap();
 
     // Second run: still one row, unchanged hash (a true no-op).
-    dronte::bootstrap::ensure_admin(&app.pool, &app.cfg)
+    chimely::bootstrap::ensure_admin(&app.pool, &app.cfg)
         .await
         .unwrap();
     let count: i64 =
@@ -736,7 +736,7 @@ async fn bootstrap_reconcile_revokes_existing_sessions() {
         cfg.admin_bootstrap_password = Some("root-password-1234".into());
     })
     .await;
-    dronte::bootstrap::ensure_admin(&app.pool, &app.cfg)
+    chimely::bootstrap::ensure_admin(&app.pool, &app.cfg)
         .await
         .unwrap();
 
@@ -750,13 +750,13 @@ async fn bootstrap_reconcile_revokes_existing_sessions() {
 
     // Simulate credential drift (e.g. a UI password change) so the next boot
     // takes the reconcile branch.
-    let drift = dronte::auth::hash_password("a-different-password").unwrap();
+    let drift = chimely::auth::hash_password("a-different-password").unwrap();
     sqlx::query("UPDATE admin_users SET password_hash = $1 WHERE email = 'root@reconcile.test'")
         .bind(drift)
         .execute(&app.pool)
         .await
         .unwrap();
-    dronte::bootstrap::ensure_admin(&app.pool, &app.cfg)
+    chimely::bootstrap::ensure_admin(&app.pool, &app.cfg)
         .await
         .unwrap();
 

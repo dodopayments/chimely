@@ -1,6 +1,6 @@
 //! Guarantees `admin/dist` exists at compile time so the rust-embed derive in
 //! `api::admin` always has a folder to embed. The real admin SPA build
-//! (`pnpm --filter dronte-admin build`, run by CI and the Dockerfile) writes
+//! (`pnpm --filter chimely-admin build`, run by CI and the Dockerfile) writes
 //! the production bundle there before `cargo build`. When it has not run — a
 //! bare `cargo nextest`, `cargo run -- openapi`, or `cargo sqlx prepare` — a
 //! minimal placeholder shell is written so the binary still compiles and
@@ -15,13 +15,13 @@ const PLACEHOLDER: &str = r#"<!doctype html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Dronte admin</title>
+    <title>Chimely admin</title>
   </head>
   <body>
     <main style="font-family: system-ui, sans-serif; max-width: 32rem; margin: 4rem auto; padding: 0 1rem;">
-      <h1>Dronte admin</h1>
+      <h1>Chimely admin</h1>
       <p>The admin dashboard bundle has not been built. Run
-      <code>pnpm --filter dronte-admin build</code> and rebuild the server.</p>
+      <code>pnpm --filter chimely-admin build</code> and rebuild the server.</p>
     </main>
   </body>
 </html>

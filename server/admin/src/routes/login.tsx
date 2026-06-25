@@ -30,13 +30,13 @@ export function LoginRoute({ onAuthenticated }: { onAuthenticated: (me: AdminMe)
       <div className="w-full max-w-sm">
         <div className="mb-8 flex items-center gap-2">
           <span className="inline-block size-3 rounded-full bg-primary" />
-          <span className="text-2xl font-semibold tracking-tight">Dronte</span>
+          <span className="text-2xl font-semibold tracking-tight">Chimely</span>
           <span className="text-sm text-muted-foreground">admin</span>
         </div>
         <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
           <h1 className="text-lg font-semibold">Sign in</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Operator access to this Dronte instance.
+            Operator access to this Chimely instance.
           </p>
           <form
             className="mt-6 flex flex-col gap-4"

@@ -37,12 +37,12 @@ async fn replay_all_replays_only_the_scoped_environment() {
     let app = support::spawn().await;
     let env_b = app.create_environment(true).await;
 
-    park_dead_letter_with_id(&app.pool, app.env.id, dronte::ids::new_uuid()).await;
-    park_dead_letter_with_id(&app.pool, env_b.id, dronte::ids::new_uuid()).await;
+    park_dead_letter_with_id(&app.pool, app.env.id, chimely::ids::new_uuid()).await;
+    park_dead_letter_with_id(&app.pool, env_b.id, chimely::ids::new_uuid()).await;
     assert_eq!(dead_letters_in(&app.pool, app.env.id).await, 1);
     assert_eq!(dead_letters_in(&app.pool, env_b.id).await, 1);
 
-    let moved = dronte::dlq::replay_all(&app.pool, Some(app.env.id))
+    let moved = chimely::dlq::replay_all(&app.pool, Some(app.env.id))
         .await
         .expect("replay env A");
     assert_eq!(moved, 1, "only env A's parked job is replayed");
@@ -66,11 +66,11 @@ async fn replay_by_id_replays_only_the_scoped_environment() {
 
     // The same job id parked in both environments is legal under the
     // (environment_id, id) PK. An id-only replay predicate replays both copies.
-    let shared = dronte::ids::new_uuid();
+    let shared = chimely::ids::new_uuid();
     park_dead_letter_with_id(&app.pool, app.env.id, shared).await;
     park_dead_letter_with_id(&app.pool, env_b.id, shared).await;
 
-    let replayed = dronte::dlq::replay(&app.pool, shared, Some(app.env.id))
+    let replayed = chimely::dlq::replay(&app.pool, shared, Some(app.env.id))
         .await
         .expect("replay env A's copy");
     assert!(replayed, "env A's copy was replayed");

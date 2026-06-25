@@ -5,7 +5,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
-  Dronte / Dodo brand palette.
+  Chimely / Dodo brand palette.
   --primary       #1264FF  accent: primary actions, links, focus, active nav
   --primary-deep  #004F32  deep accent: hover/section accents
   base dark       #0D0D0D  dark-mode foundation (inverted for light)

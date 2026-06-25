@@ -15,7 +15,7 @@
 #
 # Prerequisites (repo settings, one-time, human):
 #   - NPM_TOKEN secret: an npm automation token with publish rights to the
-#     @dronte scope, and the @dronte scope must grant that token access.
+#     @chimely scope, and the @chimely scope must grant that token access.
 #   - "Allow GitHub Actions to create and approve pull requests" enabled.
 #     The `version` job opens the Version Packages PR. The `publish` job does
 #     NOT need this (no pull-requests permission), so the publish path is

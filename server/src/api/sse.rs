@@ -84,7 +84,7 @@ pub async fn stream(
         }
         *count += 1;
     }
-    metrics::gauge!("dronte_sse_connections").increment(1.0);
+    metrics::gauge!("chimely_sse_connections").increment(1.0);
     let guard = ConnectionGuard {
         map: Arc::clone(&state.sse_connections),
         key,
@@ -168,7 +168,7 @@ struct ConnectionGuard {
 
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
-        metrics::gauge!("dronte_sse_connections").decrement(1.0);
+        metrics::gauge!("chimely_sse_connections").decrement(1.0);
         let mut conns = self.map.lock().expect("sse connection map");
         if let Some(count) = conns.get_mut(&self.key) {
             *count -= 1;

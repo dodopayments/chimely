@@ -1,14 +1,14 @@
-//! Dronte in-app notification inbox infrastructure.
+//! Chimely in-app notification inbox infrastructure.
 //!
 //! Single binary, three entrypoints:
-//!   `dronte serve`   (default) API plane plus workers
-//!   `dronte openapi`           print the utoipa-generated OpenAPI spec to stdout
-//!   `dronte dlq`               list and replay dead-lettered jobs
+//!   `chimely serve`   (default) API plane plus workers
+//!   `chimely openapi`           print the utoipa-generated OpenAPI spec to stdout
+//!   `chimely dlq`               list and replay dead-lettered jobs
 
 use std::sync::Arc;
 
 use anyhow::Context;
-use dronte::{
+use chimely::{
     bootstrap, config, db, dlq, http, ids, metrics_sampler, openapi, partitions, pubsub, ratelimit,
     state, telemetry, worker,
 };
@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
                 .block_on(dlq_command(args.collect()))
         }
         Some(other) => {
-            eprintln!("unknown subcommand: {other}\nusage: dronte [serve|openapi|dlq]");
+            eprintln!("unknown subcommand: {other}\nusage: chimely [serve|openapi|dlq]");
             std::process::exit(2);
         }
     }
@@ -65,7 +65,7 @@ async fn serve() -> anyhow::Result<()> {
     if !cfg.admin_tls_terminated {
         tracing::warn!(
             "Admin session cookies require TLS. This binary serves plain HTTP: terminate TLS at a \
-             proxy and set DRONTE_ADMIN_TLS_TERMINATED=true. Until then the session cookie omits \
+             proxy and set CHIMELY_ADMIN_TLS_TERMINATED=true. Until then the session cookie omits \
              its Secure attribute and admin access is exposed if served over plain HTTP."
         );
     }
@@ -116,7 +116,7 @@ async fn serve() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&cfg.listen_addr)
         .await
         .with_context(|| format!("binding {}", cfg.listen_addr))?;
-    tracing::info!(addr = %cfg.listen_addr, "dronte listening");
+    tracing::info!(addr = %cfg.listen_addr, "chimely listening");
 
     // Graceful shutdown, two phases:
     //   1. readiness flips to 503 while the listener keeps serving, so load
@@ -178,7 +178,7 @@ async fn dlq_command(args: Vec<String>) -> anyhow::Result<()> {
             }
         }
         Some(_) => {
-            eprintln!("usage: dronte dlq replay <job_id|--all> [--env <slug>]");
+            eprintln!("usage: chimely dlq replay <job_id|--all> [--env <slug>]");
             std::process::exit(2);
         }
         None => None,
@@ -223,12 +223,12 @@ async fn dlq_command(args: Vec<String>) -> anyhow::Result<()> {
                 Ok(())
             }
             None => {
-                eprintln!("usage: dronte dlq replay <job_id|--all> [--env <slug>]");
+                eprintln!("usage: chimely dlq replay <job_id|--all> [--env <slug>]");
                 std::process::exit(2);
             }
         },
         _ => {
-            eprintln!("usage: dronte dlq [list|replay <job_id|--all> [--env <slug>]]");
+            eprintln!("usage: chimely dlq [list|replay <job_id|--all> [--env <slug>]]");
             std::process::exit(2);
         }
     }

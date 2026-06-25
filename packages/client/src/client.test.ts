@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { DronteClient } from './client';
-import { DronteError } from './errors';
+import { ChimelyClient } from './client';
+import { ChimelyError } from './errors';
 import type { StubServer } from './test-support/stub-server';
 import { createStubServer } from './test-support/stub-server';
-import type { DronteClientConfig, InboxItem, InboxSnapshot } from './types';
+import type { ChimelyClientConfig, InboxItem, InboxSnapshot } from './types';
 
-function makeClient(stub: StubServer, config: Partial<DronteClientConfig> = {}): DronteClient {
-  return new DronteClient({
-    serverUrl: 'https://dronte.test',
+function makeClient(stub: StubServer, config: Partial<ChimelyClientConfig> = {}): ChimelyClient {
+  return new ChimelyClient({
+    serverUrl: 'https://chimely.test',
     environment: stub.environment,
     subscriberId: stub.subscriberId,
     fetchFn: stub.fetchFn,
@@ -23,7 +23,7 @@ function must<T>(value: T | undefined, label = 'value'): T {
   return value;
 }
 
-async function connectAndLoad(client: DronteClient, stub: StubServer): Promise<void> {
+async function connectAndLoad(client: ChimelyClient, stub: StubServer): Promise<void> {
   client.connect();
   stub.openStream();
   await vi.waitFor(() => {
@@ -63,9 +63,9 @@ describe('connection and auth', () => {
     expect(client.getSnapshot().counts).toEqual({ unread: 1, unseen: 1 });
 
     const listRequest = must(stub.requestsFor('/v1/inbox/items')[0]);
-    expect(listRequest.headers['x-dronte-environment']).toBe(stub.environment);
-    expect(listRequest.headers['x-dronte-subscriber']).toBe(stub.subscriberId);
-    expect(listRequest.headers['x-dronte-subscriber-hash']).toBe('deadbeef');
+    expect(listRequest.headers['x-chimely-environment']).toBe(stub.environment);
+    expect(listRequest.headers['x-chimely-subscriber']).toBe(stub.subscriberId);
+    expect(listRequest.headers['x-chimely-subscriber-hash']).toBe('deadbeef');
   });
 
   test('subscriber hash is omitted everywhere when not configured', async () => {
@@ -75,7 +75,7 @@ describe('connection and auth', () => {
 
     expect(new URL(stub.stream().url).searchParams.has('subscriber_hash')).toBe(false);
     const listRequest = must(stub.requestsFor('/v1/inbox/items')[0]);
-    expect('x-dronte-subscriber-hash' in listRequest.headers).toBe(false);
+    expect('x-chimely-subscriber-hash' in listRequest.headers).toBe(false);
   });
 
   test('a wrong hash surfaces unauthorized on the error channel', async () => {
@@ -83,7 +83,7 @@ describe('connection and auth', () => {
     const client = makeClient(stub, { subscriberHash: 'wrong' });
     client.connect();
     await vi.waitFor(() => {
-      expect(client.getSnapshot().error).toBeInstanceOf(DronteError);
+      expect(client.getSnapshot().error).toBeInstanceOf(ChimelyError);
     });
     expect(client.getSnapshot().error?.code).toBe('unauthorized');
     expect(client.getSnapshot().error?.status).toBe(401);
@@ -349,7 +349,7 @@ describe('optimistic read state', () => {
     const after = client.getSnapshot();
     expect(must(after.items[0]).read).toBe(false);
     expect(after.counts).toEqual(before.counts);
-    expect(after.error).toBeInstanceOf(DronteError);
+    expect(after.error).toBeInstanceOf(ChimelyError);
     expect(after.error?.code).toBe('internal');
     expect(after.error?.status).toBe(500);
   });

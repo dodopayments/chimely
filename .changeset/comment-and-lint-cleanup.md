@@ -1,6 +1,6 @@
 ---
-'@dronte/client': patch
-'@dronte/react': patch
+'@chimely/client': patch
+'@chimely/react': patch
 'docs': patch
 ---
 

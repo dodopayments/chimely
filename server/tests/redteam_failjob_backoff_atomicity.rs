@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::Duration;
 
-use dronte::worker;
+use chimely::worker;
 
 const ROUNDS: usize = 200;
 
@@ -43,7 +43,7 @@ async fn a_failed_job_is_never_reclaimable_before_its_backoff_lands() {
 
     // 'bogus' is an unknown job type, so process_one errors and routes through
     // fail_job. max_attempts is high so the job never parks.
-    let job_id = dronte::ids::new_uuid();
+    let job_id = chimely::ids::new_uuid();
     sqlx::query(
         "INSERT INTO jobs (environment_id, id, job_type, payload, run_at,
                            attempts, max_attempts)

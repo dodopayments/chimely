@@ -22,7 +22,7 @@ allow = [
 ]
 # Our own crate is the only non-permissive code allowed in the graph.
 exceptions = [
-    { name = "dronte", allow = ["FSL-1.1-MIT"] },
+    { name = "chimely", allow = ["FSL-1.1-MIT"] },
 ]
 
 [bans]

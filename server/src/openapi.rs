@@ -1,5 +1,5 @@
-//! Code-first OpenAPI document (utoipa). `dronte openapi` exports it. The docs
-//! site and `@dronte/client` types are generated from the export.
+//! Code-first OpenAPI document (utoipa). `chimely openapi` exports it. The docs
+//! site and `@chimely/client` types are generated from the export.
 
 use utoipa::OpenApi;
 use utoipa::openapi::content::ContentBuilder;
@@ -15,7 +15,7 @@ const INFO_DESCRIPTION: &str = r#"Two planes, one binary:
   key. Creates notifications and broadcasts, manages subscribers and their
   preferences. API keys are environment-scoped; the environment is implied
   by the key.
-* **Subscriber plane** — called by `@dronte/client` (the `<Inbox />`
+* **Subscriber plane** — called by `@chimely/client` (the `<Inbox />`
   widget) on behalf of one end user. Authenticated with an HMAC subscriber
   hash: `hex(HMAC-SHA256(environment.subscriber_hmac_secret, subscriber_id))`
   computed by the customer's backend. Mandatory in environments with
@@ -27,9 +27,9 @@ headers are impossible, i.e. `EventSource`):
 
 | Header | Query fallback | Meaning |
 |---|---|---|
-| `X-Dronte-Environment` | `environment` | environment slug |
-| `X-Dronte-Subscriber` | `subscriber_id` | customer-provided subscriber id |
-| `X-Dronte-Subscriber-Hash` | `subscriber_hash` | HMAC hash (when required) |
+| `X-Chimely-Environment` | `environment` | environment slug |
+| `X-Chimely-Subscriber` | `subscriber_id` | customer-provided subscriber id |
+| `X-Chimely-Subscriber-Hash` | `subscriber_hash` | HMAC hash (when required) |
 
 **Idempotency.** Every create accepts `idempotency_key` (client-supplied or
 server-generated and echoed). Uniqueness is per environment per resource
@@ -49,10 +49,10 @@ conventional status codes. 429 carries `Retry-After`.
 /// info.version is the published API version.
 #[derive(OpenApi)]
 #[openapi(
-    info(title = "Dronte API", version = "0.1.0"),
+    info(title = "Chimely API", version = "0.1.0"),
     tags(
-        (name = "management", description = "Backend-to-Dronte. Bearer API key."),
-        (name = "subscriber", description = "Widget-to-Dronte. HMAC subscriber hash."),
+        (name = "management", description = "Backend-to-Chimely. Bearer API key."),
+        (name = "subscriber", description = "Widget-to-Chimely. HMAC subscriber hash."),
         (name = "admin", description = "Instance admin dashboard. Built-in users, session cookie.")
     ),
     paths(
@@ -126,9 +126,7 @@ pub fn api_doc() -> utoipa::openapi::OpenApi {
     doc.info.description = Some(INFO_DESCRIPTION.to_owned());
     doc.info.license = None;
     doc.servers = Some(vec![
-        ServerBuilder::new()
-            .url("https://dronte.example.com")
-            .build(),
+        ServerBuilder::new().url("https://chimely.dev").build(),
     ]);
     // The spec's explicit top-level `security: []`.
     doc.security = Some(vec![]);
@@ -146,22 +144,22 @@ pub fn api_doc() -> utoipa::openapi::OpenApi {
     components.add_security_scheme(
         "AdminSession",
         SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::with_description(
-            "dronte_admin",
+            "chimely_admin",
             "Server-side admin session cookie, set by POST /admin/api/login.",
         ))),
     );
     components.add_security_scheme(
         "SubscriberEnv",
-        SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("X-Dronte-Environment"))),
+        SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("X-Chimely-Environment"))),
     );
     components.add_security_scheme(
         "SubscriberId",
-        SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("X-Dronte-Subscriber"))),
+        SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("X-Chimely-Subscriber"))),
     );
     components.add_security_scheme(
         "SubscriberHash",
         SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::with_description(
-            "X-Dronte-Subscriber-Hash",
+            "X-Chimely-Subscriber-Hash",
             "Optional when the environment has require_subscriber_hash = false.",
         ))),
     );
@@ -388,7 +386,7 @@ mod tests {
     #[test]
     fn exports_yaml_with_expected_identity() {
         let yaml = api_doc().to_yaml().expect("spec serializes");
-        assert!(yaml.contains("title: Dronte API"));
+        assert!(yaml.contains("title: Chimely API"));
         assert!(yaml.contains("version: 0.1.0"));
     }
 

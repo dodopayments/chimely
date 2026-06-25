@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { DronteProvider, useDronteClient } from './context';
+import { ChimelyProvider, useChimelyClient } from './context';
 import { useNotifications } from './hooks';
 import { createStubServer, loadClient, makeClient } from './test-support/setup';
 
@@ -14,14 +14,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('DronteProvider', () => {
+describe('ChimelyProvider', () => {
   test('config mode constructs a client, connects on mount, and closes on unmount', async () => {
     const stub = createStubServer();
     stub.addNotification();
     const { unmount } = render(
-      <DronteProvider
+      <ChimelyProvider
         config={{
-          serverUrl: 'https://dronte.test',
+          serverUrl: 'https://chimely.test',
           environment: stub.environment,
           subscriberId: stub.subscriberId,
           fetchFn: stub.fetchFn,
@@ -29,7 +29,7 @@ describe('DronteProvider', () => {
         }}
       >
         <Probe />
-      </DronteProvider>,
+      </ChimelyProvider>,
     );
 
     expect(stub.sources).toHaveLength(1);
@@ -49,9 +49,9 @@ describe('DronteProvider', () => {
     await loadClient(client, stub);
 
     const { unmount } = render(
-      <DronteProvider client={client}>
+      <ChimelyProvider client={client}>
         <Probe />
-      </DronteProvider>,
+      </ChimelyProvider>,
     );
     await waitFor(() => {
       expect(screen.getByText('items:1')).toBeDefined();
@@ -62,17 +62,17 @@ describe('DronteProvider', () => {
     expect(stub.stream().closed).toBe(false);
   });
 
-  test('useDronteClient throws outside a provider', () => {
+  test('useChimelyClient throws outside a provider', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     function Bare(): ReactNode {
-      useDronteClient();
+      useChimelyClient();
       return null;
     }
-    expect(() => render(<Bare />)).toThrow(/inside a <DronteProvider>/);
+    expect(() => render(<Bare />)).toThrow(/inside a <ChimelyProvider>/);
   });
 
   test('provider without client or config throws', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(() => render(<DronteProvider>x</DronteProvider>)).toThrow(/client or a config/);
+    expect(() => render(<ChimelyProvider>x</ChimelyProvider>)).toThrow(/client or a config/);
   });
 });

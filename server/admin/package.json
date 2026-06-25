@@ -1,9 +1,9 @@
 {
-  "name": "dronte-admin",
+  "name": "chimely-admin",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "Dronte embedded admin dashboard (served at /admin by the dronte binary).",
+  "description": "Chimely embedded admin dashboard (served at /admin by the chimely binary).",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
