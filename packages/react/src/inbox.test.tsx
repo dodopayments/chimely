@@ -278,9 +278,7 @@ describe('preferences panel', () => {
 
     fireEvent.click(checkbox);
     await waitFor(() => {
-      expect(stub.requestsFor('/v1/inbox/preferences').some((r) => r.method === 'PUT')).toBe(
-        true,
-      );
+      expect(stub.requestsFor('/v1/inbox/preferences').some((r) => r.method === 'PUT')).toBe(true);
     });
     const write = stub.requestsFor('/v1/inbox/preferences').find((r) => r.method === 'PUT');
     expect(write?.body).toEqual({
