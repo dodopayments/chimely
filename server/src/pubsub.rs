@@ -1,5 +1,5 @@
 //! The hint plane. Redis pub/sub (fred) when `REDIS_URL` is set, Postgres
-//! LISTEN/NOTIFY otherwise (`npx dronte dev` Redis-less mode).
+//! LISTEN/NOTIFY otherwise (`npx chimely dev` Redis-less mode).
 //!
 //! Hints are refetch triggers, not transports (CLAUDE.md). Losing this plane
 //! delays hints and loses nothing. The jobs table rows survive and retry.
@@ -23,7 +23,7 @@ use tokio::sync::broadcast;
 use uuid::Uuid;
 
 /// Redis channel / Postgres NOTIFY channel carrying hint envelopes.
-const HINT_CHANNEL: &str = "dronte_hints";
+const HINT_CHANNEL: &str = "chimely_hints";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Hint {
@@ -161,7 +161,7 @@ impl PubSub for RedisPubSub {
         let acquired: Option<String> = self
             .client
             .set(
-                format!("dronte:debounce:{key}"),
+                format!("chimely:debounce:{key}"),
                 1,
                 Some(fred::types::Expiration::PX(window.as_millis() as i64)),
                 Some(fred::types::SetOptions::NX),

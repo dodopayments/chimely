@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Dronte API
+  title: Chimely API
   description: |
     Two planes, one binary:
 
@@ -8,7 +8,7 @@ info:
       key. Creates notifications and broadcasts, manages subscribers and their
       preferences. API keys are environment-scoped; the environment is implied
       by the key.
-    * **Subscriber plane** — called by `@dronte/client` (the `<Inbox />`
+    * **Subscriber plane** — called by `@chimely/client` (the `<Inbox />`
       widget) on behalf of one end user. Authenticated with an HMAC subscriber
       hash: `hex(HMAC-SHA256(environment.subscriber_hmac_secret, subscriber_id))`
       computed by the customer's backend. Mandatory in environments with
@@ -20,9 +20,9 @@ info:
 
     | Header | Query fallback | Meaning |
     |---|---|---|
-    | `X-Dronte-Environment` | `environment` | environment slug |
-    | `X-Dronte-Subscriber` | `subscriber_id` | customer-provided subscriber id |
-    | `X-Dronte-Subscriber-Hash` | `subscriber_hash` | HMAC hash (when required) |
+    | `X-Chimely-Environment` | `environment` | environment slug |
+    | `X-Chimely-Subscriber` | `subscriber_id` | customer-provided subscriber id |
+    | `X-Chimely-Subscriber-Hash` | `subscriber_hash` | HMAC hash (when required) |
 
     **Idempotency.** Every create accepts `idempotency_key` (client-supplied or
     server-generated and echoed). Uniqueness is per environment per resource
@@ -39,7 +39,7 @@ info:
     conventional status codes. 429 carries `Retry-After`.
   version: 0.1.0
 servers:
-- url: https://dronte.example.com
+- url: https://chimely.dev
 paths:
   /admin/api/dlq:
     get:
@@ -647,7 +647,7 @@ paths:
       tags:
       - admin
       summary: Log in with email + password; starts a server-side session
-      description: On success sets the `dronte_admin` session cookie (HttpOnly, SameSite=Strict, Path=/admin). Failure returns a generic error that does not reveal which field was wrong.
+      description: On success sets the `chimely_admin` session cookie (HttpOnly, SameSite=Strict, Path=/admin). Failure returns a generic error that does not reveal which field was wrong.
       operationId: adminLogin
       requestBody:
         content:
@@ -669,7 +669,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '403':
-          description: Missing X-Dronte-Admin header.
+          description: Missing X-Chimely-Admin header.
           content:
             application/json:
               schema:
@@ -686,7 +686,7 @@ paths:
         '401':
           description: Authentication required (no or expired session).
         '403':
-          description: Missing X-Dronte-Admin header.
+          description: Missing X-Chimely-Admin header.
           content:
             application/json:
               schema:
@@ -2250,7 +2250,7 @@ components:
     AdminSession:
       type: apiKey
       in: cookie
-      name: dronte_admin
+      name: chimely_admin
       description: Server-side admin session cookie, set by POST /admin/api/login.
     ApiKeyBearer:
       type: http
@@ -2259,7 +2259,7 @@ components:
     SubscriberEnv:
       type: apiKey
       in: header
-      name: X-Dronte-Environment
+      name: X-Chimely-Environment
     SubscriberEnvQ:
       type: apiKey
       in: query
@@ -2267,7 +2267,7 @@ components:
     SubscriberHash:
       type: apiKey
       in: header
-      name: X-Dronte-Subscriber-Hash
+      name: X-Chimely-Subscriber-Hash
       description: Optional when the environment has require_subscriber_hash = false.
     SubscriberHashQ:
       type: apiKey
@@ -2276,7 +2276,7 @@ components:
     SubscriberId:
       type: apiKey
       in: header
-      name: X-Dronte-Subscriber
+      name: X-Chimely-Subscriber
     SubscriberIdQ:
       type: apiKey
       in: query
@@ -2305,8 +2305,8 @@ components:
 security: []
 tags:
 - name: management
-  description: Backend-to-Dronte. Bearer API key.
+  description: Backend-to-Chimely. Bearer API key.
 - name: subscriber
-  description: Widget-to-Dronte. HMAC subscriber hash.
+  description: Widget-to-Chimely. HMAC subscriber hash.
 - name: admin
   description: Instance admin dashboard. Built-in users, session cookie.

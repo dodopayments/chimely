@@ -1,5 +1,5 @@
-import type { DronteClientConfig } from '@dronte/client';
-import { DronteClient } from '@dronte/client';
+import type { ChimelyClientConfig } from '@chimely/client';
+import { ChimelyClient } from '@chimely/client';
 import { vi } from 'vitest';
 import type { StubServer } from '../../../client/src/test-support/stub-server';
 import { createStubServer } from '../../../client/src/test-support/stub-server';
@@ -9,10 +9,10 @@ export { createStubServer };
 
 export function makeClient(
   stub: StubServer,
-  config: Partial<DronteClientConfig> = {},
-): DronteClient {
-  return new DronteClient({
-    serverUrl: 'https://dronte.test',
+  config: Partial<ChimelyClientConfig> = {},
+): ChimelyClient {
+  return new ChimelyClient({
+    serverUrl: 'https://chimely.test',
     environment: stub.environment,
     subscriberId: stub.subscriberId,
     fetchFn: stub.fetchFn,
@@ -21,7 +21,7 @@ export function makeClient(
   });
 }
 
-export async function loadClient(client: DronteClient, stub: StubServer): Promise<void> {
+export async function loadClient(client: ChimelyClient, stub: StubServer): Promise<void> {
   client.connect();
   stub.openStream();
   await vi.waitFor(() => {

@@ -13,7 +13,7 @@ pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
 pub async fn connect(database_url: &str) -> anyhow::Result<PgPool> {
     Ok(PgPoolOptions::new()
         .max_connections(
-            std::env::var("DRONTE_PG_POOL_SIZE")
+            std::env::var("CHIMELY_PG_POOL_SIZE")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(16),

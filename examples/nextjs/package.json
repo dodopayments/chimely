@@ -1,8 +1,8 @@
 {
-  "name": "dronte-example-nextjs",
+  "name": "chimely-example-nextjs",
   "version": "0.0.0",
   "private": true,
-  "description": "Dronte 30-second quickstart: the drop-in <Inbox /> in a Next.js app.",
+  "description": "Chimely 30-second quickstart: the drop-in <Inbox /> in a Next.js app.",
   "license": "MIT",
   "scripts": {
     "dev": "next dev",
@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@dronte/react": "workspace:*",
+    "@chimely/react": "workspace:*",
     "next": "16.2.8",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

@@ -5,8 +5,8 @@
 
 mod support;
 
+use chimely::{ids, worker};
 use chrono::Utc;
-use dronte::{ids, worker};
 use serde_json::json;
 use uuid::Uuid;
 

@@ -1,7 +1,7 @@
 {
-  "name": "@dronte/client",
+  "name": "@chimely/client",
   "version": "0.0.0",
-  "description": "Framework-agnostic headless core for the Dronte in-app notification inbox.",
+  "description": "Framework-agnostic headless core for the Chimely in-app notification inbox.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -33,7 +33,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/that-ambuj/dronte.git",
+    "url": "git+https://github.com/that-ambuj/chimely.git",
     "directory": "packages/client"
   }
 }

@@ -86,61 +86,61 @@ impl Config {
             database_url: std::env::var("DATABASE_URL")
                 .context("DATABASE_URL is required (postgres://...)")?,
             redis_url: std::env::var("REDIS_URL").ok().filter(|s| !s.is_empty()),
-            listen_addr: var_or("DRONTE_LISTEN_ADDR", "0.0.0.0:8080"),
-            retention_months: parse_var("DRONTE_RETENTION_MONTHS", 12)?,
-            idempotency_retention_days: parse_var("DRONTE_IDEMPOTENCY_RETENTION_DAYS", 30)?,
-            hint_debounce: Duration::from_millis(parse_var("DRONTE_HINT_DEBOUNCE_MS", 1_000)?),
-            worker_poll_interval: Duration::from_millis(parse_var("DRONTE_WORKER_POLL_MS", 250)?),
-            sse_ping_interval: Duration::from_secs(parse_var("DRONTE_SSE_PING_SECS", 30)?),
-            sse_retry_base: Duration::from_millis(parse_var("DRONTE_SSE_RETRY_BASE_MS", 2_000)?),
+            listen_addr: var_or("CHIMELY_LISTEN_ADDR", "0.0.0.0:8080"),
+            retention_months: parse_var("CHIMELY_RETENTION_MONTHS", 12)?,
+            idempotency_retention_days: parse_var("CHIMELY_IDEMPOTENCY_RETENTION_DAYS", 30)?,
+            hint_debounce: Duration::from_millis(parse_var("CHIMELY_HINT_DEBOUNCE_MS", 1_000)?),
+            worker_poll_interval: Duration::from_millis(parse_var("CHIMELY_WORKER_POLL_MS", 250)?),
+            sse_ping_interval: Duration::from_secs(parse_var("CHIMELY_SSE_PING_SECS", 30)?),
+            sse_retry_base: Duration::from_millis(parse_var("CHIMELY_SSE_RETRY_BASE_MS", 2_000)?),
             sse_retry_jitter: Duration::from_millis(parse_var(
-                "DRONTE_SSE_RETRY_JITTER_MS",
+                "CHIMELY_SSE_RETRY_JITTER_MS",
                 8_000,
             )?),
             sse_max_connections_per_subscriber: parse_var(
-                "DRONTE_SSE_MAX_CONNS_PER_SUBSCRIBER",
+                "CHIMELY_SSE_MAX_CONNS_PER_SUBSCRIBER",
                 8,
             )?,
-            dev_environment: std::env::var("DRONTE_DEV_ENVIRONMENT")
+            dev_environment: std::env::var("CHIMELY_DEV_ENVIRONMENT")
                 .ok()
                 .filter(|s| !s.is_empty()),
-            dev_api_key: std::env::var("DRONTE_DEV_API_KEY")
+            dev_api_key: std::env::var("CHIMELY_DEV_API_KEY")
                 .ok()
                 .filter(|s| !s.is_empty()),
-            admin_bootstrap_email: std::env::var("DRONTE_ADMIN_EMAIL")
+            admin_bootstrap_email: std::env::var("CHIMELY_ADMIN_EMAIL")
                 .ok()
                 .filter(|s| !s.is_empty()),
-            admin_bootstrap_password: std::env::var("DRONTE_ADMIN_PASSWORD")
+            admin_bootstrap_password: std::env::var("CHIMELY_ADMIN_PASSWORD")
                 .ok()
                 .filter(|s| !s.is_empty()),
             admin_session_ttl: Duration::from_secs(parse_var(
-                "DRONTE_ADMIN_SESSION_TTL_SECS",
+                "CHIMELY_ADMIN_SESSION_TTL_SECS",
                 28_800,
             )?),
-            admin_tls_terminated: parse_var("DRONTE_ADMIN_TLS_TERMINATED", false)?,
+            admin_tls_terminated: parse_var("CHIMELY_ADMIN_TLS_TERMINATED", false)?,
             retry_backoff_base: Duration::from_millis(parse_var(
-                "DRONTE_RETRY_BACKOFF_BASE_MS",
+                "CHIMELY_RETRY_BACKOFF_BASE_MS",
                 5_000,
             )?),
             retry_backoff_cap: Duration::from_millis(parse_var(
-                "DRONTE_RETRY_BACKOFF_CAP_MS",
+                "CHIMELY_RETRY_BACKOFF_CAP_MS",
                 900_000,
             )?),
             metrics_sample_interval: Duration::from_millis(parse_var(
-                "DRONTE_METRICS_SAMPLE_MS",
+                "CHIMELY_METRICS_SAMPLE_MS",
                 15_000,
             )?),
-            counter_drift_sample_size: parse_var("DRONTE_COUNTER_DRIFT_SAMPLE_SIZE", 50)?,
-            api_key_rate_per_sec: parse_var("DRONTE_API_KEY_RATE_PER_SEC", 50.0)?,
-            api_key_rate_burst: parse_var("DRONTE_API_KEY_RATE_BURST", 200.0)?,
-            subscriber_rate_per_sec: parse_var("DRONTE_SUBSCRIBER_RATE_PER_SEC", 10.0)?,
-            subscriber_rate_burst: parse_var("DRONTE_SUBSCRIBER_RATE_BURST", 50.0)?,
+            counter_drift_sample_size: parse_var("CHIMELY_COUNTER_DRIFT_SAMPLE_SIZE", 50)?,
+            api_key_rate_per_sec: parse_var("CHIMELY_API_KEY_RATE_PER_SEC", 50.0)?,
+            api_key_rate_burst: parse_var("CHIMELY_API_KEY_RATE_BURST", 200.0)?,
+            subscriber_rate_per_sec: parse_var("CHIMELY_SUBSCRIBER_RATE_PER_SEC", 10.0)?,
+            subscriber_rate_burst: parse_var("CHIMELY_SUBSCRIBER_RATE_BURST", 50.0)?,
             shutdown_readiness_grace: Duration::from_millis(parse_var(
-                "DRONTE_SHUTDOWN_GRACE_MS",
+                "CHIMELY_SHUTDOWN_GRACE_MS",
                 5_000,
             )?),
             shutdown_drain_deadline: Duration::from_millis(parse_var(
-                "DRONTE_SHUTDOWN_DRAIN_DEADLINE_MS",
+                "CHIMELY_SHUTDOWN_DRAIN_DEADLINE_MS",
                 30_000,
             )?),
         })

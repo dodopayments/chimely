@@ -39,10 +39,10 @@ async fn trace_context_rides_the_outbox_and_survives_processing() {
     let span = tracing::info_span!("ingest.test");
     async {
         let mut conn = app.pool.acquire().await.unwrap();
-        dronte::jobs::enqueue(
+        chimely::jobs::enqueue(
             &mut conn,
             app.env.id,
-            dronte::jobs::TYPE_COUNTER_REBUILD,
+            chimely::jobs::TYPE_COUNTER_REBUILD,
             json!({ "subscriber_id": subscriber_id }),
             None,
         )

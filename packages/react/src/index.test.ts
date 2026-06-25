@@ -1,9 +1,9 @@
 import { expect, test } from 'vitest';
 import {
+  ChimelyProvider,
   DEFAULT_LOCALIZATION,
-  DronteProvider,
   Inbox,
-  useDronteClient,
+  useChimelyClient,
   useInbox,
   useNotifications,
   usePreferences,
@@ -12,8 +12,8 @@ import {
 } from './index';
 
 test('public surface exports', () => {
-  expect(typeof DronteProvider).toBe('function');
-  expect(typeof useDronteClient).toBe('function');
+  expect(typeof ChimelyProvider).toBe('function');
+  expect(typeof useChimelyClient).toBe('function');
   expect(typeof useNotifications).toBe('function');
   expect(typeof useUnreadCount).toBe('function');
   expect(typeof useUnseenCount).toBe('function');

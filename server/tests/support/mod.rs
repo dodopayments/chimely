@@ -13,12 +13,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use chimely::auth::compute_subscriber_hash;
+use chimely::config::Config;
+use chimely::pubsub::PubSub;
+use chimely::state::AppState;
+use chimely::{db, http, ids, partitions, pubsub, ratelimit, worker};
 use chrono::{DateTime, Utc};
-use dronte::auth::compute_subscriber_hash;
-use dronte::config::Config;
-use dronte::pubsub::PubSub;
-use dronte::state::AppState;
-use dronte::{db, http, ids, partitions, pubsub, ratelimit, worker};
 use reqwest::header::{HeaderMap, HeaderValue};
 use sha2::Digest as _;
 use sqlx::PgPool;
@@ -31,7 +31,7 @@ use uuid::Uuid;
 
 pub const RETENTION_MONTHS: u32 = 12;
 /// The seed admin the harness creates and logs in as by default.
-pub const ADMIN_TEST_EMAIL: &str = "admin@test.dronte";
+pub const ADMIN_TEST_EMAIL: &str = "admin@test.chimely";
 pub const ADMIN_TEST_PASSWORD: &str = "test-admin-password";
 
 pub struct TestApp {
@@ -293,7 +293,7 @@ impl TestApp {
     /// Insert an admin user directly (bypassing the API). Returns its uuid.
     pub async fn seed_admin(&self, email: &str, password: &str, role: &str) -> Uuid {
         let id = ids::new_uuid();
-        let hash = dronte::auth::hash_password(password).expect("hash password");
+        let hash = chimely::auth::hash_password(password).expect("hash password");
         sqlx::query(
             "INSERT INTO admin_users (id, email, name, role, password_hash)
              VALUES ($1, $2, $3, $4, $5)",
@@ -314,7 +314,7 @@ impl TestApp {
         let res = self
             .client
             .post(format!("{}/admin/api/login", self.base))
-            .header("x-dronte-admin", "1")
+            .header("x-chimely-admin", "1")
             .json(&serde_json::json!({ "email": email, "password": password }))
             .send()
             .await
@@ -335,7 +335,7 @@ impl TestApp {
             .expect("reqwest client");
         let res = client
             .post(format!("{}/admin/api/login", self.base))
-            .header("x-dronte-admin", "1")
+            .header("x-chimely-admin", "1")
             .json(&serde_json::json!({ "email": email, "password": password }))
             .send()
             .await
@@ -352,21 +352,21 @@ impl TestApp {
     pub fn admin_post(&self, path: &str, body: serde_json::Value) -> reqwest::RequestBuilder {
         self.client
             .post(format!("{}{path}", self.base))
-            .header("x-dronte-admin", "1")
+            .header("x-chimely-admin", "1")
             .json(&body)
     }
 
     pub fn admin_patch(&self, path: &str, body: serde_json::Value) -> reqwest::RequestBuilder {
         self.client
             .patch(format!("{}{path}", self.base))
-            .header("x-dronte-admin", "1")
+            .header("x-chimely-admin", "1")
             .json(&body)
     }
 
     pub fn admin_delete(&self, path: &str) -> reqwest::RequestBuilder {
         self.client
             .delete(format!("{}{path}", self.base))
-            .header("x-dronte-admin", "1")
+            .header("x-chimely-admin", "1")
     }
 
     pub fn subscriber_headers(&self, subscriber: &str) -> HeaderMap {
@@ -376,15 +376,15 @@ impl TestApp {
     pub fn subscriber_headers_for(&self, env: &TestEnvironment, subscriber: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert(
-            "X-Dronte-Environment",
+            "X-Chimely-Environment",
             HeaderValue::from_str(&env.slug).unwrap(),
         );
         headers.insert(
-            "X-Dronte-Subscriber",
+            "X-Chimely-Subscriber",
             HeaderValue::from_str(subscriber).unwrap(),
         );
         headers.insert(
-            "X-Dronte-Subscriber-Hash",
+            "X-Chimely-Subscriber-Hash",
             HeaderValue::from_str(&compute_subscriber_hash(&env.hmac_secret, subscriber)).unwrap(),
         );
         headers
@@ -636,7 +636,7 @@ impl TestApp {
     pub async fn assert_consistent(&self) {
         // Counter drift across EVERY subscriber, not a sample.
         let (unread_drift, unseen_drift) =
-            dronte::metrics_sampler::counter_drift(&self.pool, i64::MAX)
+            chimely::metrics_sampler::counter_drift(&self.pool, i64::MAX)
                 .await
                 .expect("counter drift");
         assert_eq!(

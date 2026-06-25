@@ -33,9 +33,9 @@ use crate::ids;
 use crate::roles::{Capability, Role};
 use crate::state::AppState;
 
-pub const HEADER_ENVIRONMENT: &str = "x-dronte-environment";
-pub const HEADER_SUBSCRIBER: &str = "x-dronte-subscriber";
-pub const HEADER_SUBSCRIBER_HASH: &str = "x-dronte-subscriber-hash";
+pub const HEADER_ENVIRONMENT: &str = "x-chimely-environment";
+pub const HEADER_SUBSCRIBER: &str = "x-chimely-subscriber";
+pub const HEADER_SUBSCRIBER_HASH: &str = "x-chimely-subscriber-hash";
 pub const QUERY_ENVIRONMENT: &str = "environment";
 pub const QUERY_SUBSCRIBER: &str = "subscriber_id";
 pub const QUERY_SUBSCRIBER_HASH: &str = "subscriber_hash";
@@ -100,12 +100,12 @@ impl FromRequestParts<AppState> for ManagementAuth {
 /// The admin session cookie. `Path=/admin` scoped, `HttpOnly` (no JS access,
 /// so XSS cannot exfiltrate it), `SameSite=Strict`, and `Secure` whenever TLS
 /// terminates in front of the binary (config `admin_tls_terminated`).
-pub const ADMIN_COOKIE: &str = "dronte_admin";
+pub const ADMIN_COOKIE: &str = "chimely_admin";
 
 /// CSRF defense for mutating admin requests. A cross-site form cannot set a
 /// custom header, and the admin plane has no CORS, so requiring it (on top of
 /// `SameSite=Strict`) closes forged-request paths.
-pub const ADMIN_CSRF_HEADER: &str = "x-dronte-admin";
+pub const ADMIN_CSRF_HEADER: &str = "x-chimely-admin";
 
 /// Minimum admin password length, enforced server-side on create/reset.
 pub const MIN_PASSWORD_LEN: usize = 12;
@@ -199,7 +199,7 @@ impl FromRequestParts<AppState> for AdminAuth {
     }
 }
 
-/// The `dronte_admin` cookie value, if present.
+/// The `chimely_admin` cookie value, if present.
 fn admin_cookie(headers: &HeaderMap) -> Option<String> {
     let raw = headers.get(COOKIE)?.to_str().ok()?;
     raw.split(';')
@@ -208,7 +208,7 @@ fn admin_cookie(headers: &HeaderMap) -> Option<String> {
         .map(|(_, value)| value.to_owned())
 }
 
-/// 403 unless the request carries a non-empty `X-Dronte-Admin` header.
+/// 403 unless the request carries a non-empty `X-Chimely-Admin` header.
 pub fn require_admin_csrf(headers: &HeaderMap) -> Result<(), ApiError> {
     let present = headers
         .get(ADMIN_CSRF_HEADER)
@@ -217,7 +217,7 @@ pub fn require_admin_csrf(headers: &HeaderMap) -> Result<(), ApiError> {
     if present {
         Ok(())
     } else {
-        Err(ApiError::forbidden("missing X-Dronte-Admin header"))
+        Err(ApiError::forbidden("missing X-Chimely-Admin header"))
     }
 }
 

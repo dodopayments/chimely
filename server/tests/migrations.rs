@@ -3,8 +3,8 @@
 
 mod support;
 
+use chimely::{db, ids, partitions};
 use chrono::{Datelike, Months, Utc};
-use dronte::{db, ids, partitions};
 
 #[tokio::test]
 async fn migrations_are_idempotent_and_gate_readiness() {

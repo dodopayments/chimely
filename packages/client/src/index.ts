@@ -1,5 +1,5 @@
 /**
- * @dronte/client, the framework-agnostic headless core.
+ * @chimely/client, the framework-agnostic headless core.
  *
  * The public surface is stable and additive-only. Wire types under ./generated
  * are produced from the server's exported OpenAPI document. Never hand-edit
@@ -7,13 +7,13 @@
  */
 
 export { BACKOFF_DEFAULTS } from './backoff';
-export { DronteClient } from './client';
-export { DronteError } from './errors';
+export { ChimelyClient } from './client';
+export { ChimelyError } from './errors';
 export type {
   BackoffConfig,
   BroadcastId,
+  ChimelyClientConfig,
   ConnectionStatus,
-  DronteClientConfig,
   EventSourceLike,
   InboxCounts,
   InboxItem,

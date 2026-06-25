@@ -1,15 +1,15 @@
 //! Periodically sampled gauges. Everything here is recomputed from Postgres
 //! on every sample, never carried from in-process state, so the numbers stay
 //! true across restarts and a stalled subsystem cannot freeze its own alarm.
-//! `dronte_partitions_remaining` keeps decaying even when the maintenance job
+//! `chimely_partitions_remaining` keeps decaying even when the maintenance job
 //! is dead, and that decay is the partition-headroom alert.
 //!
 //! Gauges emitted:
-//! * `dronte_queue_depth{environment,job_type}`: all pending job rows
-//! * `dronte_queue_due{environment,job_type}`: rows with run_at <= now()
-//! * `dronte_dead_letters{job_type}`: parked jobs awaiting replay
-//! * `dronte_partitions_remaining{table}`: pre-created future partitions
-//! * `dronte_counter_drift_unread` / `dronte_counter_drift_unseen`: summed
+//! * `chimely_queue_depth{environment,job_type}`: all pending job rows
+//! * `chimely_queue_due{environment,job_type}`: rows with run_at <= now()
+//! * `chimely_dead_letters{job_type}`: parked jobs awaiting replay
+//! * `chimely_partitions_remaining{table}`: pre-created future partitions
+//! * `chimely_counter_drift_unread` / `chimely_counter_drift_unseen`: summed
 //!   |recount - maintained| over a sample of recently-active subscribers
 
 use std::collections::HashSet;
@@ -47,8 +47,8 @@ pub async fn sample(pool: &PgPool, cfg: &Config) -> anyhow::Result<()> {
     sample_dead_letters(pool).await?;
     sample_partitions(pool).await?;
     let (unread_drift, unseen_drift) = counter_drift(pool, cfg.counter_drift_sample_size).await?;
-    metrics::gauge!("dronte_counter_drift_unread").set(unread_drift as f64);
-    metrics::gauge!("dronte_counter_drift_unseen").set(unseen_drift as f64);
+    metrics::gauge!("chimely_counter_drift_unread").set(unread_drift as f64);
+    metrics::gauge!("chimely_counter_drift_unseen").set(unseen_drift as f64);
     Ok(())
 }
 
@@ -70,10 +70,10 @@ async fn sample_queue_depth(pool: &PgPool) -> anyhow::Result<()> {
 
     let mut seen = HashSet::new();
     for row in rows {
-        metrics::gauge!("dronte_queue_depth",
+        metrics::gauge!("chimely_queue_depth",
             "environment" => row.slug.clone(), "job_type" => row.job_type.clone())
         .set(row.total as f64);
-        metrics::gauge!("dronte_queue_due",
+        metrics::gauge!("chimely_queue_due",
             "environment" => row.slug.clone(), "job_type" => row.job_type.clone())
         .set(row.due as f64);
         seen.insert((row.slug, row.job_type));
@@ -81,10 +81,10 @@ async fn sample_queue_depth(pool: &PgPool) -> anyhow::Result<()> {
     let mut previous = QUEUE_SERIES.lock().expect("queue series lock");
     if let Some(previous) = previous.as_ref() {
         for (slug, job_type) in previous.difference(&seen) {
-            metrics::gauge!("dronte_queue_depth",
+            metrics::gauge!("chimely_queue_depth",
                 "environment" => slug.clone(), "job_type" => job_type.clone())
             .set(0.0);
-            metrics::gauge!("dronte_queue_due",
+            metrics::gauge!("chimely_queue_due",
                 "environment" => slug.clone(), "job_type" => job_type.clone())
             .set(0.0);
         }
@@ -100,14 +100,14 @@ async fn sample_dead_letters(pool: &PgPool) -> anyhow::Result<()> {
             .await?;
     let mut seen = HashSet::new();
     for row in rows {
-        metrics::gauge!("dronte_dead_letters", "job_type" => row.job_type.clone())
+        metrics::gauge!("chimely_dead_letters", "job_type" => row.job_type.clone())
             .set(row.count as f64);
         seen.insert(row.job_type);
     }
     let mut previous = DLQ_SERIES.lock().expect("dlq series lock");
     if let Some(previous) = previous.as_ref() {
         for job_type in previous.difference(&seen) {
-            metrics::gauge!("dronte_dead_letters", "job_type" => job_type.clone()).set(0.0);
+            metrics::gauge!("chimely_dead_letters", "job_type" => job_type.clone()).set(0.0);
         }
     }
     *previous = Some(seen);
@@ -122,7 +122,7 @@ async fn sample_partitions(pool: &PgPool) -> anyhow::Result<()> {
         .await?;
     for table in partitions::PARTITIONED_TABLES {
         let remaining = partitions::remaining_at(&mut conn, table, now).await?;
-        metrics::gauge!("dronte_partitions_remaining", "table" => *table).set(remaining as f64);
+        metrics::gauge!("chimely_partitions_remaining", "table" => *table).set(remaining as f64);
     }
     Ok(())
 }

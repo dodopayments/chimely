@@ -1,11 +1,11 @@
 //! Boot-time bootstrap of the dev-quickstart environment and the root admin.
 //!
-//! Dev quickstart: `DRONTE_DEV_ENVIRONMENT` plus `DRONTE_DEV_API_KEY` seed one
+//! Dev quickstart: `CHIMELY_DEV_ENVIRONMENT` plus `CHIMELY_DEV_API_KEY` seed one
 //! dev environment with `require_subscriber_hash = false` so the widget
 //! connects without a backend, and the API key stored is the plaintext env
 //! value so the quickstart curl is copy-pasteable. Idempotent across restarts.
 //!
-//! Root admin: `DRONTE_ADMIN_EMAIL` + `DRONTE_ADMIN_PASSWORD` ensure a managed
+//! Root admin: `CHIMELY_ADMIN_EMAIL` + `CHIMELY_ADMIN_PASSWORD` ensure a managed
 //! `admin` account. This is the lockout-recovery path. Restart with the env
 //! vars set to restore admin access.
 
@@ -22,7 +22,7 @@ pub async fn run(pool: &PgPool, cfg: &Config) -> anyhow::Result<()> {
     tracing::warn!(
         environment = slug,
         "DEV bootstrap: subscriber hashes are NOT required in this environment. \
-         Unset DRONTE_DEV_ENVIRONMENT in production."
+         Unset CHIMELY_DEV_ENVIRONMENT in production."
     );
 
     // An existing environment is never modified. Rotating its HMAC secret
@@ -101,7 +101,7 @@ pub async fn ensure_admin(pool: &PgPool, cfg: &Config) -> anyhow::Result<()> {
     };
     let email = email.trim().to_lowercase();
     if password.chars().count() < crate::auth::MIN_PASSWORD_LEN {
-        anyhow::bail!("DRONTE_ADMIN_PASSWORD must be at least 12 characters");
+        anyhow::bail!("CHIMELY_ADMIN_PASSWORD must be at least 12 characters");
     }
 
     let existing = sqlx::query!(

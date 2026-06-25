@@ -5,7 +5,7 @@ mod support;
 
 use std::time::Duration;
 
-use dronte::metrics_sampler;
+use chimely::metrics_sampler;
 use serde_json::json;
 use support::SseStream;
 
@@ -31,7 +31,7 @@ async fn sampler_reports_queue_depth_dead_letters_partitions_and_zero_drift() {
          VALUES ($1, $2, 'deliver', '{}'::jsonb, 10, 10, 'boom', now())",
     )
     .bind(app.env.id)
-    .bind(dronte::ids::new_uuid())
+    .bind(chimely::ids::new_uuid())
     .execute(&app.pool)
     .await
     .unwrap();
@@ -40,18 +40,18 @@ async fn sampler_reports_queue_depth_dead_letters_partitions_and_zero_drift() {
     let body = scrape(&app).await;
 
     let depth_line = format!(
-        "dronte_queue_depth{{environment=\"{}\",job_type=\"hint\"}}",
+        "chimely_queue_depth{{environment=\"{}\",job_type=\"hint\"}}",
         app.env.slug
     );
     assert!(
         body.contains(&depth_line),
         "queue depth per env+type:\n{body}"
     );
-    assert!(body.contains("dronte_dead_letters{job_type=\"deliver\"} 1"));
-    assert!(body.contains("dronte_partitions_remaining{table=\"notifications\"} 13"));
-    assert!(body.contains("dronte_partitions_remaining{table=\"notification_status_log\"} 13"));
-    assert!(body.contains("dronte_counter_drift_unread 0"));
-    assert!(body.contains("dronte_counter_drift_unseen 0"));
+    assert!(body.contains("chimely_dead_letters{job_type=\"deliver\"} 1"));
+    assert!(body.contains("chimely_partitions_remaining{table=\"notifications\"} 13"));
+    assert!(body.contains("chimely_partitions_remaining{table=\"notification_status_log\"} 13"));
+    assert!(body.contains("chimely_counter_drift_unread 0"));
+    assert!(body.contains("chimely_counter_drift_unseen 0"));
 
     app.drain_jobs().await;
     metrics_sampler::sample(&app.pool, &app.cfg).await.unwrap();
@@ -71,26 +71,26 @@ async fn hint_latency_claim_counters_and_sse_connections_are_recorded() {
 
     let body = scrape(&app).await;
     assert!(
-        body.contains("dronte_sse_connections 1"),
+        body.contains("chimely_sse_connections 1"),
         "SSE gauge:\n{body}"
     );
     assert!(
-        body.contains("dronte_hint_publish_duration_seconds"),
+        body.contains("chimely_hint_publish_duration_seconds"),
         "publish duration histogram"
     );
     assert!(
-        body.contains("dronte_hint_delivery_lag_seconds"),
+        body.contains("chimely_hint_delivery_lag_seconds"),
         "enqueue-to-publish lag histogram"
     );
     assert!(
         body.contains(&format!(
-            "dronte_jobs_processed_total{{environment=\"{}\"}}",
+            "chimely_jobs_processed_total{{environment=\"{}\"}}",
             app.env.slug
         )),
         "claim counter per environment"
     );
     assert!(
-        body.contains("dronte_job_wait_seconds"),
+        body.contains("chimely_job_wait_seconds"),
         "fairness histogram"
     );
 }
@@ -112,7 +112,7 @@ async fn counter_drift_detects_an_artificially_poisoned_counter() {
     .await
     .unwrap();
     let mut conn = app.pool.acquire().await.unwrap();
-    dronte::jobs::enqueue_hint(&mut conn, app.env.id, &[subscriber], "read_state", &[])
+    chimely::jobs::enqueue_hint(&mut conn, app.env.id, &[subscriber], "read_state", &[])
         .await
         .unwrap();
     drop(conn);
@@ -166,5 +166,5 @@ async fn rate_limited_requests_bump_the_limit_counter() {
 
     tokio::time::sleep(Duration::from_millis(50)).await;
     let body = scrape(&app).await;
-    assert!(body.contains("dronte_rate_limited_total 1"), "{body}");
+    assert!(body.contains("chimely_rate_limited_total 1"), "{body}");
 }

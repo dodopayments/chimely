@@ -3,7 +3,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
-// Served by the dronte binary at /admin (rust-embed). The base path makes
+// Served by the chimely binary at /admin (rust-embed). The base path makes
 // every emitted asset URL absolute under /admin/.
 export default defineConfig({
   base: '/admin/',

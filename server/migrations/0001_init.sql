@@ -1,4 +1,4 @@
--- Dronte v1 core schema. Translated 1:1 from specs/schema.sql (the frozen
+-- Chimely v1 core schema. Translated 1:1 from specs/schema.sql (the frozen
 -- contract — see its header for the two-source inbox, watermark, counter, and
 -- shard-readiness invariants). Differences from the spec file, both sanctioned
 -- by it:

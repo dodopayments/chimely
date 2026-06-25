@@ -1,4 +1,4 @@
-# Dronte
+# Chimely
 
 Fair-source, self-hostable in-app notification inbox infrastructure: one Rust
 binary + Postgres (source of truth) + Redis (real-time plane), a small HTTP
@@ -8,8 +8,8 @@ API, and a drop-in `<Inbox />`.
 
 ```
 server/            Rust binary (single crate): API, SSE, workers
-packages/client/   @dronte/client — headless TS core
-packages/react/    @dronte/react  — hooks + <Inbox />
+packages/client/   @chimely/client — headless TS core
+packages/react/    @chimely/react  — hooks + <Inbox />
 docs/              Fumadocs site
 ```
 
@@ -91,8 +91,8 @@ require a CLA so exclusive commercialization rights hold.
 
 ## OpenAPI spec
 
-- The spec is **code-first via utoipa**; `dronte openapi` exports it. The docs
-  site and `@dronte/client` types are built from the export.
+- The spec is **code-first via utoipa**; `chimely openapi` exports it. The docs
+  site and `@chimely/client` types are built from the export.
 - `packages/client/src/generated/` and `docs/openapi/` are **generated**
   (`pnpm generate`) — never hand-edit them; regenerate and commit the result.
 
@@ -130,7 +130,7 @@ require a CLA so exclusive commercialization rights hold.
 
 **Server:** Rust stable (2024 edition, pinned via rust-toolchain.toml), axum 0.8 on tokio, sqlx (compile-time-checked raw SQL; built-in migrator, run on boot under advisory lock), Postgres ≥15, `fred` Redis client (resilient pub/sub), Redis Lua token bucket for cross-replica rate limiting, RustCrypto hmac+sha2, thiserror/anyhow, tracing + OTLP, metrics + Prometheus exporter. Single crate until compile times force a split.
 
-**OpenAPI tooling:** code-first via utoipa, rendered docs served from the binary via utoipa-scalar at /docs. The generated spec (`cargo run -- openapi`) is the published artifact. openapi-typescript consumes it for @dronte/client types. Annotation-vs-handler drift (utoipa response codes are hand-annotated) is guarded by the Rust contract-drift integration tests (server/tests/redteam_contract_drift*.rs), which assert the status a handler returns is the status its annotation declares.
+**OpenAPI tooling:** code-first via utoipa, rendered docs served from the binary via utoipa-scalar at /docs. The generated spec (`cargo run -- openapi`) is the published artifact. openapi-typescript consumes it for @chimely/client types. Annotation-vs-handler drift (utoipa response codes are hand-annotated) is guarded by the Rust contract-drift integration tests (server/tests/redteam_contract_drift*.rs), which assert the status a handler returns is the status its annotation declares.
 
 **Testing:** testcontainers-rs (Postgres + Redis), cargo-nextest, proptest for two-source merge and watermark invariants.
 
@@ -138,7 +138,7 @@ require a CLA so exclusive commercialization rights hold.
 
 **Admin SPA:** Vite + React + TanStack Query/Router, embedded via rust-embed.
 
-**Build/ship:** GitHub Actions (Swatinem/rust-cache), cargo-chef multi-stage Docker, debian-slim image. Docs: Fumadocs (Next.js), with fumadocs-openapi rendering the exported spec so the docs site stays generated-from-code too. `npx dronte dev`: postgresql_embedded, Redis-less mode (exercises the LISTEN/NOTIFY fallback).
+**Build/ship:** GitHub Actions (Swatinem/rust-cache), cargo-chef multi-stage Docker, debian-slim image. Docs: Fumadocs (Next.js), with fumadocs-openapi rendering the exported spec so the docs site stays generated-from-code too. `npx chimely dev`: postgresql_embedded, Redis-less mode (exercises the LISTEN/NOTIFY fallback).
 
 ## Commands
 

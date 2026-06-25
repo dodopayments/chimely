@@ -1,17 +1,17 @@
 /**
  * Plain CSS, injected once on first <Inbox /> mount. Theming happens through
- * the --dronte-* custom properties (set via InboxAppearance.variables) and
+ * the --chimely-* custom properties (set via InboxAppearance.variables) and
  * the per-slot class hooks. No styling dependency, no Tailwind.
  */
 export const INBOX_CSS = `
-.dronte-root {
+.chimely-root {
   position: relative;
   display: inline-block;
-  font-family: var(--dronte-fontFamily, system-ui, -apple-system, sans-serif);
-  font-size: var(--dronte-fontSize, 14px);
-  color: var(--dronte-colorForeground, #111827);
+  font-family: var(--chimely-fontFamily, system-ui, -apple-system, sans-serif);
+  font-size: var(--chimely-fontSize, 14px);
+  color: var(--chimely-colorForeground, #111827);
 }
-.dronte-bell {
+.chimely-bell {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -20,15 +20,15 @@ export const INBOX_CSS = `
   height: 36px;
   padding: 0;
   border: none;
-  border-radius: var(--dronte-borderRadius, 8px);
+  border-radius: var(--chimely-borderRadius, 8px);
   background: transparent;
   color: inherit;
   cursor: pointer;
 }
-.dronte-bell:hover {
-  background: var(--dronte-colorMuted, #f3f4f6);
+.chimely-bell:hover {
+  background: var(--chimely-colorMuted, #f3f4f6);
 }
-.dronte-badge {
+.chimely-badge {
   position: absolute;
   top: 2px;
   right: 2px;
@@ -36,14 +36,14 @@ export const INBOX_CSS = `
   height: 16px;
   padding: 0 4px;
   border-radius: 999px;
-  background: var(--dronte-colorBadge, #1264FF);
+  background: var(--chimely-colorBadge, #1264FF);
   color: #ffffff;
   font-size: 11px;
   font-weight: 600;
   line-height: 16px;
   text-align: center;
 }
-.dronte-popover {
+.chimely-popover {
   position: absolute;
   top: 0;
   left: 0;
@@ -52,135 +52,135 @@ export const INBOX_CSS = `
   width: 360px;
   max-height: 480px;
   overflow: hidden;
-  background: var(--dronte-colorBackground, #ffffff);
-  border: 1px solid var(--dronte-colorMuted, #e5e7eb);
-  border-radius: var(--dronte-borderRadius, 8px);
+  background: var(--chimely-colorBackground, #ffffff);
+  border: 1px solid var(--chimely-colorMuted, #e5e7eb);
+  border-radius: var(--chimely-borderRadius, 8px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   z-index: 1000;
 }
-.dronte-header {
+.chimely-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   padding: 10px 14px;
-  border-bottom: 1px solid var(--dronte-colorMuted, #e5e7eb);
+  border-bottom: 1px solid var(--chimely-colorMuted, #e5e7eb);
 }
-.dronte-header-title {
+.chimely-header-title {
   font-weight: 600;
 }
-.dronte-header-action {
+.chimely-header-action {
   border: none;
   background: transparent;
-  color: var(--dronte-colorPrimary, #1264FF);
+  color: var(--chimely-colorPrimary, #1264FF);
   font: inherit;
   cursor: pointer;
   padding: 2px 4px;
-  border-radius: var(--dronte-borderRadius, 8px);
+  border-radius: var(--chimely-borderRadius, 8px);
 }
-.dronte-header-action:hover {
-  background: var(--dronte-colorMuted, #f3f4f6);
-  color: var(--dronte-colorPrimaryHover, #004F32);
+.chimely-header-action:hover {
+  background: var(--chimely-colorMuted, #f3f4f6);
+  color: var(--chimely-colorPrimaryHover, #004F32);
 }
-.dronte-bell:focus-visible,
-.dronte-header-action:focus-visible,
-.dronte-item:focus-visible {
-  outline: 2px solid var(--dronte-colorPrimary, #1264FF);
+.chimely-bell:focus-visible,
+.chimely-header-action:focus-visible,
+.chimely-item:focus-visible {
+  outline: 2px solid var(--chimely-colorPrimary, #1264FF);
   outline-offset: 2px;
 }
-.dronte-list {
+.chimely-list {
   flex: 1;
   overflow-y: auto;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.dronte-sentinel {
+.chimely-sentinel {
   height: 1px;
 }
-.dronte-item {
+.chimely-item {
   display: flex;
   align-items: flex-start;
   gap: 10px;
   width: 100%;
   padding: 12px 14px;
   border: none;
-  border-bottom: 1px solid var(--dronte-colorMuted, #f3f4f6);
+  border-bottom: 1px solid var(--chimely-colorMuted, #f3f4f6);
   background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
-.dronte-item:hover {
-  background: var(--dronte-colorMuted, #f9fafb);
+.chimely-item:hover {
+  background: var(--chimely-colorMuted, #f9fafb);
 }
-.dronte-item-icon {
+.chimely-item-icon {
   width: 28px;
   height: 28px;
   border-radius: 50%;
   flex: none;
 }
-.dronte-item-text {
+.chimely-item-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
-.dronte-item-title {
+.chimely-item-title {
   font-weight: 500;
 }
-.dronte-item-unread .dronte-item-title {
+.chimely-item-unread .chimely-item-title {
   font-weight: 700;
 }
-.dronte-item-body {
-  color: var(--dronte-colorForeground, #374151);
+.chimely-item-body {
+  color: var(--chimely-colorForeground, #374151);
   opacity: 0.8;
 }
-.dronte-item-time {
+.chimely-item-time {
   font-size: 0.85em;
   opacity: 0.6;
 }
-.dronte-item-dot {
+.chimely-item-dot {
   width: 8px;
   height: 8px;
   margin-top: 6px;
   margin-left: auto;
   border-radius: 50%;
-  background: var(--dronte-colorPrimary, #1264FF);
+  background: var(--chimely-colorPrimary, #1264FF);
   flex: none;
 }
-.dronte-empty {
+.chimely-empty {
   padding: 32px 16px;
   text-align: center;
 }
-.dronte-empty-title {
+.chimely-empty-title {
   margin: 0 0 4px;
   font-weight: 600;
 }
-.dronte-empty-body {
+.chimely-empty-body {
   margin: 0;
   opacity: 0.7;
 }
-.dronte-footer {
+.chimely-footer {
   flex: none;
-  border-top: 1px solid var(--dronte-colorMuted, #f3f4f6);
+  border-top: 1px solid var(--chimely-colorMuted, #f3f4f6);
   min-height: 4px;
 }
-.dronte-preferences {
+.chimely-preferences {
   flex: 1;
   overflow-y: auto;
   padding: 8px 0;
 }
-.dronte-preference {
+.chimely-preference {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   padding: 10px 14px;
 }
-.dronte-preference input {
-  accent-color: var(--dronte-colorPrimary, #1264FF);
+.chimely-preference input {
+  accent-color: var(--chimely-colorPrimary, #1264FF);
 }
 `;
 
@@ -191,12 +191,12 @@ export function ensureStyles(): void {
   if (injected || typeof document === 'undefined') {
     return;
   }
-  if (document.querySelector('style[data-dronte]')) {
+  if (document.querySelector('style[data-chimely]')) {
     injected = true;
     return;
   }
   const element = document.createElement('style');
-  element.setAttribute('data-dronte', '');
+  element.setAttribute('data-chimely', '');
   element.textContent = INBOX_CSS;
   document.head.appendChild(element);
   injected = true;

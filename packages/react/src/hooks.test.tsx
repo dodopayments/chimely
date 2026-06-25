@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, test } from 'vitest';
-import { DronteProvider } from './context';
+import { ChimelyProvider } from './context';
 import {
   useInbox,
   useNotifications,
@@ -16,7 +16,7 @@ async function loadedWrapper(stub: StubServer, clientConfig: { pageSize?: number
   const client = makeClient(stub, clientConfig);
   await loadClient(client, stub);
   const wrapper = ({ children }: { children?: ReactNode }) => (
-    <DronteProvider client={client}>{children}</DronteProvider>
+    <ChimelyProvider client={client}>{children}</ChimelyProvider>
   );
   return { client, wrapper };
 }

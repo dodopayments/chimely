@@ -4,7 +4,7 @@
  * Payloads are the exception. They are wire format, passed through verbatim.
  */
 
-import type { DronteError } from './errors';
+import type { ChimelyError } from './errors';
 
 export type InboxItemSource = 'notification' | 'broadcast';
 
@@ -17,7 +17,7 @@ export type InboxItemId = NotificationId | BroadcastId;
 /**
  * The payload convention the default <Inbox /> rendering understands.
  * All fields optional. Payloads are customer-defined and pass through
- * Dronte verbatim (snake_case keys, never case-transformed by the SDK).
+ * Chimely verbatim (snake_case keys, never case-transformed by the SDK).
  * Unknown fields ride along for custom renderers. This interface only
  * ever gains optional fields.
  */
@@ -35,7 +35,7 @@ export interface WellKnownPayload {
 
 /**
  * One merged-inbox entry. `TPayload` lets apps type their own payloads.
- * Dronte never interprets payloads.
+ * Chimely never interprets payloads.
  */
 export interface InboxItem<TPayload = WellKnownPayload> {
   /** The TypeID prefix encodes the source. `source` is the ergonomic discriminator. */
@@ -93,8 +93,8 @@ export interface BackoffConfig {
   maxAttempts?: number;
 }
 
-export interface DronteClientConfig {
-  /** Dronte server origin, e.g. `https://dronte.example.com`. */
+export interface ChimelyClientConfig {
+  /** Chimely server origin, e.g. `https://chimely.dev`. */
   serverUrl: string;
   /** Environment slug, e.g. `dashboard-prod`. */
   environment: string;
@@ -149,5 +149,5 @@ export interface InboxSnapshot<TPayload = WellKnownPayload> {
   /** True during the initial load and refreshes (not during fetchMore). */
   isLoading: boolean;
   /** Last unrecovered error. Cleared by the next successful operation. */
-  error: DronteError | null;
+  error: ChimelyError | null;
 }

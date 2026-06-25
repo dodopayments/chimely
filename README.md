@@ -1,4 +1,4 @@
-# Dronte
+# Chimely
 
 Fair-source, self-hostable **in-app notification inbox infrastructure**.
 One Rust binary + Postgres + Redis, a deliberately small HTTP API, and a
@@ -9,8 +9,8 @@ primitive.
 
 ```
 server/            Rust binary: API, SSE, workers          (FSL-1.1-MIT)
-packages/client/   @dronte/client — headless TS core       (MIT)
-packages/react/    @dronte/react  — hooks + <Inbox />      (MIT)
+packages/client/   @chimely/client — headless TS core       (MIT)
+packages/react/    @chimely/react  — hooks + <Inbox />      (MIT)
 examples/          quickstarts and integration examples    (MIT)
 docs/              Fumadocs site                           (MIT)
 ```
@@ -20,7 +20,7 @@ docs/              Fumadocs site                           (MIT)
 The server embeds an operator dashboard at `/admin` (status/timeline browser,
 broadcast composer, subscriber lookup, DLQ replay, environment + API key
 management, HMAC rotation, and admin-user management). It ships inside the
-binary — `docker run dronte` serves it with no extra artifact.
+binary — `docker run chimely` serves it with no extra artifact.
 
 **Built-in users with roles.** The dashboard has its own login (email +
 password, Argon2id-hashed) backed by a server-side session cookie. Four fixed
@@ -34,23 +34,23 @@ per-environment user scoping):
 - **admin** — everything, including creating environments, rotating HMAC
   secrets, and managing users.
 
-**Bootstrap (root) admin.** On boot, if `DRONTE_ADMIN_EMAIL` and
-`DRONTE_ADMIN_PASSWORD` are set, Dronte ensures an `admin` account with that
+**Bootstrap (root) admin.** On boot, if `CHIMELY_ADMIN_EMAIL` and
+`CHIMELY_ADMIN_PASSWORD` are set, Chimely ensures an `admin` account with that
 email — creating it, or resetting its password to the env value if it drifted.
 This is the lockout-recovery path: restart with the env vars to restore admin
 access. Everyone else gets their own account from the Users page.
 
 ```bash
-DRONTE_ADMIN_EMAIL=ops@example.com \
-DRONTE_ADMIN_PASSWORD="$(openssl rand -hex 24)" \
-DRONTE_ADMIN_TLS_TERMINATED=true \
-  dronte serve
+CHIMELY_ADMIN_EMAIL=ops@example.com \
+CHIMELY_ADMIN_PASSWORD="$(openssl rand -hex 24)" \
+CHIMELY_ADMIN_TLS_TERMINATED=true \
+  chimely serve
 ```
 
 **TLS is required.** The session cookie is `HttpOnly; SameSite=Strict;
-Path=/admin`, marked `Secure` only when `DRONTE_ADMIN_TLS_TERMINATED=true`.
+Path=/admin`, marked `Secure` only when `CHIMELY_ADMIN_TLS_TERMINATED=true`.
 The binary serves plain HTTP, so terminate TLS at a proxy and set that flag;
-without it Dronte logs a boot-time warning and the cookie omits `Secure`.
+without it Chimely logs a boot-time warning and the cookie omits `Secure`.
 Passwords and session ids are never logged.
 
 ## License FAQ
@@ -62,13 +62,13 @@ MIT — they embed in your frontend, and they carry their own `LICENSE`
 files.
 
 **What does FSL mean for me?** You can use, self-host, modify, and
-redistribute Dronte freely — internally, in production, commercially, at
+redistribute Chimely freely — internally, in production, commercially, at
 any scale, for free, forever. The single thing the license prohibits is
-offering Dronte itself to others as a competing commercial product or
+offering Chimely itself to others as a competing commercial product or
 hosted service. Each release additionally converts to plain MIT two years
 after it ships.
 
-**Does the server license affect my application?** No. You run the Dronte
+**Does the server license affect my application?** No. You run the Chimely
 binary as a standalone network service and integrate over HTTP through the
 MIT-licensed SDKs. Nothing about the server's license reaches your
 codebase, and calling the HTTP API creates no obligations.
@@ -82,7 +82,7 @@ second anniversary.
 the documentation content are MIT, so third-party clients, bindings, and
 integrations are unambiguous.
 
-**The name and logo?** Not licensed. "Dronte" and the logo remain with the
+**The name and logo?** Not licensed. "Chimely" and the logo remain with the
 project regardless of code license — that, not the code license, is the
 protection against confusing forks.
 

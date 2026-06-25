@@ -105,7 +105,7 @@ async fn mark_all_read_gc_keeps_an_above_watermark_exception() {
         .post_inbox(SUB, &format!("/v1/inbox/broadcasts/{below_id}/read"))
         .await;
     assert_eq!(res.status(), 204);
-    let below_uuid = dronte::ids::parse_typeid(dronte::ids::BROADCAST, &below_id).unwrap();
+    let below_uuid = chimely::ids::parse_typeid(chimely::ids::BROADCAST, &below_id).unwrap();
     assert!(broadcast_read_exists(&app, sub_id, below_uuid).await);
 
     // SHARE lock on `jobs` so the handler's enqueue_timeline INSERT blocks after
@@ -149,7 +149,7 @@ async fn mark_all_read_gc_keeps_an_above_watermark_exception() {
     // between its watermark UPDATE and its GC DELETE. broadcast_created_at is
     // clock_timestamp() now, strictly after the watermark W. It commits before
     // the DELETE statement starts, so it lands in the DELETE's snapshot.
-    let above_uuid = dronte::ids::new_uuid();
+    let above_uuid = chimely::ids::new_uuid();
     let above_created_at: DateTime<Utc> = sqlx::query_scalar(
         "INSERT INTO broadcasts (environment_id, id, category, created_at)
          VALUES ($1, $2, 'above', clock_timestamp())
@@ -212,7 +212,7 @@ async fn mark_all_read_gc_keeps_an_above_watermark_exception() {
     );
 
     // User-facing symptom: the above-watermark broadcast stays read in the list.
-    let above_typeid = dronte::ids::typeid(dronte::ids::BROADCAST, above_uuid);
+    let above_typeid = chimely::ids::typeid(chimely::ids::BROADCAST, above_uuid);
     let item_read = app
         .list_all_items(SUB, 50)
         .await

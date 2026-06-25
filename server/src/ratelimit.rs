@@ -44,7 +44,7 @@ pub async fn enforce(
     match limiter.check(key, rate_per_sec, burst).await {
         Decision::Allowed => Ok(()),
         Decision::Limited { retry_after } => {
-            metrics::counter!("dronte_rate_limited_total").increment(1);
+            metrics::counter!("chimely_rate_limited_total").increment(1);
             Err(crate::error::ApiError::rate_limited(retry_after))
         }
     }
@@ -126,7 +126,7 @@ impl RateLimiter for RedisRateLimiter {
             .script
             .evalsha_with_reload(
                 &self.client,
-                vec![format!("dronte:rl:{key}")],
+                vec![format!("chimely:rl:{key}")],
                 vec![rate_per_sec.to_string(), burst.to_string()],
             )
             .await;
@@ -138,7 +138,7 @@ impl RateLimiter for RedisRateLimiter {
             // Fail OPEN. Redis loss may loosen limits. It must never reject
             // traffic Postgres could serve.
             Err(err) => {
-                metrics::counter!("dronte_rate_limit_errors_total").increment(1);
+                metrics::counter!("chimely_rate_limit_errors_total").increment(1);
                 tracing::warn!(error = ?err, "rate limiter unavailable; failing open");
                 Decision::Allowed
             }

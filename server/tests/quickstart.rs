@@ -1,6 +1,6 @@
 //! Quickstart enablers. Dev bootstrap mints an environment and API key from
 //! env-var config. Subscriber-plane CORS lets the widget run in a browser
-//! against a local Redis-less dronte.
+//! against a local Redis-less chimely.
 
 mod support;
 
@@ -11,10 +11,10 @@ async fn dev_bootstrap_seeds_an_environment_and_key_idempotently() {
     cfg.dev_environment = Some("demo".into());
     cfg.dev_api_key = Some("dev-secret-key".into());
 
-    dronte::bootstrap::run(&app.pool, &cfg)
+    chimely::bootstrap::run(&app.pool, &cfg)
         .await
         .expect("first bootstrap");
-    dronte::bootstrap::run(&app.pool, &cfg)
+    chimely::bootstrap::run(&app.pool, &cfg)
         .await
         .expect("bootstrap reruns cleanly");
 
@@ -78,7 +78,7 @@ async fn dev_bootstrap_leaves_an_existing_environment_untouched() {
     .unwrap();
     assert!(before.1, "the support environment requires hashes");
 
-    dronte::bootstrap::run(&app.pool, &cfg)
+    chimely::bootstrap::run(&app.pool, &cfg)
         .await
         .expect("bootstrap against an existing environment succeeds");
 
@@ -102,7 +102,7 @@ async fn dev_bootstrap_truncates_the_key_prefix_on_a_char_boundary() {
     // Byte 14 falls inside the two-byte é. A fixed byte slice would panic.
     cfg.dev_api_key = Some("abcdefghijklmé-secret".into());
 
-    dronte::bootstrap::run(&app.pool, &cfg)
+    chimely::bootstrap::run(&app.pool, &cfg)
         .await
         .expect("a multi-byte key must not panic the bootstrap");
 
@@ -131,7 +131,7 @@ async fn subscriber_plane_is_cors_enabled_for_the_widget() {
         .header("Access-Control-Request-Method", "GET")
         .header(
             "Access-Control-Request-Headers",
-            "x-dronte-environment,x-dronte-subscriber,if-none-match",
+            "x-chimely-environment,x-chimely-subscriber,if-none-match",
         )
         .send()
         .await
@@ -150,9 +150,9 @@ async fn subscriber_plane_is_cors_enabled_for_the_widget() {
         .unwrap_or_default()
         .to_ascii_lowercase();
     for header in [
-        "x-dronte-environment",
-        "x-dronte-subscriber",
-        "x-dronte-subscriber-hash",
+        "x-chimely-environment",
+        "x-chimely-subscriber",
+        "x-chimely-subscriber-hash",
         "if-none-match",
     ] {
         assert!(allowed_headers.contains(header), "missing {header}");
@@ -165,8 +165,8 @@ async fn subscriber_plane_is_cors_enabled_for_the_widget() {
         .client
         .get(format!("{}/v1/inbox/items", app.base))
         .header("Origin", "https://customer.example")
-        .header("X-Dronte-Environment", &app.env.slug)
-        .header("X-Dronte-Subscriber", "usr_cors")
+        .header("X-Chimely-Environment", &app.env.slug)
+        .header("X-Chimely-Subscriber", "usr_cors")
         .send()
         .await
         .unwrap();

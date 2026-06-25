@@ -1,7 +1,7 @@
-import type { DronteClient } from '@dronte/client';
+import type { ChimelyClient } from '@chimely/client';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { DronteProvider } from './context';
+import { ChimelyProvider } from './context';
 import type { InboxProps } from './Inbox';
 import { Inbox } from './Inbox';
 import { navigation } from './navigation';
@@ -34,13 +34,13 @@ async function renderInbox(
   stub: StubServer,
   props: InboxProps = {},
   clientConfig: { pageSize?: number } = {},
-): Promise<{ client: DronteClient; unmount: () => void }> {
+): Promise<{ client: ChimelyClient; unmount: () => void }> {
   const client = makeClient(stub, clientConfig);
   await loadClient(client, stub);
   const { unmount } = render(
-    <DronteProvider client={client}>
+    <ChimelyProvider client={client}>
       <Inbox {...props} />
-    </DronteProvider>,
+    </ChimelyProvider>,
   );
   return { client, unmount };
 }
@@ -53,7 +53,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   MockIntersectionObserver.instances = [];
-  document.querySelector('style[data-dronte]')?.remove();
+  document.querySelector('style[data-chimely]')?.remove();
 });
 
 describe('bell and badge', () => {
@@ -65,14 +65,14 @@ describe('bell and badge', () => {
 
     expect(bell()).toBeDefined();
     expect(screen.getByText('2')).toBeDefined();
-    expect(document.querySelectorAll('style[data-dronte]')).toHaveLength(1);
+    expect(document.querySelectorAll('style[data-chimely]')).toHaveLength(1);
   });
 
   test('no badge when nothing is unseen', async () => {
     const stub = createStubServer();
     stub.addNotification({ seen: true });
     await renderInbox(stub);
-    expect(document.querySelector('.dronte-badge')).toBeNull();
+    expect(document.querySelector('.chimely-badge')).toBeNull();
   });
 
   test('renderBell fully replaces the bell contents', async () => {
@@ -84,7 +84,7 @@ describe('bell and badge', () => {
       ),
     });
     expect(screen.getByTestId('custom-bell').textContent).toBe('1:closed');
-    expect(document.querySelector('.dronte-badge')).toBeNull();
+    expect(document.querySelector('.chimely-badge')).toBeNull();
   });
 });
 
@@ -101,7 +101,7 @@ describe('popover', () => {
     });
     expect(client.getSnapshot().counts.unseen).toBe(0);
     expect(client.getSnapshot().counts.unread).toBe(1);
-    expect(document.querySelector('.dronte-badge')).toBeNull();
+    expect(document.querySelector('.chimely-badge')).toBeNull();
   });
 
   test('escape closes the popover', async () => {
@@ -120,11 +120,11 @@ describe('popover', () => {
     await renderInbox(stub);
     fireEvent.click(bell());
 
-    const titles = [...document.querySelectorAll('.dronte-item-title')].map(
+    const titles = [...document.querySelectorAll('.chimely-item-title')].map(
       (node) => node.textContent,
     );
     expect(titles).toEqual(['newer', 'older']);
-    const unreadItems = document.querySelectorAll('.dronte-item-unread');
+    const unreadItems = document.querySelectorAll('.chimely-item-unread');
     expect(unreadItems).toHaveLength(1);
     expect(unreadItems[0]?.textContent).toContain('newer');
   });
@@ -278,7 +278,9 @@ describe('preferences panel', () => {
 
     fireEvent.click(checkbox);
     await waitFor(() => {
-      expect(stub.requestsFor('/v1/inbox/preferences').some((r) => r.method === 'PUT')).toBe(true);
+      expect(stub.requestsFor('/v1/inbox/preferences').some((r) => r.method === 'PUT')).toBe(
+        true,
+      );
     });
     const write = stub.requestsFor('/v1/inbox/preferences').find((r) => r.method === 'PUT');
     expect(write?.body).toEqual({
@@ -297,7 +299,7 @@ describe('preferences panel', () => {
 });
 
 describe('appearance', () => {
-  test('variables land on the root as --dronte-* custom properties, forwarded verbatim', async () => {
+  test('variables land on the root as --chimely-* custom properties, forwarded verbatim', async () => {
     const stub = createStubServer();
     await renderInbox(stub, {
       appearance: {
@@ -308,10 +310,10 @@ describe('appearance', () => {
         },
       },
     });
-    const root = document.querySelector('.dronte-root') as HTMLElement;
-    expect(root.style.getPropertyValue('--dronte-colorPrimary')).toBe('#ff0000');
-    expect(root.style.getPropertyValue('--dronte-fontSize')).toBe('16px');
-    expect(root.style.getPropertyValue('--dronte-customThing')).toBe('4px');
+    const root = document.querySelector('.chimely-root') as HTMLElement;
+    expect(root.style.getPropertyValue('--chimely-colorPrimary')).toBe('#ff0000');
+    expect(root.style.getPropertyValue('--chimely-fontSize')).toBe('16px');
+    expect(root.style.getPropertyValue('--chimely-customThing')).toBe('4px');
   });
 
   test('slot classNames apply alongside the default classes', async () => {
@@ -329,14 +331,14 @@ describe('appearance', () => {
         },
       },
     });
-    expect(document.querySelector('.dronte-root.my-root')).not.toBeNull();
-    expect(document.querySelector('.dronte-bell.my-bell')).not.toBeNull();
-    expect(document.querySelector('.dronte-badge.my-badge')).not.toBeNull();
+    expect(document.querySelector('.chimely-root.my-root')).not.toBeNull();
+    expect(document.querySelector('.chimely-bell.my-bell')).not.toBeNull();
+    expect(document.querySelector('.chimely-badge.my-badge')).not.toBeNull();
 
     fireEvent.click(bell());
-    expect(document.querySelector('.dronte-popover.my-popover')).not.toBeNull();
-    expect(document.querySelector('.dronte-item.my-item')).not.toBeNull();
-    expect(document.querySelector('.dronte-item-unread.my-unread')).not.toBeNull();
+    expect(document.querySelector('.chimely-popover.my-popover')).not.toBeNull();
+    expect(document.querySelector('.chimely-item.my-item')).not.toBeNull();
+    expect(document.querySelector('.chimely-item-unread.my-unread')).not.toBeNull();
   });
 });
 
@@ -378,7 +380,7 @@ describe('standalone mode', () => {
 
     const { unmount } = render(
       <Inbox
-        serverUrl="https://dronte.test"
+        serverUrl="https://chimely.test"
         environment={stub.environment}
         subscriberId={stub.subscriberId}
         subscriberHash="cafe"

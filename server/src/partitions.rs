@@ -8,7 +8,7 @@
 //! partition: a missing partition is a loud insert error, never silent
 //! unprunable growth. Retention is DETACH then DROP.
 //!
-//! Exposes the `dronte_partitions_remaining{table}` gauge: the count of
+//! Exposes the `chimely_partitions_remaining{table}` gauge: the count of
 //! pre-created partitions still entirely in the future. The metrics sampler
 //! recomputes it from pg_inherits on every sample independently of this job
 //! (`remaining_at`), so a stalled job shows the gauge decaying by 1 per month
@@ -111,7 +111,7 @@ async fn run_locked(
         }
 
         let future_partitions = remaining_at(&mut *conn, table, now).await?;
-        metrics::gauge!("dronte_partitions_remaining", "table" => *table)
+        metrics::gauge!("chimely_partitions_remaining", "table" => *table)
             .set(future_partitions as f64);
     }
 

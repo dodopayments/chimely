@@ -39,7 +39,7 @@ function FullScreenSpinner() {
 // Resolves the signed-in admin before rendering the app. While loading shows a
 // spinner, unauthenticated renders the login screen, authenticated provides
 // the user + capability checks to the tree. A 401 from any API call routes
-// back to login via the `dronte-admin-unauthorized` event.
+// back to login via the `chimely-admin-unauthorized` event.
 export function AuthGate({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AdminMe | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,8 +60,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const onUnauthorized = () => setUser(null);
-    window.addEventListener('dronte-admin-unauthorized', onUnauthorized);
-    return () => window.removeEventListener('dronte-admin-unauthorized', onUnauthorized);
+    window.addEventListener('chimely-admin-unauthorized', onUnauthorized);
+    return () => window.removeEventListener('chimely-admin-unauthorized', onUnauthorized);
   }, []);
 
   const logout = useCallback(async () => {

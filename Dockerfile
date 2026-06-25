@@ -2,7 +2,7 @@
 # Multi-stage build. A Node stage builds the embedded admin SPA
 # (server/admin -> server/admin/dist); the cargo-chef Rust stages then embed
 # that bundle into the single binary via rust-embed. The image stays one file:
-# `docker run dronte` ships the dashboard with no extra artifact.
+# `docker run chimely` ships the dashboard with no extra artifact.
 
 # --- Admin SPA: server/admin -> server/admin/dist ---
 FROM node:24-slim AS admin
@@ -12,8 +12,8 @@ WORKDIR /app
 # The whole workspace is needed so pnpm can resolve the committed lockfile;
 # the focused install pulls only the admin SPA's subtree.
 COPY . .
-RUN pnpm install --frozen-lockfile --filter dronte-admin...
-RUN pnpm --filter dronte-admin build
+RUN pnpm install --frozen-lockfile --filter chimely-admin...
+RUN pnpm --filter chimely-admin build
 
 # --- Rust build (cargo-chef: dependency layers cached independently of src) ---
 FROM lukemathwalker/cargo-chef:latest-rust-1.96.0 AS chef
@@ -39,15 +39,15 @@ COPY server/migrations ./migrations
 # populated admin/dist untouched (it only writes a placeholder when missing).
 COPY --from=admin /app/server/admin/dist ./admin/dist
 ENV SQLX_OFFLINE=true
-RUN cargo build --release --bin dronte
+RUN cargo build --release --bin chimely
 
 FROM debian:trixie-slim AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --uid 10001 --user-group dronte
-COPY --from=builder /app/target/release/dronte /usr/local/bin/dronte
-USER dronte
+    && useradd --system --uid 10001 --user-group chimely
+COPY --from=builder /app/target/release/chimely /usr/local/bin/chimely
+USER chimely
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/dronte"]
+ENTRYPOINT ["/usr/local/bin/chimely"]
 CMD ["serve"]

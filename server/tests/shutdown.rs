@@ -6,7 +6,7 @@ mod support;
 
 use std::time::Duration;
 
-use dronte::worker;
+use chimely::worker;
 use serde_json::json;
 
 #[tokio::test]

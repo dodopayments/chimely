@@ -99,13 +99,13 @@ pub async fn sweep_once(pool: &PgPool, pubsub: &dyn PubSub, cfg: &Config) -> any
         match process_one(pool, pubsub, cfg, env.environment_id).await {
             Ok(true) => {
                 processed += 1;
-                metrics::counter!("dronte_jobs_processed_total", "environment" => env.slug)
+                metrics::counter!("chimely_jobs_processed_total", "environment" => env.slug)
                     .increment(1);
             }
             Ok(false) => {}
             Err(err) => {
                 tracing::error!(error = ?err, environment = %env.environment_id, "job processing failed");
-                metrics::counter!("dronte_jobs_failed_total", "environment" => env.slug)
+                metrics::counter!("chimely_jobs_failed_total", "environment" => env.slug)
                     .increment(1);
             }
         }
@@ -142,7 +142,8 @@ pub async fn process_one(
     // Claim-to-due latency, the fairness signal: a starved environment shows
     // an unbounded wait here long before users notice late hints.
     let wait = (Utc::now() - job.run_at).num_milliseconds().max(0) as f64 / 1000.0;
-    metrics::histogram!("dronte_job_wait_seconds", "job_type" => job.job_type.clone()).record(wait);
+    metrics::histogram!("chimely_job_wait_seconds", "job_type" => job.job_type.clone())
+        .record(wait);
 
     // The span joins the trace that enqueued the job (traceparent rides in
     // the payload), so one trace covers ingest -> outbox -> worker -> hint.
@@ -302,7 +303,7 @@ async fn fail_job(
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        metrics::counter!("dronte_jobs_parked_total", "job_type" => row.job_type.clone())
+        metrics::counter!("chimely_jobs_parked_total", "job_type" => row.job_type.clone())
             .increment(1);
         tracing::error!(
             environment = %env, job = %id, job_type = %row.job_type,
@@ -313,7 +314,7 @@ async fn fail_job(
     }
 
     tx.commit().await?;
-    metrics::counter!("dronte_jobs_retried_total", "job_type" => row.job_type).increment(1);
+    metrics::counter!("chimely_jobs_retried_total", "job_type" => row.job_type).increment(1);
     Ok(())
 }
 
@@ -407,12 +408,12 @@ async fn process_hint(
                     reason: reason.clone(),
                 })
                 .await?;
-            metrics::histogram!("dronte_hint_publish_duration_seconds")
+            metrics::histogram!("chimely_hint_publish_duration_seconds")
                 .record(started.elapsed().as_secs_f64());
             // Enqueue-to-publish lag: the end-to-end hint latency a
             // subscriber experiences (queue wait + debounce included).
             let lag = (Utc::now() - job_created_at).num_milliseconds().max(0) as f64 / 1000.0;
-            metrics::histogram!("dronte_hint_delivery_lag_seconds").record(lag);
+            metrics::histogram!("chimely_hint_delivery_lag_seconds").record(lag);
             if let Some(sub) = target {
                 published.push(sub);
             }

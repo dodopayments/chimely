@@ -29,9 +29,9 @@ pub fn router(state: AppState) -> Router {
         .allow_headers([
             header::CONTENT_TYPE,
             header::IF_NONE_MATCH,
-            HeaderName::from_static("x-dronte-environment"),
-            HeaderName::from_static("x-dronte-subscriber"),
-            HeaderName::from_static("x-dronte-subscriber-hash"),
+            HeaderName::from_static("x-chimely-environment"),
+            HeaderName::from_static("x-chimely-subscriber"),
+            HeaderName::from_static("x-chimely-subscriber-hash"),
         ])
         .expose_headers([header::ETAG])
         .max_age(Duration::from_secs(3600));
@@ -229,7 +229,7 @@ async fn access_log(
     let span = tracing::info_span!("http.request", %method, %path);
     let response = next.run(req).instrument(span).await;
     tracing::info!(
-        target: "dronte::access",
+        target: "chimely::access",
         %method,
         %path,
         query = query.as_deref().unwrap_or(""),

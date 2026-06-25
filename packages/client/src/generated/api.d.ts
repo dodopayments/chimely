@@ -251,7 +251,7 @@ export interface paths {
         put?: never;
         /**
          * Log in with email + password; starts a server-side session
-         * @description On success sets the `dronte_admin` session cookie (HttpOnly, SameSite=Strict, Path=/admin). Failure returns a generic error that does not reveal which field was wrong.
+         * @description On success sets the `chimely_admin` session cookie (HttpOnly, SameSite=Strict, Path=/admin). Failure returns a generic error that does not reveal which field was wrong.
          */
         post: operations["adminLogin"];
         delete?: never;
@@ -1828,7 +1828,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Missing X-Dronte-Admin header. */
+            /** @description Missing X-Chimely-Admin header. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -1862,7 +1862,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Missing X-Dronte-Admin header. */
+            /** @description Missing X-Chimely-Admin header. */
             403: {
                 headers: {
                     [name: string]: unknown;

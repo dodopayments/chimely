@@ -2,7 +2,7 @@ import type { components } from './generated/api';
 
 type ErrorEnvelope = components['schemas']['Error'];
 
-export class DronteError extends Error {
+export class ChimelyError extends Error {
   /** Server error-envelope code, or a client-side code ('network', 'unauthorized'). */
   readonly code: string;
   /** HTTP status when the error came from the server. */
@@ -10,7 +10,7 @@ export class DronteError extends Error {
 
   constructor(message: string, options: { code: string; status?: number; cause?: unknown }) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
-    this.name = 'DronteError';
+    this.name = 'ChimelyError';
     this.code = options.code;
     if (options.status !== undefined) {
       this.status = options.status;
@@ -31,8 +31,8 @@ function fallbackCode(status: number): string {
   }
 }
 
-/** Builds a DronteError from a non-2xx response, reading the error envelope when present. */
-export async function errorFromResponse(response: Response): Promise<DronteError> {
+/** Builds a ChimelyError from a non-2xx response, reading the error envelope when present. */
+export async function errorFromResponse(response: Response): Promise<ChimelyError> {
   let code = fallbackCode(response.status);
   let message = `request failed with status ${response.status}`;
   try {
@@ -44,11 +44,11 @@ export async function errorFromResponse(response: Response): Promise<DronteError
   } catch {
     // Envelope absent or unparsable. The status-derived code stands.
   }
-  return new DronteError(message, { code, status: response.status });
+  return new ChimelyError(message, { code, status: response.status });
 }
 
 /** Wraps a thrown fetch failure (DNS, refused connection, abort) as a network error. */
-export function networkError(cause: unknown): DronteError {
+export function networkError(cause: unknown): ChimelyError {
   const message = cause instanceof Error ? cause.message : 'network request failed';
-  return new DronteError(message, { code: 'network', cause });
+  return new ChimelyError(message, { code: 'network', cause });
 }

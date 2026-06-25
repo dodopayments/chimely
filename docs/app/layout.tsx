@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import './global.css';
 
 export const metadata = {
-  title: 'Dronte',
+  title: 'Chimely',
   description: 'In-app notification inbox infrastructure.',
 };
 

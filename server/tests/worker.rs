@@ -4,8 +4,8 @@
 
 mod support;
 
+use chimely::{jobs, worker};
 use chrono::Utc;
-use dronte::{jobs, worker};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -367,7 +367,7 @@ async fn dead_letter_replay_reruns_the_job_exactly_once() {
     assert_eq!(unread, 0, "parked job applied no effects");
 
     // Replay grants a fresh attempt budget and re-enqueues NOW.
-    let replayed = dronte::dlq::replay_all(&app.pool, Some(app.env.id))
+    let replayed = chimely::dlq::replay_all(&app.pool, Some(app.env.id))
         .await
         .unwrap();
     assert_eq!(replayed, 1);

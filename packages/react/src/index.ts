@@ -1,12 +1,12 @@
 /**
- * Hooks and <Inbox /> on top of @dronte/client.
+ * Hooks and <Inbox /> on top of @chimely/client.
  *
  * The public surface is stable and additive-only.
  * Zero styling dependencies. @floating-ui/dom is the only runtime UI dependency.
  */
 
-export type { DronteProviderProps } from './context';
-export { DronteProvider, useDronteClient } from './context';
+export type { ChimelyProviderProps } from './context';
+export { ChimelyProvider, useChimelyClient } from './context';
 export type {
   UseCountResult,
   UseInboxResult,

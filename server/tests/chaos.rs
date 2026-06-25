@@ -7,8 +7,8 @@ mod support;
 
 use std::time::Duration;
 
+use chimely::{db, jobs, partitions, worker};
 use chrono::Utc;
-use dronte::{db, jobs, partitions, worker};
 use serde_json::json;
 use support::SseStream;
 use testcontainers_modules::postgres::Postgres as PostgresImage;
@@ -473,7 +473,7 @@ async fn sustained_jobs_churn_stays_bounded_under_autovacuum() {
     .await
     .unwrap();
 
-    let cfg = dronte::config::Config {
+    let cfg = chimely::config::Config {
         database_url: url.clone(),
         redis_url: None,
         listen_addr: String::new(),
@@ -503,7 +503,7 @@ async fn sustained_jobs_churn_stays_bounded_under_autovacuum() {
         shutdown_drain_deadline: Duration::from_secs(5),
     };
     let cfg = std::sync::Arc::new(cfg);
-    let pubsub = dronte::pubsub::build(None, &pool).await.unwrap();
+    let pubsub = chimely::pubsub::build(None, &pool).await.unwrap();
 
     // Deep single-environment backlog is the worst case for the claim query.
     // One fairness slot, every worker contending on the same index head.

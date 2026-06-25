@@ -1,7 +1,7 @@
 // Admin API client. Every endpoint is same-origin under /admin/api/* and
 // gated by a server-side session cookie (set by POST /admin/api/login). The
 // cookie rides automatically on same-origin fetches; mutating requests also
-// send the X-Dronte-Admin header (CSRF defense — a cross-site form cannot).
+// send the X-Chimely-Admin header (CSRF defense — a cross-site form cannot).
 
 export interface ApiError {
   status: number;
@@ -29,13 +29,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
       // CSRF: a cross-site form cannot set a custom header, and the admin
       // plane has no CORS. Required server-side on every mutating request.
-      ...(mutating ? { 'X-Dronte-Admin': '1' } : {}),
+      ...(mutating ? { 'X-Chimely-Admin': '1' } : {}),
       ...init?.headers,
     },
   });
 
   if (res.status === 401) {
-    window.dispatchEvent(new CustomEvent('dronte-admin-unauthorized'));
+    window.dispatchEvent(new CustomEvent('chimely-admin-unauthorized'));
     throw new ApiRequestError({ status: 401, code: 'unauthorized', message: 'Session expired' });
   }
 

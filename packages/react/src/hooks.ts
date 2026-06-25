@@ -1,6 +1,6 @@
 import type {
+  ChimelyClient,
   ConnectionStatus,
-  DronteClient,
   InboxCounts,
   InboxItem,
   InboxItemId,
@@ -8,13 +8,13 @@ import type {
   InboxSnapshot,
   Preference,
   WellKnownPayload,
-} from '@dronte/client';
-import { DronteError } from '@dronte/client';
+} from '@chimely/client';
+import { ChimelyError } from '@chimely/client';
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { useDronteClient } from './context';
+import { useChimelyClient } from './context';
 
-function useTypedClient<TPayload>(): DronteClient<TPayload> {
-  return useDronteClient() as unknown as DronteClient<TPayload>;
+function useTypedClient<TPayload>(): ChimelyClient<TPayload> {
+  return useChimelyClient() as unknown as ChimelyClient<TPayload>;
 }
 
 function useInboxSnapshot<TPayload>(): InboxSnapshot<TPayload> {
@@ -27,12 +27,12 @@ function useInboxSnapshot<TPayload>(): InboxSnapshot<TPayload> {
   );
 }
 
-function asDronteError(cause: unknown): DronteError {
-  if (cause instanceof DronteError) {
+function asChimelyError(cause: unknown): ChimelyError {
+  if (cause instanceof ChimelyError) {
     return cause;
   }
   const message = cause instanceof Error ? cause.message : 'request failed';
-  return new DronteError(message, { code: 'network', cause });
+  return new ChimelyError(message, { code: 'network', cause });
 }
 
 export interface UseNotificationsOptions {
@@ -43,7 +43,7 @@ export interface UseNotificationsOptions {
 export interface UseNotificationsResult<TPayload = WellKnownPayload> {
   items: ReadonlyArray<InboxItem<TPayload>>;
   isLoading: boolean;
-  error: DronteError | null;
+  error: ChimelyError | null;
   hasMore: boolean;
   fetchMore: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -83,7 +83,7 @@ export function useNotifications<TPayload = WellKnownPayload>(
 export interface UseCountResult {
   count: number;
   isLoading: boolean;
-  error: DronteError | null;
+  error: ChimelyError | null;
 }
 
 /** Live unread count. */
@@ -103,7 +103,7 @@ export interface UsePreferencesResult {
   preferences: ReadonlyArray<Preference>;
   setPreferences: (preferences: Preference[]) => Promise<void>;
   isLoading: boolean;
-  error: DronteError | null;
+  error: ChimelyError | null;
 }
 
 function applyWrites(rows: ReadonlyArray<Preference>, writes: Preference[]): Preference[] {
@@ -121,9 +121,9 @@ function applyWrites(rows: ReadonlyArray<Preference>, writes: Preference[]): Pre
 }
 
 export function usePreferences(): UsePreferencesResult {
-  const client = useDronteClient();
+  const client = useChimelyClient();
   const [rows, setRows] = useState<ReadonlyArray<Preference> | null>(null);
-  const [error, setError] = useState<DronteError | null>(null);
+  const [error, setError] = useState<ChimelyError | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -136,7 +136,7 @@ export function usePreferences(): UsePreferencesResult {
       },
       (cause: unknown) => {
         if (active) {
-          setError(asDronteError(cause));
+          setError(asChimelyError(cause));
         }
       },
     );
@@ -155,7 +155,7 @@ export function usePreferences(): UsePreferencesResult {
         setError(null);
       } catch (cause) {
         setRows(previous);
-        setError(asDronteError(cause));
+        setError(asChimelyError(cause));
       }
     },
     [client, rows],
@@ -175,7 +175,7 @@ export interface UseInboxResult<TPayload = WellKnownPayload> {
   status: ConnectionStatus;
   hasMore: boolean;
   isLoading: boolean;
-  error: DronteError | null;
+  error: ChimelyError | null;
   fetchMore: () => Promise<void>;
   refresh: () => Promise<void>;
   markRead: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;

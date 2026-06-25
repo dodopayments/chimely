@@ -1,12 +1,12 @@
 'use client';
 
-import { Inbox } from '@dronte/react';
+import { Inbox } from '@chimely/react';
 
 // The dev-bootstrap defaults from the README. Override with NEXT_PUBLIC_*
-// env vars when your dronte runs elsewhere.
-const serverUrl = process.env.NEXT_PUBLIC_DRONTE_URL ?? 'http://localhost:8080';
-const environment = process.env.NEXT_PUBLIC_DRONTE_ENVIRONMENT ?? 'demo';
-const subscriberId = process.env.NEXT_PUBLIC_DRONTE_SUBSCRIBER_ID ?? 'usr_demo';
+// env vars when your chimely runs elsewhere.
+const serverUrl = process.env.NEXT_PUBLIC_CHIMELY_URL ?? 'http://localhost:8080';
+const environment = process.env.NEXT_PUBLIC_CHIMELY_ENVIRONMENT ?? 'demo';
+const subscriberId = process.env.NEXT_PUBLIC_CHIMELY_SUBSCRIBER_ID ?? 'usr_demo';
 
 const curl = `curl -X POST ${serverUrl}/v1/notifications \\
   -H 'Authorization: Bearer dev-secret-key' \\
@@ -25,14 +25,14 @@ export default function Page() {
   return (
     <>
       <header className="topbar">
-        <h1>Dronte quickstart</h1>
+        <h1>Chimely quickstart</h1>
         {/* The whole integration: one component, three props. In production
             add subscriberHash, computed by your backend. */}
         <Inbox serverUrl={serverUrl} environment={environment} subscriberId={subscriberId} />
       </header>
       <main>
         <p>
-          The bell above is <code>&lt;Inbox /&gt;</code> from <code>@dronte/react</code>, connected
+          The bell above is <code>&lt;Inbox /&gt;</code> from <code>@chimely/react</code>, connected
           to <code>{serverUrl}</code> as subscriber <code>{subscriberId}</code> in the{' '}
           <code>{environment}</code> environment.
         </p>

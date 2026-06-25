@@ -4,18 +4,21 @@
 
 mod support;
 
-use dronte::auth::compute_subscriber_hash;
+use chimely::auth::compute_subscriber_hash;
 use reqwest::header::{HeaderMap, HeaderValue};
 
 const SUB: &str = "usr_auth";
 
 fn headers(slug: &str, sub: &str, hash: Option<&str>) -> HeaderMap {
     let mut h = HeaderMap::new();
-    h.insert("X-Dronte-Environment", HeaderValue::from_str(slug).unwrap());
-    h.insert("X-Dronte-Subscriber", HeaderValue::from_str(sub).unwrap());
+    h.insert(
+        "X-Chimely-Environment",
+        HeaderValue::from_str(slug).unwrap(),
+    );
+    h.insert("X-Chimely-Subscriber", HeaderValue::from_str(sub).unwrap());
     if let Some(hash) = hash {
         h.insert(
-            "X-Dronte-Subscriber-Hash",
+            "X-Chimely-Subscriber-Hash",
             HeaderValue::from_str(hash).unwrap(),
         );
     }
@@ -68,7 +71,7 @@ async fn hash_is_mandatory_when_the_environment_requires_it() {
     // Missing subscriber id.
     let mut h = HeaderMap::new();
     h.insert(
-        "X-Dronte-Environment",
+        "X-Chimely-Environment",
         HeaderValue::from_str(&app.env.slug).unwrap(),
     );
     assert_eq!(get_counts_status(&app, h).await, 401);

@@ -92,7 +92,7 @@ pub async fn serve_spa(uri: Uri) -> Response {
             .into_response(),
         None => (
             StatusCode::NOT_FOUND,
-            "admin UI not built (run `pnpm --filter dronte-admin build`)",
+            "admin UI not built (run `pnpm --filter chimely-admin build`)",
         )
             .into_response(),
     }
@@ -1116,11 +1116,11 @@ pub struct AdminMe {
     tag = "admin",
     operation_id = "adminLogin",
     summary = "Log in with email + password; starts a server-side session",
-    description = "On success sets the `dronte_admin` session cookie (HttpOnly, SameSite=Strict, Path=/admin). Failure returns a generic error that does not reveal which field was wrong.",
+    description = "On success sets the `chimely_admin` session cookie (HttpOnly, SameSite=Strict, Path=/admin). Failure returns a generic error that does not reveal which field was wrong.",
     request_body = AdminLoginRequest,
     responses((status = 200, description = "Logged in; sets the session cookie.", body = AdminMe),
               (status = 401, description = "Invalid email or password.", body = crate::api::contract::Error),
-              (status = 403, description = "Missing X-Dronte-Admin header.", body = crate::api::contract::Error))
+              (status = 403, description = "Missing X-Chimely-Admin header.", body = crate::api::contract::Error))
 )]
 pub async fn login(
     State(state): State<AppState>,
@@ -1181,7 +1181,7 @@ pub async fn login(
     summary = "Log out: delete the session and clear the cookie",
     responses((status = 204, description = "Logged out."),
               (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Missing X-Dronte-Admin header.", body = crate::api::contract::Error)),
+              (status = 403, description = "Missing X-Chimely-Admin header.", body = crate::api::contract::Error)),
     security(("AdminSession" = []))
 )]
 pub async fn logout(auth: AdminAuth, State(state): State<AppState>) -> Result<Response, ApiError> {

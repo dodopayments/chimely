@@ -1,9 +1,9 @@
-import type { DronteClientConfig, InboxItem, WellKnownPayload } from '@dronte/client';
-import { DronteClient } from '@dronte/client';
+import type { ChimelyClientConfig, InboxItem, WellKnownPayload } from '@chimely/client';
+import { ChimelyClient } from '@chimely/client';
 import { autoUpdate, computePosition, flip, offset, shift } from '@floating-ui/dom';
 import type { CSSProperties, ReactNode } from 'react';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { DronteContext, useDronteClient } from './context';
+import { ChimelyContext, useChimelyClient } from './context';
 import { useNotifications, usePreferences, useUnseenCount } from './hooks';
 import type { InboxLocalization } from './localization';
 import { mergeLocalization } from './localization';
@@ -43,7 +43,7 @@ export interface InboxAppearance {
     borderRadius?: string;
     fontFamily?: string;
     fontSize?: string;
-    /** Extension point: forwarded as `--dronte-<key>` verbatim. */
+    /** Extension point: forwarded as `--chimely-<key>` verbatim. */
     [customProperty: string]: string | undefined;
   };
   classNames?: Partial<Record<InboxSlot, string>>;
@@ -55,7 +55,7 @@ export interface InboxAppearance {
  * Two usage modes:
  * - Standalone: pass `serverUrl`/`environment`/`subscriberId`(/`subscriberHash`)
  *   and <Inbox /> constructs and owns its client.
- * - Provided: render inside <DronteProvider> and pass no connection props.
+ * - Provided: render inside <ChimelyProvider> and pass no connection props.
  *   Connection props, when present, take precedence over the provider.
  *
  * Built-in behavior (part of the contract):
@@ -69,7 +69,7 @@ export interface InboxProps<TPayload = WellKnownPayload> {
   environment?: string;
   subscriberId?: string;
   subscriberHash?: string;
-  backoff?: DronteClientConfig['backoff'];
+  backoff?: ChimelyClientConfig['backoff'];
 
   appearance?: InboxAppearance;
   localization?: Partial<InboxLocalization>;
@@ -92,7 +92,7 @@ export interface InboxProps<TPayload = WellKnownPayload> {
 
 export function Inbox<TPayload = WellKnownPayload>(props: InboxProps<TPayload>): ReactNode {
   const { serverUrl, environment, subscriberId, subscriberHash, backoff } = props;
-  const contextClient = useContext(DronteContext);
+  const contextClient = useContext(ChimelyContext);
   // Connection props are all-or-nothing and take precedence over the provider.
   const [owned] = useState(() => {
     if (serverUrl === undefined) {
@@ -101,18 +101,18 @@ export function Inbox<TPayload = WellKnownPayload>(props: InboxProps<TPayload>):
     if (environment === undefined || subscriberId === undefined) {
       throw new Error('standalone <Inbox /> requires serverUrl, environment, and subscriberId');
     }
-    const config: DronteClientConfig = { serverUrl, environment, subscriberId };
+    const config: ChimelyClientConfig = { serverUrl, environment, subscriberId };
     if (subscriberHash !== undefined) {
       config.subscriberHash = subscriberHash;
     }
     if (backoff !== undefined) {
       config.backoff = backoff;
     }
-    return new DronteClient(config);
+    return new ChimelyClient(config);
   });
   const client = owned ?? contextClient;
   if (!client) {
-    throw new Error('<Inbox /> requires connection props or an enclosing <DronteProvider>');
+    throw new Error('<Inbox /> requires connection props or an enclosing <ChimelyProvider>');
   }
   useEffect(() => {
     if (!owned) {
@@ -124,14 +124,14 @@ export function Inbox<TPayload = WellKnownPayload>(props: InboxProps<TPayload>):
     };
   }, [owned]);
   return (
-    <DronteContext.Provider value={client}>
+    <ChimelyContext.Provider value={client}>
       <InboxView<TPayload> {...props} />
-    </DronteContext.Provider>
+    </ChimelyContext.Provider>
   );
 }
 
 function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
-  const client = useDronteClient();
+  const client = useChimelyClient();
   const { items, isLoading, hasMore, fetchMore, markRead, markAllRead } =
     useNotifications<TPayload>();
   const { count: unseenCount } = useUnseenCount();
@@ -149,7 +149,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
   const classNames = props.appearance?.classNames;
 
   const cls = (slot: InboxSlot): string => {
-    const base = `dronte-${slot.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)}`;
+    const base = `chimely-${slot.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)}`;
     const custom = classNames?.[slot];
     return custom ? `${base} ${custom}` : base;
   };
@@ -160,7 +160,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
     if (variables) {
       for (const [key, value] of Object.entries(variables)) {
         if (value !== undefined) {
-          style[`--dronte-${key}`] = value;
+          style[`--chimely-${key}`] = value;
         }
       }
     }
@@ -325,19 +325,19 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
               <>
                 <button
                   type="button"
-                  className="dronte-header-action"
+                  className="chimely-header-action"
                   aria-label="Back"
                   onClick={() => setShowPreferences(false)}
                 >
                   ←
                 </button>
-                <span className="dronte-header-title">{strings.preferencesTitle}</span>
+                <span className="chimely-header-title">{strings.preferencesTitle}</span>
               </>
             ) : (
               <>
                 <button
                   type="button"
-                  className="dronte-header-action"
+                  className="chimely-header-action"
                   onClick={() => {
                     void markAllRead();
                   }}
@@ -347,7 +347,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
                 {props.preferencesPanel !== false && (
                   <button
                     type="button"
-                    className="dronte-header-action"
+                    className="chimely-header-action"
                     aria-label={strings.preferencesTitle}
                     title={strings.preferencesTitle}
                     onClick={() => setShowPreferences(true)}
@@ -361,7 +361,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
           {showPreferences ? (
             <div className={cls('preferences')}>
               {categories.map((category) => (
-                <label key={category} className="dronte-preference">
+                <label key={category} className="chimely-preference">
                   <span>{category}</span>
                   <input
                     type="checkbox"
@@ -383,14 +383,14 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
                     props.renderEmpty()
                   ) : (
                     <>
-                      <p className="dronte-empty-title">{strings.emptyTitle}</p>
-                      <p className="dronte-empty-body">{strings.emptyBody}</p>
+                      <p className="chimely-empty-title">{strings.emptyTitle}</p>
+                      <p className="chimely-empty-body">{strings.emptyBody}</p>
                     </>
                   )}
                 </li>
               ) : (
                 items.map((item) => (
-                  <li key={item.id} className="dronte-list-row">
+                  <li key={item.id} className="chimely-list-row">
                     {props.renderItem ? (
                       props.renderItem({
                         item,
@@ -406,7 +406,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
                   </li>
                 ))
               )}
-              <li ref={sentinelRef} className="dronte-sentinel" aria-hidden="true" />
+              <li ref={sentinelRef} className="chimely-sentinel" aria-hidden="true" />
             </ul>
           )}
           <div className={cls('footer')} aria-busy={isLoading} />
@@ -426,21 +426,21 @@ function DefaultItem<TPayload>(props: {
   return (
     <button type="button" className={className} onClick={onClick}>
       {typeof payload.icon_url === 'string' && payload.icon_url.length > 0 && (
-        <img className="dronte-item-icon" src={payload.icon_url} alt="" />
+        <img className="chimely-item-icon" src={payload.icon_url} alt="" />
       )}
-      <span className="dronte-item-text">
-        <span className="dronte-item-title">
+      <span className="chimely-item-text">
+        <span className="chimely-item-title">
           {typeof payload.title === 'string' ? payload.title : item.category}
         </span>
         {typeof payload.body === 'string' && payload.body.length > 0 && (
           // Plain text by construction. React escaping keeps it that way.
-          <span className="dronte-item-body">{payload.body}</span>
+          <span className="chimely-item-body">{payload.body}</span>
         )}
-        <time className="dronte-item-time" dateTime={item.occurredAt}>
+        <time className="chimely-item-time" dateTime={item.occurredAt}>
           {new Date(item.occurredAt).toLocaleString()}
         </time>
       </span>
-      {!item.read && <span className="dronte-item-dot" aria-hidden="true" />}
+      {!item.read && <span className="chimely-item-dot" aria-hidden="true" />}
     </button>
   );
 }
