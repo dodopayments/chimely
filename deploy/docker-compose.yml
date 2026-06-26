@@ -30,7 +30,7 @@ services:
     restart: unless-stopped
 
   chimely:
-    image: ghcr.io/that-ambuj/chimely:${CHIMELY_VERSION:-0.1.0}
+    image: ghcr.io/dodopayments/chimely:${CHIMELY_VERSION:-0.1.0}
     depends_on:
       postgres:
         condition: service_healthy
