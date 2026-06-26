@@ -1,5 +1,5 @@
 import type { Node } from 'fumadocs-core/page-tree';
-import { DocsLayout } from 'fumadocs-ui/layouts/notebook';
+import { DocsLayout } from 'fumadocs-ui/layouts/docs';
 import { getLayoutTabs } from 'fumadocs-ui/layouts/shared';
 import type { ReactNode } from 'react';
 import { source } from '@/lib/source';
@@ -26,10 +26,11 @@ export default function Layout({ children }: { children: ReactNode }) {
   if (tree.fallback) expandGroups(tree.fallback.children);
 
   // The guides are the default root; the API reference is a `root: true`
-  // folder. Derive its tab so it carries a `$folder` binding (precise active
-  // state, sidebar scopes to the endpoint tree), and force it listed so it
-  // shows even while reading the guides. The guides tab is a plain link whose
-  // `urls` keep it inactive on /docs/api pages.
+  // folder. Derive its sidebar tab so it carries a `$folder` binding (precise
+  // active state, sidebar scopes to the endpoint tree), force it listed so it
+  // shows in the switcher while reading the guides, and drop its description so
+  // the switcher matches the guides tab (no subtext). The guides tab is a plain
+  // link whose `urls` keep it inactive on /docs/api pages.
   const guideUrls = new Set(
     tree.children
       .filter(
@@ -40,16 +41,18 @@ export default function Layout({ children }: { children: ReactNode }) {
   );
   const tabs = [
     { title: 'Documentation', url: '/docs', urls: guideUrls },
-    ...getLayoutTabs(tree, { transform: (tab) => ({ ...tab, unlisted: false }) }),
+    ...getLayoutTabs(tree, {
+      transform: (tab) => ({ ...tab, unlisted: false, description: undefined }),
+    }),
   ];
 
   return (
     <DocsLayout
       tree={tree}
       nav={{ title: 'Chimely' }}
-      tabMode="navbar"
+      tabMode="auto"
       tabs={tabs}
-      githubUrl="https://github.com/that-ambuj/chimely"
+      githubUrl="https://github.com/dodopayments/chimely"
     >
       {children}
     </DocsLayout>
