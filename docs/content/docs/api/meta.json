@@ -1,3 +1,6 @@
 {
-  "title": "API"
+  "title": "API reference",
+  "description": "HTTP API generated from the OpenAPI spec",
+  "root": true,
+  "pages": ["index", "management", "subscriber", "admin"]
 }

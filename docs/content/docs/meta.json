@@ -5,9 +5,6 @@
     "auth",
     "self-hosting",
     "operations",
-    "sdk-reference",
-    "api-reference",
-    "api",
-    "..."
+    "sdk-reference"
   ]
 }
