@@ -1,0 +1,34 @@
+---
+title: API reference
+description: The HTTP API, generated from the OpenAPI spec.
+---
+
+The REST API is documented per-endpoint in the **API** section of the sidebar.
+Those pages are generated from the OpenAPI document the server exports
+(`chimely openapi`, utoipa code-first), so they cannot drift from the
+implementation. `@chimely/client`'s types are generated from the same document.
+
+## Planes
+
+| Tag | Caller | Auth |
+|---|---|---|
+| **management** | your backend | `Authorization: Bearer <api-key>` |
+| **subscriber** | `<Inbox />` / `@chimely/client` | HMAC subscriber hash |
+| **admin** | admin dashboard | session cookie |
+
+Application code uses the **management** plane (`/v1/notifications`,
+`/v1/broadcasts`, `/v1/subscribers`). The **subscriber** plane (`/v1/inbox/*`)
+is called by the SDK on behalf of one end user. The **admin** plane
+(`/admin/api/*`) backs the embedded dashboard. See [Auth & HMAC](/docs/auth).
+
+## Conventions
+
+- **Base path** — all application endpoints are under `/v1`.
+- **Idempotency** — notification and broadcast creates accept `idempotency_key`
+  (client-supplied or server-generated and echoed). Uniqueness is per
+  environment per resource type. A retried key returns the original response
+  byte-identically with HTTP `200` (first acceptance is `201`).
+- **Conditional reads** — the inbox list (`GET /v1/inbox/items`) supports
+  `ETag` / `If-None-Match` and returns `304` when nothing changed. The SDK
+  relies on this.
+- **Ordering timestamps** come from Postgres, not the caller.

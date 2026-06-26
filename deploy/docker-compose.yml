@@ -1,0 +1,55 @@
+# Production Chimely: pinned published image, Postgres, Redis. Terminate TLS at
+# a proxy in front of chimely (the binary serves plain HTTP). Secrets come from
+# deploy/.env (see .env.example). See docs/content/docs/self-hosting.mdx.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: chimely
+    volumes:
+      - chimely-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d chimely"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  # Redis is the hint/cache plane. It holds no source of truth, so it runs
+  # without persistence (no RDB/AOF, no durable volume): a wipe re-warms from
+  # Postgres.
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  chimely:
+    image: ghcr.io/that-ambuj/chimely:${CHIMELY_VERSION:-0.1.0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}@postgres:5432/chimely
+      REDIS_URL: redis://redis:6379
+      CHIMELY_LISTEN_ADDR: 0.0.0.0:8080
+      # Bootstrap/lockout-recovery admin. On boot, ensures an admin with this
+      # email exists and resets its password to this value if it drifted.
+      CHIMELY_ADMIN_EMAIL: ${CHIMELY_ADMIN_EMAIL:?set CHIMELY_ADMIN_EMAIL in deploy/.env}
+      CHIMELY_ADMIN_PASSWORD: ${CHIMELY_ADMIN_PASSWORD:?set CHIMELY_ADMIN_PASSWORD in deploy/.env}
+      # The session cookie is marked Secure only when TLS terminates upstream.
+      CHIMELY_ADMIN_TLS_TERMINATED: "true"
+    ports:
+      # Bind to localhost; put a TLS-terminating reverse proxy in front.
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+
+volumes:
+  chimely-pg:

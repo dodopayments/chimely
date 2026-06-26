@@ -1,0 +1,13 @@
+{
+  "pages": [
+    "index",
+    "quickstart",
+    "auth",
+    "self-hosting",
+    "operations",
+    "sdk-reference",
+    "api-reference",
+    "api",
+    "..."
+  ]
+}

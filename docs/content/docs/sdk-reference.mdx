@@ -1,0 +1,183 @@
+---
+title: SDK reference
+description: "<Inbox /> props, React hooks, and the headless client."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Two MIT packages:
+
+- **`@chimely/client`** — headless TypeScript core. Zero runtime dependencies.
+  Manages the SSE connection, conditional REST refetch, and optimistic
+  mutations.
+- **`@chimely/react`** — `<Inbox />`, hooks, and a provider. Runtime UI dep:
+  `@floating-ui/dom`.
+
+Wire types in `@chimely/client` are generated from the OpenAPI spec with
+`openapi-typescript` (`packages/client/src/generated/`) and never hand-edited.
+
+<Callout type="info" title="Pre-release">
+Both packages are at `0.0.0` and not yet on npm. Inside this monorepo they
+resolve via `workspace:*`; `npm i @chimely/react` works only after the first
+published release.
+</Callout>
+
+```bash
+npm i @chimely/react react react-dom
+```
+
+## `<Inbox />`
+
+A bell + popover. Use it standalone (pass connection props; it owns a client)
+or inside a [`ChimelyProvider`](#chimelyprovider) (omit connection props; it
+uses the context client).
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `serverUrl` | `string` | — | Standalone mode (with `environment`, `subscriberId`) |
+| `environment` | `string` | — | Environment slug |
+| `subscriberId` | `string` | — | Your subscriber id |
+| `subscriberHash` | `string` | — | HMAC hash; required in production environments |
+| `backoff` | `BackoffConfig` | — | SSE reconnect backoff |
+| `appearance` | `InboxAppearance` | — | CSS-variable theming + per-slot classNames |
+| `localization` | `Partial<InboxLocalization>` | — | UI text overrides |
+| `placement` | `'bottom-start' \| 'bottom-end' \| 'top-start' \| 'top-end'` | `'bottom-end'` | Popover position |
+| `preferencesPanel` | `boolean` | `true` | Show per-category toggles |
+| `onItemClick` | `(item) => boolean \| void` | — | Return `false` to skip default mark-read + navigate |
+| `renderItem` | `(ctx) => ReactNode` | — | Custom item renderer |
+| `renderBell` | `(ctx) => ReactNode` | — | Custom bell/badge renderer |
+| `renderEmpty` | `() => ReactNode` | — | Custom empty state |
+
+`appearance.variables` forwards keys as `--chimely-<key>` CSS custom
+properties (`colorPrimary`, `colorBackground`, `colorBadge`, `borderRadius`,
+`fontFamily`, …). `appearance.classNames` overrides slots: `root`, `bell`,
+`badge`, `popover`, `header`, `list`, `item`, `itemUnread`, `empty`, `footer`,
+`preferences`.
+
+## Hooks
+
+Hooks read the client from a `ChimelyProvider`. The snapshot is immutable with
+a new identity per change (safe for `useSyncExternalStore`).
+
+```tsx
+useNotifications(options?: { pageSize?: number }): {
+  items: ReadonlyArray<InboxItem>;
+  isLoading: boolean;
+  error: ChimelyError | null;
+  hasMore: boolean;
+  fetchMore: () => Promise<void>;
+  refresh: () => Promise<void>;
+  markRead: (item: { id; source }) => Promise<void>;
+  markAllRead: () => Promise<void>;
+}
+
+useUnreadCount(): { count: number; isLoading: boolean; error: ChimelyError | null }
+useUnseenCount(): { count: number; isLoading: boolean; error: ChimelyError | null }
+```
+
+- `unread` drives item styling. `unseen` drives the bell badge and is cleared
+  by `markAllSeen` (opening the bell), independent of read state.
+
+```tsx
+usePreferences(): {
+  preferences: ReadonlyArray<Preference>;   // explicit rows only; absent category = enabled
+  setPreferences: (p: Preference[]) => Promise<void>;
+  isLoading: boolean;
+  error: ChimelyError | null;
+}
+
+// Superset for fully custom inbox UIs: snapshot + every action.
+useInbox(): {
+  items; counts; status; hasMore; isLoading; error;
+  fetchMore; refresh; markRead; markAllRead; markAllSeen;
+}
+```
+
+## `ChimelyProvider`
+
+Provide a client to the hooks. Pass either a caller-owned `client` or a
+`config` the provider constructs, connects on mount, and closes on unmount.
+
+```tsx
+import { ChimelyProvider } from '@chimely/react';
+
+<ChimelyProvider config={{ serverUrl, environment, subscriberId, subscriberHash }}>
+  {children}
+</ChimelyProvider>
+```
+
+`useChimelyClient()` returns the client; it throws outside a provider.
+
+## `@chimely/client`
+
+```ts
+import { ChimelyClient } from '@chimely/client';
+const client = new ChimelyClient(config);
+client.connect();
+```
+
+### `ChimelyClientConfig`
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `serverUrl` | `string` | — | **Required.** Server origin |
+| `environment` | `string` | — | **Required.** Environment slug |
+| `subscriberId` | `string` | — | **Required.** Subscriber id |
+| `subscriberHash` | `string` | — | HMAC hash; required in production |
+| `backoff` | `BackoffConfig` | see below | SSE reconnect backoff |
+| `pageSize` | `number` | `20` | 1–100 |
+| `fetchFn` | `typeof fetch` | `globalThis.fetch` | Custom fetch (SSR/testing) |
+| `createEventSource` | `(url) => EventSourceLike` | platform `EventSource` | Polyfill/React Native hook |
+
+`BackoffConfig` defaults: `initialDelayMs 1000`, `maxDelayMs 30000`,
+`multiplier 2`, `jitter 0.5`, `maxAttempts Infinity`.
+
+### Methods
+
+| Method | Returns | Notes |
+|---|---|---|
+| `connect()` / `close()` | `void` | Open / tear down the SSE stream |
+| `getSnapshot()` | `InboxSnapshot` | Current immutable state |
+| `subscribe(listener)` | `() => void` | Notified on every change |
+| `refresh()` | `Promise<void>` | Conditional refetch (page 1) |
+| `fetchMore({ limit? })` | `Promise<void>` | Next page |
+| `markRead({ id, source })` | `Promise<void>` | Optimistic |
+| `markAllRead()` | `Promise<void>` | Watermark move |
+| `markAllSeen()` | `Promise<void>` | Zeroes unseen; leaves read state |
+| `getPreferences()` | `Promise<Preference[]>` | — |
+| `setPreferences(p)` | `Promise<Preference[]>` | — |
+
+SSE events are hints: each one triggers a conditional REST refetch (ETag,
+mostly `304`). Mutations are optimistic and roll back on failure.
+
+### Core types
+
+```ts
+type InboxItemSource = 'notification' | 'broadcast';
+
+interface InboxItem<TPayload = WellKnownPayload> {
+  id: `notif_${string}` | `bcast_${string}`;  // prefix encodes source
+  source: InboxItemSource;
+  category: string;          // e.g. 'payment.failed'; Chimely never interprets payload
+  payload: TPayload;
+  occurredAt: string;        // RFC 3339
+  read: boolean;
+}
+
+interface InboxCounts { unread: number; unseen: number }
+
+interface Preference { category: string; channel: 'in_app'; enabled: boolean }
+
+type ConnectionStatus =
+  | 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'closed';
+```
+
+`WellKnownPayload` is the default rendering shape (`title`, `body`,
+`action_url`, `icon_url`, all optional); extra keys pass through verbatim
+(snake_case, never case-transformed). Pass a type parameter for a typed custom
+payload.
+
+## HTTP API
+
+See the [API reference](/docs/api-reference) for the REST endpoints these SDKs
+call.

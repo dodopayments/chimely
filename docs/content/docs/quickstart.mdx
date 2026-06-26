@@ -1,0 +1,113 @@
+---
+title: Quickstart
+description: Run Chimely locally and render a live inbox in about ten minutes.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Two ways to run Chimely locally. Both end with a live `<Inbox />` and a
+notification sent over `curl`. Subscriber HMAC hashing is off in the dev
+environment, so no backend signing is needed yet — see [Auth & HMAC](/docs/auth)
+before going to production.
+
+Prerequisites: Docker, Node 20+ with `pnpm`, and (for option A) a Rust toolchain.
+
+## Option A — local binary (Redis-less)
+
+Runs the server from source against a one-container Postgres, with no Redis.
+Hints ride Postgres `LISTEN/NOTIFY`.
+
+1. Start Postgres:
+
+   ```bash
+   docker run -d --name chimely-pg \
+     -e POSTGRES_PASSWORD=chimely -p 5432:5432 postgres:16-alpine
+   ```
+
+2. Start Chimely. The dev bootstrap seeds environment `demo`
+   (`require_subscriber_hash=false`) and the API key `dev-secret-key`:
+
+   ```bash
+   DATABASE_URL=postgres://postgres:chimely@localhost:5432/postgres \
+   CHIMELY_DEV_ENVIRONMENT=demo \
+   CHIMELY_DEV_API_KEY=dev-secret-key \
+   CHIMELY_LISTEN_ADDR=127.0.0.1:8080 \
+   cargo run --manifest-path server/Cargo.toml -- serve
+   ```
+
+   Migrations run on boot. The server listens on `127.0.0.1:8080`.
+
+3. Run the example app (new terminal):
+
+   ```bash
+   pnpm install
+   pnpm --filter "./packages/*" build
+   pnpm --filter chimely-example-nextjs dev
+   ```
+
+   Open [localhost:3000](http://localhost:3000).
+
+## Option B — docker-compose
+
+Builds the binary and runs it with Postgres and Redis. One command, no Rust
+toolchain:
+
+```bash
+docker compose up --build
+```
+
+This starts Chimely on `http://localhost:8080` with the same `demo`
+environment and `dev-secret-key`. Run the example app with the `pnpm` steps
+from Option A, step 3.
+
+<Callout type="info" title="npx chimely dev (planned)">
+A zero-config `npx chimely dev` (embedded Postgres, Redis-less) is the
+intended one-command on-ramp but is **not yet shipped**. Use Option A or B
+today.
+</Callout>
+
+## Send a notification
+
+With either option running, POST one notification. The bearer token is the dev
+API key:
+
+```bash
+curl -X POST http://localhost:8080/v1/notifications \
+  -H 'Authorization: Bearer dev-secret-key' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "subscriber_id": "usr_demo",
+    "category": "demo.greeting",
+    "payload": {
+      "title": "Hello from curl",
+      "body": "This arrived over the SSE hint stream."
+    }
+  }'
+```
+
+The bell badge increments without a refresh: the server publishes an SSE hint
+and the widget refetches conditionally (ETag, mostly `304`s). Opening the bell
+clears the badge; clicking the item marks it read and follows its `action_url`.
+
+## The `<Inbox />`
+
+The example app is one component with three props (`examples/nextjs/app/page.tsx`):
+
+```tsx
+'use client';
+import { Inbox } from '@chimely/react';
+
+<Inbox
+  serverUrl="http://localhost:8080"
+  environment="demo"
+  subscriberId="usr_demo"
+/>
+```
+
+In production you add a fourth prop, `subscriberHash`, computed by your backend.
+See [Auth & HMAC](/docs/auth) and the [SDK reference](/docs/sdk-reference).
+
+## Next
+
+- [Self-hosting](/docs/self-hosting) — production compose, config, health, backups.
+- [Auth & HMAC](/docs/auth) — required before exposing an environment to real users.

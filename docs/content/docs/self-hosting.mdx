@@ -1,0 +1,159 @@
+---
+title: Self-hosting
+description: Run Chimely in production. Compose, configuration, health checks, partitioning, and backups.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Chimely is one binary plus Postgres and Redis. The image bundles the admin
+dashboard (served at `/admin`), so `docker run chimely` needs no extra
+artifact. Day-2 operations (metrics, alerts, dead-letter replay, graceful
+shutdown, rate limits) are covered in [Operations](/docs/operations).
+
+## Requirements
+
+- **Postgres ≥ 15** — the source of truth. Everything else is recomputable.
+- **Redis** — the hint/cache plane. Optional; see [Redis-less mode](#redis-less-mode).
+- A TLS-terminating reverse proxy in front of the binary. Chimely serves plain
+  HTTP.
+
+## Run with docker-compose
+
+`deploy/docker-compose.yml` pins the published image and runs Postgres and
+Redis. Copy `deploy/.env.example` to `deploy/.env`, fill in secrets, then:
+
+```bash
+cd deploy
+docker compose up -d
+```
+
+The image is published to `ghcr.io/that-ambuj/chimely`. Pin a version tag
+(`CHIMELY_VERSION` in `.env`); do not run `latest` in production.
+
+## Configuration
+
+Every knob is an environment variable with a production default. Only
+`DATABASE_URL` is required.
+
+### Core
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DATABASE_URL` | **required** | `postgres://…` connection URL |
+| `REDIS_URL` | unset → Redis-less | `redis://…` connection URL |
+| `CHIMELY_LISTEN_ADDR` | `0.0.0.0:8080` | Bind address (plain HTTP) |
+| `CHIMELY_PG_POOL_SIZE` | `16` | Postgres connection pool size |
+| `CHIMELY_LOG_FORMAT` | `json` | `text` for human-readable logs |
+| `RUST_LOG` | `info` | Log level filter |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | When set, attaches the OTLP trace exporter |
+
+### Retention & partitioning
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `CHIMELY_RETENTION_MONTHS` | `12` | Months of notifications / status log kept |
+| `CHIMELY_IDEMPOTENCY_RETENTION_DAYS` | `30` | Idempotency snapshot TTL |
+
+### Real-time (SSE)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `CHIMELY_HINT_DEBOUNCE_MS` | `1000` | At most one hint per subscriber per window |
+| `CHIMELY_SSE_PING_SECS` | `30` | SSE keep-alive interval |
+| `CHIMELY_SSE_RETRY_BASE_MS` | `2000` | Client reconnect base delay |
+| `CHIMELY_SSE_RETRY_JITTER_MS` | `8000` | Reconnect jitter (anti-stampede) |
+| `CHIMELY_SSE_MAX_CONNS_PER_SUBSCRIBER` | `8` | Per-replica SSE connection cap |
+
+### Workers & retries
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `CHIMELY_WORKER_POLL_MS` | `250` | Job poll interval |
+| `CHIMELY_RETRY_BACKOFF_BASE_MS` | `5000` | First retry delay |
+| `CHIMELY_RETRY_BACKOFF_CAP_MS` | `900000` | Retry delay ceiling (15 min) |
+
+### Rate limits
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `CHIMELY_API_KEY_RATE_PER_SEC` / `_BURST` | `50` / `200` | Per API key (management plane). `0` disables |
+| `CHIMELY_SUBSCRIBER_RATE_PER_SEC` / `_BURST` | `10` / `50` | Per subscriber (inbox reads). `0` disables |
+
+### Metrics, admin, shutdown
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `CHIMELY_METRICS_SAMPLE_MS` | `15000` | Sampler cadence (queue depth, drift, dead letters) |
+| `CHIMELY_COUNTER_DRIFT_SAMPLE_SIZE` | `50` | Subscribers recounted per drift sample |
+| `CHIMELY_ADMIN_EMAIL` / `CHIMELY_ADMIN_PASSWORD` | unset | Bootstrap (lockout-recovery) admin. Password ≥ 12 chars |
+| `CHIMELY_ADMIN_SESSION_TTL_SECS` | `28800` | Admin session lifetime (8 h) |
+| `CHIMELY_ADMIN_TLS_TERMINATED` | `false` | Set `true` when TLS terminates upstream |
+| `CHIMELY_SHUTDOWN_GRACE_MS` | `5000` | `/readyz` 503 window before the listener closes |
+| `CHIMELY_SHUTDOWN_DRAIN_DEADLINE_MS` | `30000` | In-flight job drain budget |
+
+<Callout type="warn" title="Dev-only">
+`CHIMELY_DEV_ENVIRONMENT` and `CHIMELY_DEV_API_KEY` seed a quickstart
+environment with subscriber hashing **off**. Never set them in production.
+Manage real environments and keys in the admin dashboard.
+</Callout>
+
+## Migrations
+
+Migrations run on boot, inside a Postgres advisory lock. N replicas starting
+together apply each migration exactly once; losers block until the winner
+commits, then no-op. No separate migrate step, no init container.
+
+## Health checks
+
+| Endpoint | Checks | Use |
+|---|---|---|
+| `GET /healthz` | process is up | liveness probe |
+| `GET /readyz` | Postgres reachable + migrations applied, and not draining | readiness probe |
+
+Redis being down is **not** readiness-fatal: it is the hint/cache plane, so
+`/readyz` stays `200` while Postgres is healthy. On `SIGTERM`, `/readyz` flips
+to `503` for `CHIMELY_SHUTDOWN_GRACE_MS` so load balancers drain the replica
+before it stops accepting (see [Operations](/docs/operations#graceful-shutdown)).
+
+## Redis-less mode
+
+Leave `REDIS_URL` unset and Chimely runs on Postgres alone: hints ride
+`LISTEN/NOTIFY` instead of Redis pub/sub. This is the **degraded single-node**
+path. Postgres stays authoritative and no data is lost, but:
+
+- Rate limits become per-replica (in-process buckets) instead of one shared
+  cross-replica bucket.
+- Hint debounce is per-replica, so multiple replicas can emit more hints than
+  strictly needed (never fewer).
+
+<Callout type="warn" title="Transaction-mode PgBouncer breaks LISTEN">
+In Redis-less mode `DATABASE_URL` must point at Postgres directly or a
+**session-mode** pooler. Transaction-mode PgBouncer multiplexes connections
+and silently drops `LISTEN/NOTIFY`, so hints never arrive. With Redis, the
+pooler mode does not matter.
+</Callout>
+
+## Partitioning & retention
+
+`notifications` and `notification_status_log` are range-partitioned by month.
+Partitions are pre-created 13 months ahead (covering the API's `deliver_at`
+cap) and dropped past `CHIMELY_RETENTION_MONTHS`. There is deliberately **no
+DEFAULT partition**: a missing partition is a loud insert error, never silent
+unprunable growth. Maintenance runs at boot and daily, under an advisory lock.
+Watch `chimely_partitions_remaining` and alert below 2 — see
+[Operations](/docs/operations#alerts).
+
+## Backups
+
+Back up **Postgres**; that is the entire durable state. Use your normal
+Postgres backup tooling (`pg_dump`, base backups + WAL, or your managed
+provider's snapshots). **Redis needs no backup** — it holds only hints and
+cached counters, recomputable from Postgres, which is why the production
+compose runs it without persistence.
+
+## TLS & the admin dashboard
+
+The admin session cookie is marked `Secure` only when
+`CHIMELY_ADMIN_TLS_TERMINATED=true`. Terminate TLS at your proxy and set that
+flag; otherwise Chimely logs a boot-time warning and the cookie omits `Secure`.
+Passwords and session ids are never logged.
