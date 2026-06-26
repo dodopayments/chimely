@@ -839,7 +839,7 @@ async fn environment_and_api_key_create_revoke_roundtrip() {
     let key_body: Value = key_res.json().await.unwrap();
     let key_id = key_body["id"].as_str().unwrap().to_owned();
     let plaintext = key_body["key"].as_str().unwrap().to_owned();
-    assert!(plaintext.starts_with("drnt_live_"));
+    assert!(plaintext.starts_with("chml_live_"));
     assert!(key_id.starts_with("key_"));
 
     // The key authenticates the management plane for THIS environment.

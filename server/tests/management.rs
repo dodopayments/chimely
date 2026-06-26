@@ -290,7 +290,7 @@ async fn management_plane_requires_a_valid_bearer_key() {
     let res = app
         .client
         .post(format!("{}/v1/notifications", app.base))
-        .bearer_auth("drnt_test_wrong")
+        .bearer_auth("chml_test_wrong")
         .json(&body)
         .send()
         .await

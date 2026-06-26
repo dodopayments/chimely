@@ -507,7 +507,7 @@ pub async fn create_api_key(
 
     let id = ids::new_uuid();
     // 256 bits of randomness in the key body. The prefix is for display only.
-    let key = format!("drnt_live_{}", ids::new_uuid().as_simple());
+    let key = format!("chml_live_{}", ids::new_uuid().as_simple());
     let key_hash: Vec<u8> = Sha256::digest(key.as_bytes()).to_vec();
     let key_prefix = &key[..key.floor_char_boundary(14)];
 
@@ -1621,9 +1621,9 @@ fn user_view(
 }
 
 /// Transaction-scoped advisory lock serializing admin-roster mutations
-/// ("drntADMR" as big-endian i64). A single lock, so the last-admin guard
+/// ("chmlADMR" as big-endian i64). A single lock, so the last-admin guard
 /// cannot be raced (TOCTOU) and there is no row-order deadlock.
-const ADMIN_ROSTER_LOCK_KEY: i64 = 0x64726e74_41444d52;
+const ADMIN_ROSTER_LOCK_KEY: i64 = 0x63686d6c_41444d52;
 
 /// Take the admin-roster advisory lock for the rest of the transaction.
 async fn lock_admin_roster(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<(), ApiError> {
