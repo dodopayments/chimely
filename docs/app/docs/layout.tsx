@@ -1,10 +1,59 @@
+import type { Node } from 'fumadocs-core/page-tree';
 import { DocsLayout } from 'fumadocs-ui/layouts/docs';
+import { getLayoutTabs } from 'fumadocs-ui/layouts/shared';
 import type { ReactNode } from 'react';
 import { source } from '@/lib/source';
 
+// The management and subscriber groups are the public API: expand by default.
+const EXPANDED_GROUPS = ['/docs/api/management/', '/docs/api/subscriber/'];
+
+function expandGroups(nodes: Node[]): void {
+  for (const node of nodes) {
+    if (node.type === 'folder') {
+      const isExpanded = node.children.some(
+        (child) =>
+          child.type === 'page' && EXPANDED_GROUPS.some((prefix) => child.url.startsWith(prefix)),
+      );
+      if (isExpanded) node.defaultOpen = true;
+      expandGroups(node.children);
+    }
+  }
+}
+
 export default function Layout({ children }: { children: ReactNode }) {
+  const tree = source.pageTree;
+  // The API reference (`root: true`) lives in the tree's fallback branch.
+  if (tree.fallback) expandGroups(tree.fallback.children);
+
+  // The guides are the default root; the API reference is a `root: true`
+  // folder. Derive its sidebar tab so it carries a `$folder` binding (precise
+  // active state, sidebar scopes to the endpoint tree), force it listed so it
+  // shows in the switcher while reading the guides, and drop its description so
+  // the switcher matches the guides tab (no subtext). The guides tab is a plain
+  // link whose `urls` keep it inactive on /docs/api pages.
+  const guideUrls = new Set(
+    tree.children
+      .filter(
+        (node): node is Node & { url: string } =>
+          node.type === 'page' && !node.url.startsWith('/docs/api'),
+      )
+      .map((node) => node.url),
+  );
+  const tabs = [
+    { title: 'Documentation', url: '/docs', urls: guideUrls },
+    ...getLayoutTabs(tree, {
+      transform: (tab) => ({ ...tab, unlisted: false, description: undefined }),
+    }),
+  ];
+
   return (
-    <DocsLayout tree={source.pageTree} nav={{ title: 'Chimely' }}>
+    <DocsLayout
+      tree={tree}
+      nav={{ title: 'Chimely' }}
+      tabMode="auto"
+      tabs={tabs}
+      githubUrl="https://github.com/dodopayments/chimely"
+    >
       {children}
     </DocsLayout>
   );

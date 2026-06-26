@@ -3,10 +3,13 @@ title: Operations
 description: Metrics, alerts, dead-letter replay, graceful shutdown, rate limits, and measured capacity.
 ---
 
-Everything on this page is enforced by the Phase 3 chaos suite
+The day-2 reference for running Chimely. For deployment and configuration,
+see [Self-hosting](/docs/self-hosting).
+
+Every guarantee here is enforced by the chaos test suite
 (`server/tests/chaos.rs`): killing any process at any moment, losing Redis
-entirely, flooding one environment, or replaying any job must not lose
-data, drift a counter, or starve a neighbor.
+entirely, flooding one environment, or replaying any job must not lose data,
+drift a counter, or starve a neighbor.
 
 ## Metrics
 
@@ -63,9 +66,10 @@ table itself stays near-empty (completed work leaves no row; parked work
 does not live in the hot claim path).
 
 ```bash
-chimely dlq list                 # one line per parked job
-chimely dlq replay job_01h4…     # replay one (fresh attempt budget, runs now)
-chimely dlq replay --all
+chimely dlq list                     # one line per parked job
+chimely dlq replay job_01h4…         # replay one (fresh attempt budget, runs now)
+chimely dlq replay --all             # replay every parked job
+chimely dlq replay --all --env prod  # ...or scope to one environment slug
 ```
 
 Replay re-enqueues the original row (same id, payload, and cursor), so a

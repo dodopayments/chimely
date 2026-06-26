@@ -1,11 +1,56 @@
 ---
-title: Chimely
-description: In-app notification inbox infrastructure — placeholder.
+title: Overview
+description: Fair-source, self-hostable in-app notification inbox infrastructure.
 ---
 
-Placeholder. Real content lands alongside the features it documents:
+import { Card, Cards } from 'fumadocs-ui/components/card';
+import { Callout } from 'fumadocs-ui/components/callout';
 
-- **Quickstart** — Phase 2 (ships with `<Inbox />`).
-- **API reference** — generated from the server's exported OpenAPI document
-  under `/docs/api`.
-- **Self-hosting** — Phase 5 (docker-compose and the Redis-less one-liner).
+Chimely is a self-hostable **in-app notification inbox** you run yourself. It
+is the inbox primitive, not a workflow engine: you send notifications, and a
+drop-in `<Inbox />` renders them.
+
+- **One POST to notify** — your backend calls `POST /v1/notifications`.
+- **One `<Inbox />` to render** — drop the component into your frontend.
+
+A live bell, unread counts, read state, and preferences, with nothing to build.
+
+<Callout type="warn" title="Pre-1.0">
+Chimely is at **0.1.0**. The HTTP API and the SDK surface may change on minor
+version bumps until 1.0.0. Pin your versions.
+</Callout>
+
+## How it works
+
+You run one binary backed by Postgres, plus Redis for real-time delivery. Your
+backend sends notifications over a small HTTP API; the `<Inbox />` widget
+streams updates live and stays in sync. Notifications update instantly without
+a page refresh.
+
+It self-hosts on a single node and scales to many. See
+[Self-hosting](/docs/self-hosting).
+
+## What Chimely is not
+
+These are deliberate. Chimely does the inbox and nothing else:
+
+- No workflows, steps, or conditional routing.
+- No email, SMS, or push channels. In-app inbox only.
+- No server-side templating. Your payload is stored and shown as-is.
+- No digests or batching.
+
+## Get started
+
+<Cards>
+  <Card title="Quickstart" href="/docs/quickstart" description="Run Chimely and render an inbox in about ten minutes." />
+  <Card title="Self-hosting" href="/docs/self-hosting" description="Compose, configuration, health, and backups." />
+  <Card title="Auth & HMAC" href="/docs/auth" description="API keys and the subscriber hash." />
+  <Card title="SDK reference" href="/docs/sdk-reference" description="Inbox props, hooks, and the client." />
+</Cards>
+
+## License
+
+The server is [fair source](https://fair.io) (FSL-1.1-MIT): free to use,
+self-host, and modify, with each release converting to MIT two years after it
+ships. The SDKs and examples are MIT. Chimely is source-available, not OSI open
+source.

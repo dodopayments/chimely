@@ -67,24 +67,8 @@ pub struct ListParams {
     path = "/v1/inbox/items",
     tag = "subscriber",
     operation_id = "listInboxItems",
-    summary = "Merged inbox list (direct + broadcast), keyset-paginated",
-    description = r#"Newest first, ordered by `(occurred_at, id)` descending across both
-sources. `cursor` is the opaque keyset token from the previous page's
-`next_cursor`. Category mutes are applied server-side.
-
-Supports `ETag` / `If-None-Match`, so post-reconnect refetches
-(deploy thundering herd) are mostly 304s. The validator is a strong
-hash over: the request cursor, `subscriber_counters.updated_at`
-(bumped by EVERY read-state mutation — see the counter invariants in
-schema.sql), the subscriber's latest direct item `(visible_at, id)`,
-the environment's latest broadcast `(created_at, id)`, and
-`max(preferences.updated_at)` for the subscriber. Each input is one
-index-only lookup; anything that can change a page moves at least
-one of them.
-
-Responses are `Cache-Control: private, max-age=0` — inbox pages are
-per-user data and must never be cached by shared proxies.
-"#,
+    summary = "List inbox items",
+    description = r#"The subscriber's inbox, newest first, combining direct notifications and broadcasts. Use cursor for pagination and If-None-Match for conditional fetches."#,
     params(
         ("cursor" = Option<String>, Query, description = "Opaque keyset cursor; omit for the first page."),
         ("limit" = Option<i32>, Query, minimum = 1, maximum = 100),
@@ -99,8 +83,18 @@ per-user data and must never be cached by shared proxies.
         (status = 304, description = "Not modified (If-None-Match matched)."),
         // The handler rejects an out-of-range `limit` and a malformed `cursor`,
         // and the query extractor rejects a non-integer `limit`, all with 400.
-        (status = 400, description = "Malformed cursor or out-of-range limit.", body = crate::api::contract::Error),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (
+            status = 400,
+            description = "Malformed cursor or out-of-range limit.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "malformed cursor"}}),
+        ),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid subscriber hash"}}),
+        ),
         (status = 429, response = crate::api::contract::RateLimited),
     ),
     security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
@@ -287,14 +281,16 @@ pub async fn list_items_for<'e, E: sqlx::PgExecutor<'e>>(
     path = "/v1/inbox/counts",
     tag = "subscriber",
     operation_id = "getInboxCounts",
-    summary = "Unread and unseen counts",
-    description = r#"`unread` drives list styling; `unseen` drives the bell badge (cleared
-by mark-all-seen when the inbox opens). Served from maintained counters
-(Redis cache, Postgres authoritative) — O(1), not O(rows).
-"#,
+    summary = "Inbox counts",
+    description = r#"The subscriber's unread and unseen counts. unread reflects items not yet read; unseen drives the bell badge."#,
     responses(
         (status = 200, description = "Current counts.", body = crate::api::contract::InboxCounts),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid subscriber hash"}}),
+        ),
     ),
     security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
 )]
@@ -386,13 +382,23 @@ pub async fn fetch_counts_for(
     path = "/v1/inbox/notifications/{id}/read",
     tag = "subscriber",
     operation_id = "markNotificationRead",
-    summary = "Mark one direct notification read",
-    description = "Idempotent. Sets `read_at`; decrements the unread counter only if it was unread.",
+    summary = "Mark notification read",
+    description = "Mark one direct notification as read. Idempotent.",
     params(("id" = crate::api::contract::NotificationId, Path)),
     responses(
         (status = 204, description = "Read (now or already)."),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
-        (status = 404, description = "Resource not found in this environment.", body = crate::api::contract::Error),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid subscriber hash"}}),
+        ),
+        (
+            status = 404,
+            description = "Resource not found in this environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such notification"}}),
+        ),
     ),
     security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
 )]
@@ -519,13 +525,23 @@ pub async fn mark_notification_read(
     path = "/v1/inbox/broadcasts/{id}/read",
     tag = "subscriber",
     operation_id = "markBroadcastRead",
-    summary = "Mark one broadcast read (for this subscriber)",
-    description = "Idempotent. Inserts a `broadcast_reads` exception row; a no-op if the broadcast is already below the read watermark.",
+    summary = "Mark broadcast read",
+    description = "Mark one broadcast as read for this subscriber. Idempotent.",
     params(("id" = crate::api::contract::BroadcastId, Path)),
     responses(
         (status = 204, description = "Read (now or already)."),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
-        (status = 404, description = "Resource not found in this environment.", body = crate::api::contract::Error),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid subscriber hash"}}),
+        ),
+        (
+            status = 404,
+            description = "Resource not found in this environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such broadcast"}}),
+        ),
     ),
     security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
 )]
@@ -611,14 +627,16 @@ pub async fn mark_broadcast_read(
     path = "/v1/inbox/read-all",
     tag = "subscriber",
     operation_id = "markAllRead",
-    summary = "Mark everything read (watermark move)",
-    description = r#"Moves the per-subscriber read watermark to now — a one-row update, not
-a bulk UPDATE. Covers both sources; individually-read exception rows
-below the new watermark are garbage-collected.
-"#,
+    summary = "Mark all read",
+    description = r#"Mark every item, direct and broadcast, as read for this subscriber."#,
     responses(
         (status = 200, description = "Watermark moved.", body = crate::api::contract::InboxCounts),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid subscriber hash"}}),
+        ),
     ),
     security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
 )]
@@ -711,11 +729,16 @@ pub async fn mark_all_read(
     path = "/v1/inbox/seen-all",
     tag = "subscriber",
     operation_id = "markAllSeen",
-    summary = "Mark everything seen (badge clear; watermark move)",
-    description = "Called by the SDK when the inbox opens. Moves the seen watermark; read state is untouched.",
+    summary = "Mark all seen",
+    description = "Clear the unseen count (the bell badge) without changing read state. Called when the inbox opens.",
     responses(
         (status = 200, description = "Watermark moved.", body = crate::api::contract::InboxCounts),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid subscriber hash"}}),
+        ),
     ),
     security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
 )]

@@ -5,7 +5,7 @@ import { openapi } from '@/lib/openapi';
 export const source = loader(
   {
     docs: docs.toFumadocsSource(),
-    openapi: await openapi.staticSource({ baseDir: 'api' }),
+    openapi: await openapi.staticSource({ baseDir: 'api', groupBy: 'tag' }),
   },
   {
     baseUrl: '/docs',

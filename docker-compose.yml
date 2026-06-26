@@ -1,0 +1,48 @@
+# Local all-in-one Chimely: builds the binary from this checkout, with Postgres
+# and Redis. For production use deploy/docker-compose.yml (pinned image, no dev
+# bootstrap). See docs/content/docs/quickstart.mdx and self-hosting.mdx.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: chimely
+    ports:
+      - "5432:5432"
+    volumes:
+      - chimely-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  chimely:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:chimely@postgres:5432/postgres
+      REDIS_URL: redis://redis:6379
+      CHIMELY_LISTEN_ADDR: 0.0.0.0:8080
+      # Dev bootstrap: seeds environment `demo` (require_subscriber_hash=false)
+      # and an API key. Never set these in production.
+      CHIMELY_DEV_ENVIRONMENT: demo
+      CHIMELY_DEV_API_KEY: dev-secret-key
+    ports:
+      - "8080:8080"
+
+volumes:
+  chimely-pg:

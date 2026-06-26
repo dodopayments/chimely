@@ -1,5 +1,50 @@
 @import 'tailwindcss';
 @import 'fumadocs-ui/css/neutral.css';
 @import 'fumadocs-ui/css/preset.css';
+@import 'fumadocs-openapi/css/preset.css';
 
 @source '../node_modules/fumadocs-ui/dist/**/*.js';
+@source '../node_modules/fumadocs-openapi/dist/**/*.js';
+
+/* Chimely brand theme, mirrored from the admin dashboard (server/admin).
+   Primary accent #1264ff is identical in light and dark. Overrides must come
+   after the preset imports so they win at runtime. */
+:root {
+  --color-fd-background: #ffffff;
+  --color-fd-foreground: #0d0d0d;
+  --color-fd-card: #ffffff;
+  --color-fd-card-foreground: #0d0d0d;
+  --color-fd-popover: #ffffff;
+  --color-fd-popover-foreground: #0d0d0d;
+  --color-fd-primary: #1264ff;
+  --color-fd-primary-foreground: #ffffff;
+  --color-fd-secondary: #f4f5f7;
+  --color-fd-secondary-foreground: #0d0d0d;
+  --color-fd-muted: #f4f5f7;
+  --color-fd-muted-foreground: #5b6573;
+  --color-fd-accent: #eef1f5;
+  --color-fd-accent-foreground: #0d0d0d;
+  --color-fd-border: #e3e6ea;
+  --color-fd-ring: #1264ff;
+}
+
+.dark {
+  --color-fd-background: #0d0d0d;
+  --color-fd-foreground: #f5f6f7;
+  --color-fd-card: #141414;
+  --color-fd-card-foreground: #f5f6f7;
+  --color-fd-popover: #141414;
+  --color-fd-popover-foreground: #f5f6f7;
+  /* Lighter brand blue for dark mode (dashboard dark chart-2) so links and
+     active items keep contrast against the near-black background. */
+  --color-fd-primary: #4d8bff;
+  --color-fd-primary-foreground: #0d0d0d;
+  --color-fd-secondary: #1b1b1b;
+  --color-fd-secondary-foreground: #f5f6f7;
+  --color-fd-muted: #1b1b1b;
+  --color-fd-muted-foreground: #a1a8b3;
+  --color-fd-accent: #1f1f1f;
+  --color-fd-accent-foreground: #f5f6f7;
+  --color-fd-border: #262626;
+  --color-fd-ring: #1264ff;
+}

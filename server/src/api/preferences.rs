@@ -44,12 +44,22 @@ pub struct PreferenceWriteList {
     path = "/v1/subscribers/{subscriber_id}/preferences",
     tag = "management",
     operation_id = "getSubscriberPreferences",
-    summary = "Read a subscriber's preferences (admin)",
+    summary = "Get subscriber preferences",
     params(("subscriber_id" = String, Path, max_length = 255, description = "Customer-provided subscriber id (e.g. `usr_42`).")),
     responses(
         (status = 200, description = "Explicit preference rows only — absence means enabled.", body = crate::api::contract::PreferenceList),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
-        (status = 404, description = "Resource not found in this environment.", body = crate::api::contract::Error),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid API key"}}),
+        ),
+        (
+            status = 404,
+            description = "Resource not found in this environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such subscriber"}}),
+        ),
     ),
     security(("ApiKeyBearer" = []))
 )]
@@ -77,13 +87,23 @@ pub async fn get_subscriber_preferences(
     path = "/v1/subscribers/{subscriber_id}/preferences",
     tag = "management",
     operation_id = "setSubscriberPreferences",
-    summary = "Set preferences for a subscriber (admin)",
+    summary = "Set subscriber preferences",
     params(("subscriber_id" = String, Path, max_length = 255, description = "Customer-provided subscriber id (e.g. `usr_42`).")),
     request_body = crate::api::contract::PreferenceWriteList,
     responses(
         (status = 200, description = "Updated.", body = crate::api::contract::PreferenceList),
-        (status = 400, description = "Validation error.", body = crate::api::contract::Error),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (
+            status = 400,
+            description = "Validation error.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "preferences must contain 1–100 entries"}}),
+        ),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid API key"}}),
+        ),
     ),
     security(("ApiKeyBearer" = []))
 )]
@@ -112,10 +132,15 @@ pub async fn set_subscriber_preferences(
     path = "/v1/inbox/preferences",
     tag = "subscriber",
     operation_id = "getPreferences",
-    summary = "Read own preferences",
+    summary = "Get preferences",
     responses(
         (status = 200, description = "Explicit preference rows only — absence means enabled.", body = crate::api::contract::PreferenceList),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid subscriber hash"}}),
+        ),
     ),
     security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
 )]
@@ -133,12 +158,22 @@ pub async fn get_inbox_preferences(
     path = "/v1/inbox/preferences",
     tag = "subscriber",
     operation_id = "setPreferences",
-    summary = "Set own preferences",
+    summary = "Set preferences",
     request_body = crate::api::contract::PreferenceWriteList,
     responses(
         (status = 200, description = "Updated.", body = crate::api::contract::PreferenceList),
-        (status = 400, description = "Validation error.", body = crate::api::contract::Error),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (
+            status = 400,
+            description = "Validation error.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "preferences must contain 1–100 entries"}}),
+        ),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid subscriber hash"}}),
+        ),
     ),
     security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
 )]

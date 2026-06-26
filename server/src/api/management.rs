@@ -45,24 +45,24 @@ pub struct CreateNotificationsRequest {
     path = "/v1/notifications",
     tag = "management",
     operation_id = "createNotifications",
-    summary = "Create direct notifications (1–100 recipients, fan-out on write)",
-    description = r#"Creates one notification per recipient in a single transaction together
-with counter bumps and the outbox job. The `idempotency_key` covers the
-**whole request**: a retry never partially re-runs the batch.
-
-`deliver_at` schedules delivery (max 13 months out): the notification
-is durable immediately but invisible to the subscriber until then;
-counters and real-time hints fire at `deliver_at`.
-
-Recipients that don't exist yet are lazily created as subscribers.
-Need more than 100 recipients? That's a broadcast.
-"#,
+    summary = "Create notifications",
+    description = r#"Send a notification to up to 100 subscribers; one item is created per recipient. Use idempotency_key to make retries safe, and deliver_at to schedule delivery up to 13 months ahead (the item stays hidden from the subscriber until then). Unknown subscribers are created automatically. For more than 100 recipients, use a broadcast."#,
     request_body = crate::api::contract::CreateNotificationsRequest,
     responses(
         (status = 201, description = "Created.", body = crate::api::contract::CreateNotificationsResponse),
         (status = 200, description = "Idempotent replay — original response echoed, nothing re-created.", body = crate::api::contract::CreateNotificationsResponse),
-        (status = 400, description = "Validation error.", body = crate::api::contract::Error),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (
+            status = 400,
+            description = "Validation error.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "deliver_at must be in the future"}}),
+        ),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid API key"}}),
+        ),
         (status = 429, response = crate::api::contract::RateLimited),
     ),
     security(("ApiKeyBearer" = []))
@@ -269,17 +269,24 @@ pub struct CreateBroadcastRequest {
     path = "/v1/broadcasts",
     tag = "management",
     operation_id = "createBroadcast",
-    summary = "Create a broadcast (one row, fan-out on read)",
-    description = r#"One row per announcement targeting the whole environment, regardless of
-subscriber count. Visible to each subscriber only if the broadcast is
-created at or after that subscriber's `created_at`.
-"#,
+    summary = "Create a broadcast",
+    description = r#"Send one announcement to every subscriber in the environment. A subscriber sees it only if it was created at or after they were."#,
     request_body = crate::api::contract::CreateBroadcastRequest,
     responses(
         (status = 201, description = "Created.", body = crate::api::contract::Broadcast),
         (status = 200, description = "Idempotent replay.", body = crate::api::contract::Broadcast),
-        (status = 400, description = "Validation error.", body = crate::api::contract::Error),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (
+            status = 400,
+            description = "Validation error.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "category must be 1–255 characters"}}),
+        ),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid API key"}}),
+        ),
         (status = 429, response = crate::api::contract::RateLimited),
     ),
     security(("ApiKeyBearer" = []))
@@ -370,11 +377,7 @@ pub struct UpsertSubscriberRequest {
     tag = "management",
     operation_id = "upsertSubscriber",
     summary = "Upsert a subscriber",
-    description = r#"Subscribers are normally created lazily; this exists for imports.
-`created_at` may be **backdated** on first create (ignored on update) —
-it is the knob controlling which historical broadcasts an imported user
-sees (`broadcast.created_at >= subscriber.created_at`).
-"#,
+    description = r#"Create or update a subscriber. Subscribers are normally created automatically; use this for imports. On first create, created_at may be backdated to control which past broadcasts the subscriber sees."#,
     request_body = inline(UpsertSubscriberRequest),
     params(("subscriber_id" = String, Path, max_length = 255, description = "Customer-provided subscriber id (e.g. `usr_42`).")),
     responses(
@@ -382,8 +385,18 @@ sees (`broadcast.created_at >= subscriber.created_at`).
         // 400 declared because the handler rejects an out-of-range
         // subscriber_id (empty or over 255 chars). Annotated status must match
         // returned status.
-        (status = 400, description = "Validation error.", body = crate::api::contract::Error),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (
+            status = 400,
+            description = "Validation error.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "subscriber_id must be 1–255 characters"}}),
+        ),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid API key"}}),
+        ),
     ),
     security(("ApiKeyBearer" = []))
 )]
@@ -449,23 +462,23 @@ pub async fn upsert_subscriber(
     path = "/v1/notifications/{id}/timeline",
     tag = "management",
     operation_id = "getNotificationTimeline",
-    summary = "Status timeline for one notification",
-    description = r#"The append-only delivery timeline — the "did it send?" answer.
-Statuses appear as they happen: `created` (accepted and durable),
-`delivered_hint` (a real-time hint announcing it was published),
-`seen` and `read` (subscriber actions; watermark moves apply them
-asynchronously, so a just-clicked "mark all read" may take a moment
-to appear here). Entries are ordered by `occurred_at`. Unknown future
-statuses must be ignored by clients.
-
-Broadcasts have no per-recipient timeline (they are never materialized
-per subscriber).
-"#,
+    summary = "Notification timeline",
+    description = r#"The history of one notification: when it was created, delivered, seen, and read. Entries are ordered by time. Broadcasts have no per-subscriber timeline."#,
     params(("id" = crate::api::contract::NotificationId, Path)),
     responses(
         (status = 200, description = "The timeline so far.", body = crate::api::contract::NotificationTimeline),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
-        (status = 404, description = "Resource not found in this environment.", body = crate::api::contract::Error),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid API key"}}),
+        ),
+        (
+            status = 404,
+            description = "Resource not found in this environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such notification"}}),
+        ),
         (status = 429, response = crate::api::contract::RateLimited),
     ),
     security(("ApiKeyBearer" = []))

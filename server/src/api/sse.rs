@@ -31,37 +31,20 @@ use crate::state::AppState;
     path = "/v1/inbox/stream",
     tag = "subscriber",
     operation_id = "streamInbox",
-    summary = "SSE hint stream",
-    description = r#"`text/event-stream` of **hints, not transports**: the client refetches
-via REST (conditional, ETag) on every hint and on every (re)connect, so
-missed hints are harmless by construction.
-
-Auth via query parameters (browser `EventSource` cannot set headers).
-Server requirement (tested invariant, not a habit): `subscriber_hash`
-is scrubbed from access/proxy log lines for this endpoint —
-query-string credentials otherwise leak into logs.
-
-Events (`id:` on every event is an opaque resume token):
-* `hint` — something changed for this subscriber; refetch list/counts.
-  Debounced server-side (at most one per subscriber per interval).
-
-Keep-alive is a comment frame (`: ping`) every 30 seconds, not an
-event — comment frames are deliberately invisible to EventSource
-listeners. Unknown future event types must be ignored by clients.
-
-Resume: browsers replay `Last-Event-ID` automatically on reconnect; the
-server answers by emitting an immediate `hint` if anything changed
-after that token (it does not replay individual missed events — the
-REST refetch is the recovery mechanism). On graceful shutdown the
-server sends a `retry:` directive with jitter before closing, so a
-deploy does not produce a reconnect stampede.
-"#,
+    summary = "Inbox stream",
+    description = r#"A Server-Sent Events stream of hints: each event tells the client to refetch the inbox over REST, so missed events are harmless (the events carry no data). Authenticated via query parameters because EventSource cannot set request headers."#,
     params(("Last-Event-ID" = Option<String>, Header, description = "Sent automatically by EventSource on reconnect.")),
     responses(
         (status = 200, description = "Event stream.",
             body = inline(crate::api::contract::SseEventStream),
             content_type = "text/event-stream"),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "subscriber hash required"}}),
+        ),
+        (status = 429, response = crate::api::contract::TooManyConnections),
     ),
     security(("SubscriberEnvQ" = [], "SubscriberIdQ" = [], "SubscriberHashQ" = []))
 )]

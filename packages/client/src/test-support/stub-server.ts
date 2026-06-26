@@ -12,6 +12,7 @@ type WirePage = components['schemas']['InboxPage'];
 type WireCounts = components['schemas']['InboxCounts'];
 type WirePreference = components['schemas']['Preference'];
 type WireError = components['schemas']['Error'];
+type WireErrorCode = WireError['error']['code'];
 
 export interface RecordedRequest {
   method: string;
@@ -34,7 +35,7 @@ interface InjectedFailure {
   method: string;
   pathIncludes: string;
   status: number;
-  code: string;
+  code: WireErrorCode;
   message: string;
 }
 
@@ -78,7 +79,7 @@ function decodeCursor(cursor: string): [string, string] {
   return JSON.parse(cursor) as [string, string];
 }
 
-function errorBody(code: string, message: string): WireError {
+function errorBody(code: WireErrorCode, message: string): WireError {
   return { error: { code, message } };
 }
 
@@ -187,7 +188,7 @@ export class StubServer {
   failNext(
     method: string,
     pathIncludes: string,
-    failure: { status: number; code: string; message?: string },
+    failure: { status: number; code: WireErrorCode; message?: string },
   ): void {
     this.failures.push({
       method,

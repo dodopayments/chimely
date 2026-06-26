@@ -149,9 +149,21 @@ fn default_true() -> bool {
     tag = "admin",
     operation_id = "adminListEnvironments",
     summary = "List environments",
-    responses((status = 200, description = "Environments.", body = Vec<AdminEnvironment>),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error)),
+    responses(
+        (status = 200, description = "Environments.", body = Vec<AdminEnvironment>),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Authenticated but the role lacks the capability.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn list_environments(
@@ -186,10 +198,27 @@ pub async fn list_environments(
     operation_id = "adminCreateEnvironment",
     summary = "Create an environment",
     request_body = AdminCreateEnvironmentRequest,
-    responses((status = 201, description = "Created.", body = AdminEnvironmentDetail),
-              (status = 400, description = "Validation error or slug already exists.", body = crate::api::contract::Error),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error)),
+    responses(
+        (status = 201, description = "Created.", body = AdminEnvironmentDetail),
+        (
+            status = 400,
+            description = "Validation error or slug already exists.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "slug must be 1-255 characters"}}),
+        ),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Authenticated but the role lacks the capability.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn create_environment(
@@ -261,12 +290,29 @@ pub async fn create_environment(
     path = "/admin/api/environments/{env_id}",
     tag = "admin",
     operation_id = "adminGetEnvironment",
-    summary = "Environment detail (includes the subscriber HMAC secret)",
+    summary = "Get an environment",
     params(("env_id" = String, Path, description = "Environment TypeID (env_…).")),
-    responses((status = 200, description = "Environment.", body = AdminEnvironmentDetail),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
-              (status = 404, description = "No such environment.", body = crate::api::contract::Error)),
+    responses(
+        (status = 200, description = "Environment.", body = AdminEnvironmentDetail),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Authenticated but the role lacks the capability.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+        (
+            status = 404,
+            description = "No such environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such environment"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn get_environment(
@@ -321,18 +367,30 @@ pub struct AdminHmacRotation {
     path = "/admin/api/environments/{env_id}/hmac/rotate",
     tag = "admin",
     operation_id = "adminRotateHmac",
-    summary = "Begin a subscriber-HMAC rotation (current → previous)",
-    description = r#"Generates a new current secret and moves the existing one into the
-previous slot. During the overlap BOTH secrets verify live `<Inbox />`
-sessions (auth checks current then previous), so rotation is
-zero-downtime. Complete the rotation to clear the previous slot once
-every customer backend has switched.
-"#,
+    summary = "Begin HMAC rotation",
+    description = r#"Generate a new subscriber HMAC secret while keeping the old one valid during the changeover, so live inbox sessions are not interrupted. Complete the rotation once every backend uses the new secret."#,
     params(("env_id" = String, Path, description = "Environment TypeID (env_…).")),
-    responses((status = 200, description = "Rotated.", body = AdminHmacRotation),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
-              (status = 404, description = "No such environment.", body = crate::api::contract::Error)),
+    responses(
+        (status = 200, description = "Rotated.", body = AdminHmacRotation),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Authenticated but the role lacks the capability.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+        (
+            status = 404,
+            description = "No such environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such environment"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn rotate_hmac(
@@ -372,12 +430,29 @@ pub async fn rotate_hmac(
     path = "/admin/api/environments/{env_id}/hmac/rotate/complete",
     tag = "admin",
     operation_id = "adminCompleteHmacRotation",
-    summary = "Complete a rotation (clear the previous secret slot)",
+    summary = "Complete HMAC rotation",
     params(("env_id" = String, Path, description = "Environment TypeID (env_…).")),
-    responses((status = 204, description = "Previous secret cleared."),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
-              (status = 404, description = "No such environment.", body = crate::api::contract::Error)),
+    responses(
+        (status = 204, description = "Previous secret cleared."),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Authenticated but the role lacks the capability.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+        (
+            status = 404,
+            description = "No such environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such environment"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn complete_hmac_rotation(
@@ -438,12 +513,29 @@ pub struct AdminCreateApiKeyRequest {
     path = "/admin/api/environments/{env_id}/api-keys",
     tag = "admin",
     operation_id = "adminListApiKeys",
-    summary = "List API keys for an environment (prefix only, never the key)",
+    summary = "List API keys",
     params(("env_id" = String, Path, description = "Environment TypeID (env_…).")),
-    responses((status = 200, description = "Keys.", body = Vec<AdminApiKey>),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
-              (status = 404, description = "No such environment.", body = crate::api::contract::Error)),
+    responses(
+        (status = 200, description = "Keys.", body = Vec<AdminApiKey>),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Authenticated but the role lacks the capability.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+        (
+            status = 404,
+            description = "No such environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such environment"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn list_api_keys(
@@ -481,14 +573,36 @@ pub async fn list_api_keys(
     path = "/admin/api/environments/{env_id}/api-keys",
     tag = "admin",
     operation_id = "adminCreateApiKey",
-    summary = "Create an API key (plaintext returned once)",
+    summary = "Create an API key",
     params(("env_id" = String, Path, description = "Environment TypeID (env_…).")),
     request_body = AdminCreateApiKeyRequest,
-    responses((status = 201, description = "Created; `key` is shown once.", body = AdminApiKeyCreated),
-              (status = 400, description = "Validation error.", body = crate::api::contract::Error),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
-              (status = 404, description = "No such environment.", body = crate::api::contract::Error)),
+    responses(
+        (status = 201, description = "Created; `key` is shown once.", body = AdminApiKeyCreated),
+        (
+            status = 400,
+            description = "Validation error.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "name must be 1-255 characters"}}),
+        ),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Authenticated but the role lacks the capability.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+        (
+            status = 404,
+            description = "No such environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such environment"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn create_api_key(
@@ -507,7 +621,7 @@ pub async fn create_api_key(
 
     let id = ids::new_uuid();
     // 256 bits of randomness in the key body. The prefix is for display only.
-    let key = format!("drnt_live_{}", ids::new_uuid().as_simple());
+    let key = format!("chml_live_{}", ids::new_uuid().as_simple());
     let key_hash: Vec<u8> = Sha256::digest(key.as_bytes()).to_vec();
     let key_prefix = &key[..key.floor_char_boundary(14)];
 
@@ -543,15 +657,32 @@ pub async fn create_api_key(
     path = "/admin/api/environments/{env_id}/api-keys/{key_id}/revoke",
     tag = "admin",
     operation_id = "adminRevokeApiKey",
-    summary = "Revoke an API key (soft; row kept for audit)",
+    summary = "Revoke an API key",
     params(
         ("env_id" = String, Path, description = "Environment TypeID (env_…)."),
         ("key_id" = String, Path, description = "API key TypeID (key_…).")
     ),
-    responses((status = 204, description = "Revoked (now or already)."),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
-              (status = 404, description = "No such API key.", body = crate::api::contract::Error)),
+    responses(
+        (status = 204, description = "Revoked (now or already)."),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Authenticated but the role lacks the capability.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+        (
+            status = 404,
+            description = "No such API key.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such API key"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn revoke_api_key(
@@ -622,16 +753,38 @@ pub struct AdminNotificationPage {
     path = "/admin/api/environments/{env_id}/notifications",
     tag = "admin",
     operation_id = "adminListNotifications",
-    summary = "Browse direct notifications (filter by subscriber, category, time)",
+    summary = "List notifications",
     params(
         ("env_id" = String, Path, description = "Environment TypeID (env_…)."),
         AdminNotificationFilter
     ),
-    responses((status = 200, description = "A page of notifications.", body = AdminNotificationPage),
-              (status = 400, description = "Malformed cursor or out-of-range limit.", body = crate::api::contract::Error),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
-              (status = 404, description = "No such environment.", body = crate::api::contract::Error)),
+    responses(
+        (status = 200, description = "A page of notifications.", body = AdminNotificationPage),
+        (
+            status = 400,
+            description = "Malformed cursor or out-of-range limit.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "malformed cursor"}}),
+        ),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Authenticated but the role lacks the capability.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+        (
+            status = 404,
+            description = "No such environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such environment"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn list_notifications(
@@ -724,15 +877,32 @@ pub struct AdminNotificationTimeline {
     path = "/admin/api/environments/{env_id}/notifications/{notif_id}/timeline",
     tag = "admin",
     operation_id = "adminNotificationTimeline",
-    summary = "Status timeline for one notification (the \"did it send?\" answer)",
+    summary = "Notification timeline",
     params(
         ("env_id" = String, Path, description = "Environment TypeID (env_…)."),
         ("notif_id" = String, Path, description = "Notification TypeID (notif_…).")
     ),
-    responses((status = 200, description = "The timeline so far.", body = AdminNotificationTimeline),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
-              (status = 404, description = "No such notification.", body = crate::api::contract::Error)),
+    responses(
+        (status = 200, description = "The timeline so far.", body = AdminNotificationTimeline),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Authenticated but the role lacks the capability.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+        (
+            status = 404,
+            description = "No such notification.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such notification"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn notification_timeline(
@@ -801,16 +971,38 @@ pub struct AdminCreateBroadcastRequest {
     path = "/admin/api/environments/{env_id}/broadcasts",
     tag = "admin",
     operation_id = "adminCreateBroadcast",
-    summary = "Compose a broadcast (one row, fan-out on read)",
-    description = "Composing is creating: the same idempotent management-plane write-path. One row per announcement, never materialized per subscriber.",
+    summary = "Compose a broadcast",
+    description = "Send one announcement to every subscriber in the environment, from the admin dashboard.",
     params(("env_id" = String, Path, description = "Environment TypeID (env_…).")),
     request_body = AdminCreateBroadcastRequest,
-    responses((status = 201, description = "Created.", body = crate::api::contract::Broadcast),
-              (status = 200, description = "Idempotent replay.", body = crate::api::contract::Broadcast),
-              (status = 400, description = "Validation error.", body = crate::api::contract::Error),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
-              (status = 404, description = "No such environment.", body = crate::api::contract::Error)),
+    responses(
+        (status = 201, description = "Created.", body = crate::api::contract::Broadcast),
+        (status = 200, description = "Idempotent replay.", body = crate::api::contract::Broadcast),
+        (
+            status = 400,
+            description = "Validation error.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "category must be 1–255 characters"}}),
+        ),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Authenticated but the role lacks the capability.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+        (
+            status = 404,
+            description = "No such environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such environment"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn create_broadcast(
@@ -885,15 +1077,32 @@ impl From<InboxCounts> for AdminCounts {
     path = "/admin/api/environments/{env_id}/subscribers/{subscriber_id}",
     tag = "admin",
     operation_id = "adminGetSubscriber",
-    summary = "Subscriber lookup: counters, watermarks, preferences, merged inbox",
+    summary = "Get a subscriber",
     params(
         ("env_id" = String, Path, description = "Environment TypeID (env_…)."),
         ("subscriber_id" = String, Path, description = "Customer-provided subscriber id.")
     ),
-    responses((status = 200, description = "Subscriber view.", body = AdminSubscriberView),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
-              (status = 404, description = "No such subscriber.", body = crate::api::contract::Error)),
+    responses(
+        (status = 200, description = "Subscriber view.", body = AdminSubscriberView),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Authenticated but the role lacks the capability.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+        (
+            status = 404,
+            description = "No such subscriber.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such subscriber"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn get_subscriber(
@@ -1006,10 +1215,22 @@ pub struct AdminReplayResult {
     path = "/admin/api/dlq",
     tag = "admin",
     operation_id = "adminListDeadLetters",
-    summary = "List parked jobs across environments",
-    responses((status = 200, description = "Parked jobs.", body = Vec<AdminDeadLetter>),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error)),
+    summary = "List dead letters",
+    responses(
+        (status = 200, description = "Parked jobs.", body = Vec<AdminDeadLetter>),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Authenticated but the role lacks the capability.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn list_dlq(
@@ -1038,13 +1259,30 @@ pub async fn list_dlq(
     path = "/admin/api/dlq/{job_id}/replay",
     tag = "admin",
     operation_id = "adminReplayDeadLetter",
-    summary = "Replay one parked job (re-enters the normal claim path)",
-    description = "Moves the parked row back into `jobs` with a fresh attempt budget; the normal worker loop (SKIP LOCKED, per-environment fairness, delete-on-completion) runs it. Never executed inline.",
+    summary = "Replay dead letter",
+    description = "Requeue one failed job for another attempt.",
     params(("job_id" = String, Path, description = "Job TypeID (job_…).")),
-    responses((status = 200, description = "Replayed.", body = AdminReplayResult),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error),
-              (status = 404, description = "No such parked job.", body = crate::api::contract::Error)),
+    responses(
+        (status = 200, description = "Replayed.", body = AdminReplayResult),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Authenticated but the role lacks the capability.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+        (
+            status = 404,
+            description = "No such parked job.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such parked job"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn replay_dead_letter(
@@ -1070,10 +1308,22 @@ pub async fn replay_dead_letter(
     path = "/admin/api/dlq/replay-all",
     tag = "admin",
     operation_id = "adminReplayAllDeadLetters",
-    summary = "Replay every parked job",
-    responses((status = 200, description = "Replayed.", body = AdminReplayResult),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Authenticated but the role lacks the capability.", body = crate::api::contract::Error)),
+    summary = "Replay all dead letters",
+    responses(
+        (status = 200, description = "Replayed.", body = AdminReplayResult),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Authenticated but the role lacks the capability.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn replay_all_dead_letters(
@@ -1115,12 +1365,24 @@ pub struct AdminMe {
     path = "/admin/api/login",
     tag = "admin",
     operation_id = "adminLogin",
-    summary = "Log in with email + password; starts a server-side session",
-    description = "On success sets the `chimely_admin` session cookie (HttpOnly, SameSite=Strict, Path=/admin). Failure returns a generic error that does not reveal which field was wrong.",
+    summary = "Log in",
+    description = "Sign in to the admin dashboard with email and password. On success a session cookie is set.",
     request_body = AdminLoginRequest,
-    responses((status = 200, description = "Logged in; sets the session cookie.", body = AdminMe),
-              (status = 401, description = "Invalid email or password.", body = crate::api::contract::Error),
-              (status = 403, description = "Missing X-Chimely-Admin header.", body = crate::api::contract::Error))
+    responses(
+        (status = 200, description = "Logged in; sets the session cookie.", body = AdminMe),
+        (
+            status = 401,
+            description = "Invalid email or password.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid email or password"}}),
+        ),
+        (
+            status = 403,
+            description = "Missing X-Chimely-Admin header.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "missing X-Chimely-Admin header"}}),
+        ),
+    )
 )]
 pub async fn login(
     State(state): State<AppState>,
@@ -1178,10 +1440,22 @@ pub async fn login(
     path = "/admin/api/logout",
     tag = "admin",
     operation_id = "adminLogout",
-    summary = "Log out: delete the session and clear the cookie",
-    responses((status = 204, description = "Logged out."),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Missing X-Chimely-Admin header.", body = crate::api::contract::Error)),
+    summary = "Log out",
+    responses(
+        (status = 204, description = "Logged out."),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Missing X-Chimely-Admin header.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "missing X-Chimely-Admin header"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn logout(auth: AdminAuth, State(state): State<AppState>) -> Result<Response, ApiError> {
@@ -1195,9 +1469,16 @@ pub async fn logout(auth: AdminAuth, State(state): State<AppState>) -> Result<Re
     path = "/admin/api/me",
     tag = "admin",
     operation_id = "adminMe",
-    summary = "The signed-in admin user, role, and capabilities",
-    responses((status = 200, description = "The current user.", body = AdminMe),
-              (status = 401, description = "Authentication required (no or expired session).")),
+    summary = "Current admin user",
+    responses(
+        (status = 200, description = "The current user.", body = AdminMe),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn me(auth: AdminAuth) -> Json<AdminMe> {
@@ -1254,9 +1535,21 @@ pub struct AdminSetPasswordRequest {
     tag = "admin",
     operation_id = "adminListUsers",
     summary = "List admin users",
-    responses((status = 200, description = "Users.", body = Vec<AdminUserView>),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Requires user:manage.", body = crate::api::contract::Error)),
+    responses(
+        (status = 200, description = "Users.", body = Vec<AdminUserView>),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Requires user:manage.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn list_users(
@@ -1295,11 +1588,33 @@ pub async fn list_users(
     operation_id = "adminCreateUser",
     summary = "Create an admin user",
     request_body = AdminCreateUserRequest,
-    responses((status = 201, description = "Created.", body = AdminUserView),
-              (status = 400, description = "Validation error.", body = crate::api::contract::Error),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Requires user:manage.", body = crate::api::contract::Error),
-              (status = 409, description = "Email already exists.", body = crate::api::contract::Error)),
+    responses(
+        (status = 201, description = "Created.", body = AdminUserView),
+        (
+            status = 400,
+            description = "Validation error.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "a valid email is required"}}),
+        ),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Requires user:manage.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+        (
+            status = 409,
+            description = "Email already exists.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "conflict", "message": "a user with that email already exists"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn create_user(
@@ -1362,15 +1677,42 @@ pub async fn create_user(
     path = "/admin/api/users/{user_id}",
     tag = "admin",
     operation_id = "adminUpdateUser",
-    summary = "Update an admin user's name, role, or disabled state",
+    summary = "Update an admin user",
     params(("user_id" = String, Path, description = "Admin user TypeID (adm_…).")),
     request_body = AdminUpdateUserRequest,
-    responses((status = 200, description = "Updated.", body = AdminUserView),
-              (status = 400, description = "Validation error.", body = crate::api::contract::Error),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Requires user:manage.", body = crate::api::contract::Error),
-              (status = 404, description = "No such user.", body = crate::api::contract::Error),
-              (status = 409, description = "Self-disable or last-admin guard rail.", body = crate::api::contract::Error)),
+    responses(
+        (status = 200, description = "Updated.", body = AdminUserView),
+        (
+            status = 400,
+            description = "Validation error.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "role must be viewer, operator, developer, or admin"}}),
+        ),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Requires user:manage.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+        (
+            status = 404,
+            description = "No such user.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such user"}}),
+        ),
+        (
+            status = 409,
+            description = "Self-disable or last-admin guard rail.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "conflict", "message": "you cannot disable your own account"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn update_user(
@@ -1479,14 +1821,36 @@ pub async fn update_user(
     path = "/admin/api/users/{user_id}/password",
     tag = "admin",
     operation_id = "adminSetUserPassword",
-    summary = "Set a user's password (user:manage, or the user themselves)",
+    summary = "Set user password",
     params(("user_id" = String, Path, description = "Admin user TypeID (adm_…).")),
     request_body = AdminSetPasswordRequest,
-    responses((status = 204, description = "Password updated."),
-              (status = 400, description = "Password too short.", body = crate::api::contract::Error),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Not user:manage and not the target user.", body = crate::api::contract::Error),
-              (status = 404, description = "No such user.", body = crate::api::contract::Error)),
+    responses(
+        (status = 204, description = "Password updated."),
+        (
+            status = 400,
+            description = "Password too short.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "password must be at least 12 characters"}}),
+        ),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Not user:manage and not the target user.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+        (
+            status = 404,
+            description = "No such user.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such user"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn set_user_password(
@@ -1537,11 +1901,33 @@ pub async fn set_user_password(
     operation_id = "adminDeleteUser",
     summary = "Delete an admin user",
     params(("user_id" = String, Path, description = "Admin user TypeID (adm_…).")),
-    responses((status = 204, description = "Deleted."),
-              (status = 401, description = "Authentication required (no or expired session)."),
-              (status = 403, description = "Requires user:manage.", body = crate::api::contract::Error),
-              (status = 404, description = "No such user.", body = crate::api::contract::Error),
-              (status = 409, description = "Self-delete or last-admin guard rail.", body = crate::api::contract::Error)),
+    responses(
+        (status = 204, description = "Deleted."),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Requires user:manage.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+        (
+            status = 404,
+            description = "No such user.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such user"}}),
+        ),
+        (
+            status = 409,
+            description = "Self-delete or last-admin guard rail.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "conflict", "message": "you cannot delete your own account"}}),
+        ),
+    ),
     security(("AdminSession" = []))
 )]
 pub async fn delete_user(
@@ -1621,9 +2007,9 @@ fn user_view(
 }
 
 /// Transaction-scoped advisory lock serializing admin-roster mutations
-/// ("drntADMR" as big-endian i64). A single lock, so the last-admin guard
+/// ("chmlADMR" as big-endian i64). A single lock, so the last-admin guard
 /// cannot be raced (TOCTOU) and there is no row-order deadlock.
-const ADMIN_ROSTER_LOCK_KEY: i64 = 0x64726e74_41444d52;
+const ADMIN_ROSTER_LOCK_KEY: i64 = 0x63686d6c_41444d52;
 
 /// Take the admin-roster advisory lock for the rest of the transaction.
 async fn lock_admin_roster(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<(), ApiError> {

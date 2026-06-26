@@ -35,8 +35,20 @@ info:
     notifications, `bcast_…` for broadcasts. The prefix is part of the id;
     treat ids as opaque strings.
 
-    **Errors** use a single envelope: `{"error": {"code", "message"}}` with
-    conventional status codes. 429 carries `Retry-After`.
+    **Errors** use a single envelope: `{"error": {"code", "message"}}`. Branch on
+    `code` (stable, machine-readable), never on `message` (human text that may
+    change). Status codes are conventional and 429 carries `Retry-After`.
+
+    | Code | HTTP | Meaning |
+    |---|---|---|
+    | `invalid_request` | 400 | Malformed request or failed validation. |
+    | `unauthorized` | 401 | Missing or invalid credentials (API key, subscriber hash, or admin session). |
+    | `forbidden` | 403 | Authenticated, but the role or scope lacks the capability. |
+    | `not_found` | 404 | No such resource in this environment. |
+    | `conflict` | 409 | Well-formed, but the current state forbids it (guard rail or duplicate). |
+    | `rate_limited` | 429 | Request rate limit exceeded. Retry after `Retry-After` seconds. |
+    | `too_many_connections` | 429 | Per-subscriber live-stream connection cap reached. |
+    | `internal` | 500 | Unexpected server error. The detail is logged, never returned. |
   version: 0.1.0
 servers:
 - url: https://chimely.dev
@@ -45,7 +57,7 @@ paths:
     get:
       tags:
       - admin
-      summary: List parked jobs across environments
+      summary: List dead letters
       operationId: adminListDeadLetters
       responses:
         '200':
@@ -58,19 +70,31 @@ paths:
                   $ref: '#/components/schemas/AdminDeadLetter'
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Authenticated but the role lacks the capability.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
       security:
       - AdminSession: []
   /admin/api/dlq/replay-all:
     post:
       tags:
       - admin
-      summary: Replay every parked job
+      summary: Replay all dead letters
       operationId: adminReplayAllDeadLetters
       responses:
         '200':
@@ -81,20 +105,32 @@ paths:
                 $ref: '#/components/schemas/AdminReplayResult'
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Authenticated but the role lacks the capability.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
       security:
       - AdminSession: []
   /admin/api/dlq/{job_id}/replay:
     post:
       tags:
       - admin
-      summary: Replay one parked job (re-enters the normal claim path)
-      description: Moves the parked row back into `jobs` with a fresh attempt budget; the normal worker loop (SKIP LOCKED, per-environment fairness, delete-on-completion) runs it. Never executed inline.
+      summary: Replay dead letter
+      description: Requeue one failed job for another attempt.
       operationId: adminReplayDeadLetter
       parameters:
       - name: job_id
@@ -112,18 +148,34 @@ paths:
                 $ref: '#/components/schemas/AdminReplayResult'
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Authenticated but the role lacks the capability.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
         '404':
           description: No such parked job.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such parked job
       security:
       - AdminSession: []
   /admin/api/environments:
@@ -143,12 +195,24 @@ paths:
                   $ref: '#/components/schemas/AdminEnvironment'
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Authenticated but the role lacks the capability.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
       security:
       - AdminSession: []
     post:
@@ -175,21 +239,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: invalid_request
+                  message: slug must be 1-255 characters
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Authenticated but the role lacks the capability.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
       security:
       - AdminSession: []
   /admin/api/environments/{env_id}:
     get:
       tags:
       - admin
-      summary: Environment detail (includes the subscriber HMAC secret)
+      summary: Get an environment
       operationId: adminGetEnvironment
       parameters:
       - name: env_id
@@ -207,25 +287,41 @@ paths:
                 $ref: '#/components/schemas/AdminEnvironmentDetail'
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Authenticated but the role lacks the capability.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
         '404':
           description: No such environment.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such environment
       security:
       - AdminSession: []
   /admin/api/environments/{env_id}/api-keys:
     get:
       tags:
       - admin
-      summary: List API keys for an environment (prefix only, never the key)
+      summary: List API keys
       operationId: adminListApiKeys
       parameters:
       - name: env_id
@@ -245,24 +341,40 @@ paths:
                   $ref: '#/components/schemas/AdminApiKey'
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Authenticated but the role lacks the capability.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
         '404':
           description: No such environment.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such environment
       security:
       - AdminSession: []
     post:
       tags:
       - admin
-      summary: Create an API key (plaintext returned once)
+      summary: Create an API key
       operationId: adminCreateApiKey
       parameters:
       - name: env_id
@@ -290,27 +402,47 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: invalid_request
+                  message: name must be 1-255 characters
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Authenticated but the role lacks the capability.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
         '404':
           description: No such environment.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such environment
       security:
       - AdminSession: []
   /admin/api/environments/{env_id}/api-keys/{key_id}/revoke:
     post:
       tags:
       - admin
-      summary: Revoke an API key (soft; row kept for audit)
+      summary: Revoke an API key
       operationId: adminRevokeApiKey
       parameters:
       - name: env_id
@@ -330,26 +462,42 @@ paths:
           description: Revoked (now or already).
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Authenticated but the role lacks the capability.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
         '404':
           description: No such API key.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such API key
       security:
       - AdminSession: []
   /admin/api/environments/{env_id}/broadcasts:
     post:
       tags:
       - admin
-      summary: Compose a broadcast (one row, fan-out on read)
-      description: 'Composing is creating: the same idempotent management-plane write-path. One row per announcement, never materialized per subscriber.'
+      summary: Compose a broadcast
+      description: Send one announcement to every subscriber in the environment, from the admin dashboard.
       operationId: adminCreateBroadcast
       parameters:
       - name: env_id
@@ -383,33 +531,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: invalid_request
+                  message: category must be 1–255 characters
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Authenticated but the role lacks the capability.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
         '404':
           description: No such environment.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such environment
       security:
       - AdminSession: []
   /admin/api/environments/{env_id}/hmac/rotate:
     post:
       tags:
       - admin
-      summary: Begin a subscriber-HMAC rotation (current → previous)
-      description: |
-        Generates a new current secret and moves the existing one into the
-        previous slot. During the overlap BOTH secrets verify live `<Inbox />`
-        sessions (auth checks current then previous), so rotation is
-        zero-downtime. Complete the rotation to clear the previous slot once
-        every customer backend has switched.
+      summary: Begin HMAC rotation
+      description: Generate a new subscriber HMAC secret while keeping the old one valid during the changeover, so live inbox sessions are not interrupted. Complete the rotation once every backend uses the new secret.
       operationId: adminRotateHmac
       parameters:
       - name: env_id
@@ -427,25 +590,41 @@ paths:
                 $ref: '#/components/schemas/AdminHmacRotation'
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Authenticated but the role lacks the capability.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
         '404':
           description: No such environment.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such environment
       security:
       - AdminSession: []
   /admin/api/environments/{env_id}/hmac/rotate/complete:
     post:
       tags:
       - admin
-      summary: Complete a rotation (clear the previous secret slot)
+      summary: Complete HMAC rotation
       operationId: adminCompleteHmacRotation
       parameters:
       - name: env_id
@@ -459,25 +638,41 @@ paths:
           description: Previous secret cleared.
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Authenticated but the role lacks the capability.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
         '404':
           description: No such environment.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such environment
       security:
       - AdminSession: []
   /admin/api/environments/{env_id}/notifications:
     get:
       tags:
       - admin
-      summary: Browse direct notifications (filter by subscriber, category, time)
+      summary: List notifications
       operationId: adminListNotifications
       parameters:
       - name: env_id
@@ -542,27 +737,47 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: invalid_request
+                  message: malformed cursor
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Authenticated but the role lacks the capability.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
         '404':
           description: No such environment.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such environment
       security:
       - AdminSession: []
   /admin/api/environments/{env_id}/notifications/{notif_id}/timeline:
     get:
       tags:
       - admin
-      summary: Status timeline for one notification (the "did it send?" answer)
+      summary: Notification timeline
       operationId: adminNotificationTimeline
       parameters:
       - name: env_id
@@ -586,25 +801,41 @@ paths:
                 $ref: '#/components/schemas/AdminNotificationTimeline'
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Authenticated but the role lacks the capability.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
         '404':
           description: No such notification.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such notification
       security:
       - AdminSession: []
   /admin/api/environments/{env_id}/subscribers/{subscriber_id}:
     get:
       tags:
       - admin
-      summary: 'Subscriber lookup: counters, watermarks, preferences, merged inbox'
+      summary: Get a subscriber
       operationId: adminGetSubscriber
       parameters:
       - name: env_id
@@ -628,26 +859,42 @@ paths:
                 $ref: '#/components/schemas/AdminSubscriberView'
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Authenticated but the role lacks the capability.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
         '404':
           description: No such subscriber.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such subscriber
       security:
       - AdminSession: []
   /admin/api/login:
     post:
       tags:
       - admin
-      summary: Log in with email + password; starts a server-side session
-      description: On success sets the `chimely_admin` session cookie (HttpOnly, SameSite=Strict, Path=/admin). Failure returns a generic error that does not reveal which field was wrong.
+      summary: Log in
+      description: Sign in to the admin dashboard with email and password. On success a session cookie is set.
       operationId: adminLogin
       requestBody:
         content:
@@ -668,36 +915,56 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid email or password
         '403':
           description: Missing X-Chimely-Admin header.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: missing X-Chimely-Admin header
   /admin/api/logout:
     post:
       tags:
       - admin
-      summary: 'Log out: delete the session and clear the cookie'
+      summary: Log out
       operationId: adminLogout
       responses:
         '204':
           description: Logged out.
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Missing X-Chimely-Admin header.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: missing X-Chimely-Admin header
       security:
       - AdminSession: []
   /admin/api/me:
     get:
       tags:
       - admin
-      summary: The signed-in admin user, role, and capabilities
+      summary: Current admin user
       operationId: adminMe
       responses:
         '200':
@@ -708,6 +975,14 @@ paths:
                 $ref: '#/components/schemas/AdminMe'
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
       security:
       - AdminSession: []
   /admin/api/users:
@@ -727,12 +1002,24 @@ paths:
                   $ref: '#/components/schemas/AdminUserView'
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Requires user:manage.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
       security:
       - AdminSession: []
     post:
@@ -759,20 +1046,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: invalid_request
+                  message: a valid email is required
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Requires user:manage.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
         '409':
           description: Email already exists.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: conflict
+                  message: a user with that email already exists
       security:
       - AdminSession: []
   /admin/api/users/{user_id}:
@@ -793,30 +1100,50 @@ paths:
           description: Deleted.
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Requires user:manage.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
         '404':
           description: No such user.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such user
         '409':
           description: Self-delete or last-admin guard rail.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: conflict
+                  message: you cannot delete your own account
       security:
       - AdminSession: []
     patch:
       tags:
       - admin
-      summary: Update an admin user's name, role, or disabled state
+      summary: Update an admin user
       operationId: adminUpdateUser
       parameters:
       - name: user_id
@@ -844,33 +1171,57 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: invalid_request
+                  message: role must be viewer, operator, developer, or admin
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Requires user:manage.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
         '404':
           description: No such user.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such user
         '409':
           description: Self-disable or last-admin guard rail.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: conflict
+                  message: you cannot disable your own account
       security:
       - AdminSession: []
   /admin/api/users/{user_id}/password:
     post:
       tags:
       - admin
-      summary: Set a user's password (user:manage, or the user themselves)
+      summary: Set user password
       operationId: adminSetUserPassword
       parameters:
       - name: user_id
@@ -894,31 +1245,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: invalid_request
+                  message: password must be at least 12 characters
         '401':
           description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
         '403':
           description: Not user:manage and not the target user.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
         '404':
           description: No such user.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such user
       security:
       - AdminSession: []
   /v1/broadcasts:
     post:
       tags:
       - management
-      summary: Create a broadcast (one row, fan-out on read)
-      description: |
-        One row per announcement targeting the whole environment, regardless of
-        subscriber count. Visible to each subscriber only if the broadcast is
-        created at or after that subscriber's `created_at`.
+      summary: Create a broadcast
+      description: Send one announcement to every subscriber in the environment. A subscriber sees it only if it was created at or after they were.
       operationId: createBroadcast
       requestBody:
         content:
@@ -945,12 +1313,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: invalid_request
+                  message: category must be 1–255 characters
         '401':
           description: Missing/invalid API key or subscriber hash.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid API key
         '429':
           $ref: '#/components/responses/RateLimited'
       security:
@@ -959,8 +1335,8 @@ paths:
     post:
       tags:
       - subscriber
-      summary: Mark one broadcast read (for this subscriber)
-      description: Idempotent. Inserts a `broadcast_reads` exception row; a no-op if the broadcast is already below the read watermark.
+      summary: Mark broadcast read
+      description: Mark one broadcast as read for this subscriber. Idempotent.
       operationId: markBroadcastRead
       parameters:
       - name: id
@@ -977,12 +1353,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid subscriber hash
         '404':
           description: Resource not found in this environment.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such broadcast
       security:
       - SubscriberEnv: []
         SubscriberHash: []
@@ -991,11 +1375,8 @@ paths:
     get:
       tags:
       - subscriber
-      summary: Unread and unseen counts
-      description: |
-        `unread` drives list styling; `unseen` drives the bell badge (cleared
-        by mark-all-seen when the inbox opens). Served from maintained counters
-        (Redis cache, Postgres authoritative) — O(1), not O(rows).
+      summary: Inbox counts
+      description: The subscriber's unread and unseen counts. unread reflects items not yet read; unseen drives the bell badge.
       operationId: getInboxCounts
       responses:
         '200':
@@ -1010,6 +1391,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid subscriber hash
       security:
       - SubscriberEnv: []
         SubscriberHash: []
@@ -1018,24 +1403,8 @@ paths:
     get:
       tags:
       - subscriber
-      summary: Merged inbox list (direct + broadcast), keyset-paginated
-      description: |
-        Newest first, ordered by `(occurred_at, id)` descending across both
-        sources. `cursor` is the opaque keyset token from the previous page's
-        `next_cursor`. Category mutes are applied server-side.
-
-        Supports `ETag` / `If-None-Match`, so post-reconnect refetches
-        (deploy thundering herd) are mostly 304s. The validator is a strong
-        hash over: the request cursor, `subscriber_counters.updated_at`
-        (bumped by EVERY read-state mutation — see the counter invariants in
-        schema.sql), the subscriber's latest direct item `(visible_at, id)`,
-        the environment's latest broadcast `(created_at, id)`, and
-        `max(preferences.updated_at)` for the subscriber. Each input is one
-        index-only lookup; anything that can change a page moves at least
-        one of them.
-
-        Responses are `Cache-Control: private, max-age=0` — inbox pages are
-        per-user data and must never be cached by shared proxies.
+      summary: List inbox items
+      description: The subscriber's inbox, newest first, combining direct notifications and broadcasts. Use cursor for pagination and If-None-Match for conditional fetches.
       operationId: listInboxItems
       parameters:
       - name: cursor
@@ -1081,12 +1450,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: invalid_request
+                  message: malformed cursor
         '401':
           description: Missing/invalid API key or subscriber hash.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid subscriber hash
         '429':
           $ref: '#/components/responses/RateLimited'
       security:
@@ -1097,8 +1474,8 @@ paths:
     post:
       tags:
       - subscriber
-      summary: Mark one direct notification read
-      description: Idempotent. Sets `read_at`; decrements the unread counter only if it was unread.
+      summary: Mark notification read
+      description: Mark one direct notification as read. Idempotent.
       operationId: markNotificationRead
       parameters:
       - name: id
@@ -1115,12 +1492,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid subscriber hash
         '404':
           description: Resource not found in this environment.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such notification
       security:
       - SubscriberEnv: []
         SubscriberHash: []
@@ -1129,7 +1514,7 @@ paths:
     get:
       tags:
       - subscriber
-      summary: Read own preferences
+      summary: Get preferences
       operationId: getPreferences
       responses:
         '200':
@@ -1144,6 +1529,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid subscriber hash
       security:
       - SubscriberEnv: []
         SubscriberHash: []
@@ -1151,7 +1540,7 @@ paths:
     put:
       tags:
       - subscriber
-      summary: Set own preferences
+      summary: Set preferences
       operationId: setPreferences
       requestBody:
         content:
@@ -1172,12 +1561,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: invalid_request
+                  message: preferences must contain 1–100 entries
         '401':
           description: Missing/invalid API key or subscriber hash.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid subscriber hash
       security:
       - SubscriberEnv: []
         SubscriberHash: []
@@ -1186,11 +1583,8 @@ paths:
     post:
       tags:
       - subscriber
-      summary: Mark everything read (watermark move)
-      description: |
-        Moves the per-subscriber read watermark to now — a one-row update, not
-        a bulk UPDATE. Covers both sources; individually-read exception rows
-        below the new watermark are garbage-collected.
+      summary: Mark all read
+      description: Mark every item, direct and broadcast, as read for this subscriber.
       operationId: markAllRead
       responses:
         '200':
@@ -1205,6 +1599,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid subscriber hash
       security:
       - SubscriberEnv: []
         SubscriberHash: []
@@ -1213,8 +1611,8 @@ paths:
     post:
       tags:
       - subscriber
-      summary: Mark everything seen (badge clear; watermark move)
-      description: Called by the SDK when the inbox opens. Moves the seen watermark; read state is untouched.
+      summary: Mark all seen
+      description: Clear the unseen count (the bell badge) without changing read state. Called when the inbox opens.
       operationId: markAllSeen
       responses:
         '200':
@@ -1229,6 +1627,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid subscriber hash
       security:
       - SubscriberEnv: []
         SubscriberHash: []
@@ -1237,31 +1639,8 @@ paths:
     get:
       tags:
       - subscriber
-      summary: SSE hint stream
-      description: |
-        `text/event-stream` of **hints, not transports**: the client refetches
-        via REST (conditional, ETag) on every hint and on every (re)connect, so
-        missed hints are harmless by construction.
-
-        Auth via query parameters (browser `EventSource` cannot set headers).
-        Server requirement (tested invariant, not a habit): `subscriber_hash`
-        is scrubbed from access/proxy log lines for this endpoint —
-        query-string credentials otherwise leak into logs.
-
-        Events (`id:` on every event is an opaque resume token):
-        * `hint` — something changed for this subscriber; refetch list/counts.
-          Debounced server-side (at most one per subscriber per interval).
-
-        Keep-alive is a comment frame (`: ping`) every 30 seconds, not an
-        event — comment frames are deliberately invisible to EventSource
-        listeners. Unknown future event types must be ignored by clients.
-
-        Resume: browsers replay `Last-Event-ID` automatically on reconnect; the
-        server answers by emitting an immediate `hint` if anything changed
-        after that token (it does not replay individual missed events — the
-        REST refetch is the recovery mechanism). On graceful shutdown the
-        server sends a `retry:` directive with jitter before closing, so a
-        deploy does not produce a reconnect stampede.
+      summary: Inbox stream
+      description: 'A Server-Sent Events stream of hints: each event tells the client to refetch the inbox over REST, so missed events are harmless (the events carry no data). Authenticated via query parameters because EventSource cannot set request headers.'
       operationId: streamInbox
       parameters:
       - name: Last-Event-ID
@@ -1287,6 +1666,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: subscriber hash required
+        '429':
+          $ref: '#/components/responses/TooManyConnections'
       security:
       - SubscriberEnvQ: []
         SubscriberHashQ: []
@@ -1295,18 +1680,8 @@ paths:
     post:
       tags:
       - management
-      summary: Create direct notifications (1–100 recipients, fan-out on write)
-      description: |
-        Creates one notification per recipient in a single transaction together
-        with counter bumps and the outbox job. The `idempotency_key` covers the
-        **whole request**: a retry never partially re-runs the batch.
-
-        `deliver_at` schedules delivery (max 13 months out): the notification
-        is durable immediately but invisible to the subscriber until then;
-        counters and real-time hints fire at `deliver_at`.
-
-        Recipients that don't exist yet are lazily created as subscribers.
-        Need more than 100 recipients? That's a broadcast.
+      summary: Create notifications
+      description: Send a notification to up to 100 subscribers; one item is created per recipient. Use idempotency_key to make retries safe, and deliver_at to schedule delivery up to 13 months ahead (the item stays hidden from the subscriber until then). Unknown subscribers are created automatically. For more than 100 recipients, use a broadcast.
       operationId: createNotifications
       requestBody:
         content:
@@ -1333,12 +1708,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: invalid_request
+                  message: deliver_at must be in the future
         '401':
           description: Missing/invalid API key or subscriber hash.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid API key
         '429':
           $ref: '#/components/responses/RateLimited'
       security:
@@ -1347,18 +1730,8 @@ paths:
     get:
       tags:
       - management
-      summary: Status timeline for one notification
-      description: |
-        The append-only delivery timeline — the "did it send?" answer.
-        Statuses appear as they happen: `created` (accepted and durable),
-        `delivered_hint` (a real-time hint announcing it was published),
-        `seen` and `read` (subscriber actions; watermark moves apply them
-        asynchronously, so a just-clicked "mark all read" may take a moment
-        to appear here). Entries are ordered by `occurred_at`. Unknown future
-        statuses must be ignored by clients.
-
-        Broadcasts have no per-recipient timeline (they are never materialized
-        per subscriber).
+      summary: Notification timeline
+      description: 'The history of one notification: when it was created, delivered, seen, and read. Entries are ordered by time. Broadcasts have no per-subscriber timeline.'
       operationId: getNotificationTimeline
       parameters:
       - name: id
@@ -1379,12 +1752,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid API key
         '404':
           description: Resource not found in this environment.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such notification
         '429':
           $ref: '#/components/responses/RateLimited'
       security:
@@ -1394,11 +1775,7 @@ paths:
       tags:
       - management
       summary: Upsert a subscriber
-      description: |
-        Subscribers are normally created lazily; this exists for imports.
-        `created_at` may be **backdated** on first create (ignored on update) —
-        it is the knob controlling which historical broadcasts an imported user
-        sees (`broadcast.created_at >= subscriber.created_at`).
+      description: Create or update a subscriber. Subscribers are normally created automatically; use this for imports. On first create, created_at may be backdated to control which past broadcasts the subscriber sees.
       operationId: upsertSubscriber
       parameters:
       - name: subscriber_id
@@ -1432,19 +1809,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: invalid_request
+                  message: subscriber_id must be 1–255 characters
         '401':
           description: Missing/invalid API key or subscriber hash.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid API key
       security:
       - ApiKeyBearer: []
   /v1/subscribers/{subscriber_id}/preferences:
     get:
       tags:
       - management
-      summary: Read a subscriber's preferences (admin)
+      summary: Get subscriber preferences
       operationId: getSubscriberPreferences
       parameters:
       - name: subscriber_id
@@ -1467,18 +1852,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid API key
         '404':
           description: Resource not found in this environment.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such subscriber
       security:
       - ApiKeyBearer: []
     put:
       tags:
       - management
-      summary: Set preferences for a subscriber (admin)
+      summary: Set subscriber preferences
       operationId: setSubscriberPreferences
       parameters:
       - name: subscriber_id
@@ -1507,12 +1900,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: invalid_request
+                  message: preferences must contain 1–100 entries
         '401':
           description: Missing/invalid API key or subscriber hash.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid API key
       security:
       - ApiKeyBearer: []
 components:
@@ -2031,6 +2432,7 @@ components:
                 type: string
     Error:
       type: object
+      description: Error envelope. Every non-2xx response has this shape.
       required:
       - error
       properties:
@@ -2042,9 +2444,20 @@ components:
           properties:
             code:
               type: string
+              description: Stable, machine-readable code. Branch on this, not on the HTTP status or `message`. The error table in the API description lists every code.
+              enum:
+              - invalid_request
+              - unauthorized
+              - forbidden
+              - not_found
+              - conflict
+              - rate_limited
+              - too_many_connections
+              - internal
               example: invalid_request
             message:
               type: string
+              description: Human-readable detail, for logs and developers. Not stable, do not parse.
     InboxCounts:
       type: object
       required:
@@ -2240,6 +2653,24 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: rate_limited
+              message: rate limit exceeded
+    TooManyConnections:
+      description: Per-subscriber live-stream connection cap reached.
+      headers:
+        retry-after:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: too_many_connections
+              message: too many concurrent streams for this subscriber
     Unauthorized:
       description: Missing/invalid API key or subscriber hash.
       content:

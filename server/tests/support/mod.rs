@@ -258,7 +258,7 @@ impl TestApp {
         .await
         .expect("insert environment");
 
-        let api_key = format!("drnt_test_{}", ids::new_uuid().as_simple());
+        let api_key = format!("chml_test_{}", ids::new_uuid().as_simple());
         let key_hash: Vec<u8> = sha2::Sha256::digest(api_key.as_bytes()).to_vec();
         sqlx::query(
             "INSERT INTO api_keys (environment_id, id, name, key_hash, key_prefix)

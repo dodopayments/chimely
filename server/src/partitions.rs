@@ -21,8 +21,8 @@
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use sqlx::{Connection, PgPool};
 
-/// Advisory lock key for maintenance DDL ("drntPART" as big-endian i64).
-const MAINTENANCE_LOCK_KEY: i64 = 0x64726e74_50415254;
+/// Advisory lock key for maintenance DDL ("chmlPART" as big-endian i64).
+const MAINTENANCE_LOCK_KEY: i64 = 0x63686d6c_50415254;
 
 /// How far ahead partitions are pre-created. Must cover the API's 13-month
 /// `deliver_at` cap.
