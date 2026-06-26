@@ -51,8 +51,18 @@ pub struct CreateNotificationsRequest {
     responses(
         (status = 201, description = "Created.", body = crate::api::contract::CreateNotificationsResponse),
         (status = 200, description = "Idempotent replay — original response echoed, nothing re-created.", body = crate::api::contract::CreateNotificationsResponse),
-        (status = 400, description = "Validation error.", body = crate::api::contract::Error),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (
+            status = 400,
+            description = "Validation error.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "deliver_at must be in the future"}}),
+        ),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid API key"}}),
+        ),
         (status = 429, response = crate::api::contract::RateLimited),
     ),
     security(("ApiKeyBearer" = []))
@@ -265,8 +275,18 @@ pub struct CreateBroadcastRequest {
     responses(
         (status = 201, description = "Created.", body = crate::api::contract::Broadcast),
         (status = 200, description = "Idempotent replay.", body = crate::api::contract::Broadcast),
-        (status = 400, description = "Validation error.", body = crate::api::contract::Error),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (
+            status = 400,
+            description = "Validation error.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "category must be 1–255 characters"}}),
+        ),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid API key"}}),
+        ),
         (status = 429, response = crate::api::contract::RateLimited),
     ),
     security(("ApiKeyBearer" = []))
@@ -365,8 +385,18 @@ pub struct UpsertSubscriberRequest {
         // 400 declared because the handler rejects an out-of-range
         // subscriber_id (empty or over 255 chars). Annotated status must match
         // returned status.
-        (status = 400, description = "Validation error.", body = crate::api::contract::Error),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (
+            status = 400,
+            description = "Validation error.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "subscriber_id must be 1–255 characters"}}),
+        ),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid API key"}}),
+        ),
     ),
     security(("ApiKeyBearer" = []))
 )]
@@ -437,8 +467,18 @@ pub async fn upsert_subscriber(
     params(("id" = crate::api::contract::NotificationId, Path)),
     responses(
         (status = 200, description = "The timeline so far.", body = crate::api::contract::NotificationTimeline),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
-        (status = 404, description = "Resource not found in this environment.", body = crate::api::contract::Error),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid API key"}}),
+        ),
+        (
+            status = 404,
+            description = "Resource not found in this environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such notification"}}),
+        ),
         (status = 429, response = crate::api::contract::RateLimited),
     ),
     security(("ApiKeyBearer" = []))

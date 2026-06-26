@@ -103,11 +103,36 @@ wire format and are never case-transformed by the SDK.
 contract_schema!(
     Error,
     ObjectBuilder::new()
+        .description(Some(
+            "Error envelope. Every non-2xx response has this shape.",
+        ))
         .property(
             "error",
             ObjectBuilder::new()
-                .property("code", string().examples([json!("invalid_request")]))
-                .property("message", string())
+                .property(
+                    "code",
+                    string()
+                        .enum_values(Some([
+                            "invalid_request",
+                            "unauthorized",
+                            "forbidden",
+                            "not_found",
+                            "conflict",
+                            "rate_limited",
+                            "too_many_connections",
+                            "internal",
+                        ]))
+                        .description(Some(
+                            "Stable, machine-readable code. Branch on this, not on the HTTP status or `message`. The error table in the API description lists every code.",
+                        ))
+                        .examples([json!("invalid_request")]),
+                )
+                .property(
+                    "message",
+                    string().description(Some(
+                        "Human-readable detail, for logs and developers. Not stable, do not parse.",
+                    )),
+                )
                 .required("code")
                 .required("message"),
         )
@@ -353,6 +378,40 @@ impl utoipa::ToResponse<'_> for RateLimited {
                     "application/json",
                     ContentBuilder::new()
                         .schema(Some(Ref::from_schema_name("Error")))
+                        .example(Some(json!({
+                            "error": { "code": "rate_limited", "message": "rate limit exceeded" }
+                        })))
+                        .build(),
+                )
+                .build()
+                .into(),
+        )
+    }
+}
+
+/// The reusable 429 for the per-subscriber SSE connection cap. Distinct from
+/// `RateLimited`: a different code and no relation to the request rate limiter.
+pub struct TooManyConnections;
+
+impl utoipa::ToResponse<'_> for TooManyConnections {
+    fn response() -> (&'static str, RefOr<utoipa::openapi::Response>) {
+        (
+            "TooManyConnections",
+            ResponseBuilder::new()
+                .description("Per-subscriber live-stream connection cap reached.")
+                .header(
+                    "retry-after",
+                    HeaderBuilder::new()
+                        .schema(ObjectBuilder::new().schema_type(Type::Integer))
+                        .build(),
+                )
+                .content(
+                    "application/json",
+                    ContentBuilder::new()
+                        .schema(Some(Ref::from_schema_name("Error")))
+                        .example(Some(json!({
+                            "error": { "code": "too_many_connections", "message": "too many concurrent streams for this subscriber" }
+                        })))
                         .build(),
                 )
                 .build()

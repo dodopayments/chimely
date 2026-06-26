@@ -42,8 +42,20 @@ UUIDv7 in Crockford base32 — `notif_01h455vb4pex5vsknk084sn02q` for
 notifications, `bcast_…` for broadcasts. The prefix is part of the id;
 treat ids as opaque strings.
 
-**Errors** use a single envelope: `{"error": {"code", "message"}}` with
-conventional status codes. 429 carries `Retry-After`.
+**Errors** use a single envelope: `{"error": {"code", "message"}}`. Branch on
+`code` (stable, machine-readable), never on `message` (human text that may
+change). Status codes are conventional and 429 carries `Retry-After`.
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `invalid_request` | 400 | Malformed request or failed validation. |
+| `unauthorized` | 401 | Missing or invalid credentials (API key, subscriber hash, or admin session). |
+| `forbidden` | 403 | Authenticated, but the role or scope lacks the capability. |
+| `not_found` | 404 | No such resource in this environment. |
+| `conflict` | 409 | Well-formed, but the current state forbids it (guard rail or duplicate). |
+| `rate_limited` | 429 | Request rate limit exceeded. Retry after `Retry-After` seconds. |
+| `too_many_connections` | 429 | Per-subscriber live-stream connection cap reached. |
+| `internal` | 500 | Unexpected server error. The detail is logged, never returned. |
 "#;
 
 /// info.version is the published API version.
@@ -116,7 +128,10 @@ conventional status codes. 429 carries `Retry-After`.
             crate::api::contract::TimelineEntry,
             crate::api::contract::NotificationTimeline,
         ),
-        responses(crate::api::contract::RateLimited)
+        responses(
+            crate::api::contract::RateLimited,
+            crate::api::contract::TooManyConnections
+        )
     )
 )]
 pub struct ApiDoc;

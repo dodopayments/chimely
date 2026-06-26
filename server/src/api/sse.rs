@@ -38,7 +38,13 @@ use crate::state::AppState;
         (status = 200, description = "Event stream.",
             body = inline(crate::api::contract::SseEventStream),
             content_type = "text/event-stream"),
-        (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "subscriber hash required"}}),
+        ),
+        (status = 429, response = crate::api::contract::TooManyConnections),
     ),
     security(("SubscriberEnvQ" = [], "SubscriberIdQ" = [], "SubscriberHashQ" = []))
 )]

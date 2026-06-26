@@ -830,10 +830,16 @@ export interface components {
                 subscriber_id: string;
             }[];
         };
+        /** @description Error envelope. Every non-2xx response has this shape. */
         Error: {
             error: {
-                /** @example invalid_request */
-                code: string;
+                /**
+                 * @description Stable, machine-readable code. Branch on this, not on the HTTP status or `message`. The error table in the API description lists every code.
+                 * @example invalid_request
+                 * @enum {string}
+                 */
+                code: "invalid_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "rate_limited" | "too_many_connections" | "internal";
+                /** @description Human-readable detail, for logs and developers. Not stable, do not parse. */
                 message: string;
             };
         };
@@ -963,6 +969,32 @@ export interface components {
                 [name: string]: unknown;
             };
             content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "rate_limited",
+                 *         "message": "rate limit exceeded"
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Per-subscriber live-stream connection cap reached. */
+        TooManyConnections: {
+            headers: {
+                "retry-after"?: number;
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "too_many_connections",
+                 *         "message": "too many concurrent streams for this subscriber"
+                 *       }
+                 *     }
+                 */
                 "application/json": components["schemas"]["Error"];
             };
         };
@@ -1011,7 +1043,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Authenticated but the role lacks the capability. */
             403: {
@@ -1019,6 +1061,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1047,7 +1097,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Authenticated but the role lacks the capability. */
             403: {
@@ -1055,6 +1115,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1086,7 +1154,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Authenticated but the role lacks the capability. */
             403: {
@@ -1094,6 +1172,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1103,6 +1189,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such parked job"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1131,7 +1225,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Authenticated but the role lacks the capability. */
             403: {
@@ -1139,6 +1243,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1172,6 +1284,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "invalid_request",
+                     *         "message": "slug must be 1-255 characters"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1180,7 +1300,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Authenticated but the role lacks the capability. */
             403: {
@@ -1188,6 +1318,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1219,7 +1357,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Authenticated but the role lacks the capability. */
             403: {
@@ -1227,6 +1375,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1236,6 +1392,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such environment"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1267,7 +1431,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Authenticated but the role lacks the capability. */
             403: {
@@ -1275,6 +1449,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1284,6 +1466,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such environment"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1320,6 +1510,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "invalid_request",
+                     *         "message": "name must be 1-255 characters"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1328,7 +1526,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Authenticated but the role lacks the capability. */
             403: {
@@ -1336,6 +1544,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1345,6 +1561,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such environment"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1376,7 +1600,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Authenticated but the role lacks the capability. */
             403: {
@@ -1384,6 +1618,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1393,6 +1635,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such API key"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1438,6 +1688,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "invalid_request",
+                     *         "message": "category must be 1–255 characters"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1446,7 +1704,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Authenticated but the role lacks the capability. */
             403: {
@@ -1454,6 +1722,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1463,6 +1739,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such environment"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1494,7 +1778,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Authenticated but the role lacks the capability. */
             403: {
@@ -1502,6 +1796,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1511,6 +1813,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such environment"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1540,7 +1850,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Authenticated but the role lacks the capability. */
             403: {
@@ -1548,6 +1868,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1557,6 +1885,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such environment"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1599,6 +1935,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "invalid_request",
+                     *         "message": "malformed cursor"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1607,7 +1951,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Authenticated but the role lacks the capability. */
             403: {
@@ -1615,6 +1969,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1624,6 +1986,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such environment"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1657,7 +2027,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Authenticated but the role lacks the capability. */
             403: {
@@ -1665,6 +2045,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1674,6 +2062,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such notification"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1707,7 +2103,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Authenticated but the role lacks the capability. */
             403: {
@@ -1715,6 +2121,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1724,6 +2138,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such subscriber"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1757,6 +2179,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid email or password"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1766,6 +2196,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "missing X-Chimely-Admin header"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1792,7 +2230,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Missing X-Chimely-Admin header. */
             403: {
@@ -1800,6 +2248,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "missing X-Chimely-Admin header"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1828,7 +2284,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
         };
     };
@@ -1855,7 +2321,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Requires user:manage. */
             403: {
@@ -1863,6 +2339,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1896,6 +2380,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "invalid_request",
+                     *         "message": "a valid email is required"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1904,7 +2396,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Requires user:manage. */
             403: {
@@ -1912,6 +2414,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1921,6 +2431,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "conflict",
+                     *         "message": "a user with that email already exists"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1950,7 +2468,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Requires user:manage. */
             403: {
@@ -1958,6 +2486,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1967,6 +2503,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such user"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -1976,6 +2520,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "conflict",
+                     *         "message": "you cannot delete your own account"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2012,6 +2564,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "invalid_request",
+                     *         "message": "role must be viewer, operator, developer, or admin"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2020,7 +2580,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Requires user:manage. */
             403: {
@@ -2028,6 +2598,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2037,6 +2615,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such user"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2046,6 +2632,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "conflict",
+                     *         "message": "you cannot disable your own account"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2080,6 +2674,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "invalid_request",
+                     *         "message": "password must be at least 12 characters"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2088,7 +2690,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Not user:manage and not the target user. */
             403: {
@@ -2096,6 +2708,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2105,6 +2725,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such user"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2147,6 +2775,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "invalid_request",
+                     *         "message": "category must be 1–255 characters"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2156,6 +2792,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid API key"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2186,6 +2830,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid subscriber hash"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2195,6 +2847,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such broadcast"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2224,6 +2884,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid subscriber hash"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2270,6 +2938,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "invalid_request",
+                     *         "message": "malformed cursor"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2279,6 +2955,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid subscriber hash"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2309,6 +2993,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid subscriber hash"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2318,6 +3010,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such notification"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2347,6 +3047,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid subscriber hash"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2380,6 +3088,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "invalid_request",
+                     *         "message": "preferences must contain 1–100 entries"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2389,6 +3105,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid subscriber hash"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2418,6 +3142,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid subscriber hash"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2447,6 +3179,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid subscriber hash"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2479,9 +3219,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "subscriber hash required"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            429: components["responses"]["TooManyConnections"];
         };
     };
     createNotifications: {
@@ -2521,6 +3270,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "invalid_request",
+                     *         "message": "deliver_at must be in the future"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2530,6 +3287,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid API key"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2562,6 +3327,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid API key"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2571,6 +3344,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such notification"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2614,6 +3395,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "invalid_request",
+                     *         "message": "subscriber_id must be 1–255 characters"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2623,6 +3412,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid API key"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2655,6 +3452,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid API key"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2664,6 +3469,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such subscriber"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2700,6 +3513,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "invalid_request",
+                     *         "message": "preferences must contain 1–100 entries"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
@@ -2709,6 +3530,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid API key"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
