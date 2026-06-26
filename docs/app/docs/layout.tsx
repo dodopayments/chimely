@@ -4,15 +4,18 @@ import { getLayoutTabs } from 'fumadocs-ui/layouts/shared';
 import type { ReactNode } from 'react';
 import { source } from '@/lib/source';
 
-// The management group is the public write API: keep it expanded by default.
-function expandManagement(nodes: Node[]): void {
+// The management and subscriber groups are the public API: expand by default.
+const EXPANDED_GROUPS = ['/docs/api/management/', '/docs/api/subscriber/'];
+
+function expandGroups(nodes: Node[]): void {
   for (const node of nodes) {
     if (node.type === 'folder') {
-      const isManagement = node.children.some(
-        (child) => child.type === 'page' && child.url.startsWith('/docs/api/management/'),
+      const isExpanded = node.children.some(
+        (child) =>
+          child.type === 'page' && EXPANDED_GROUPS.some((prefix) => child.url.startsWith(prefix)),
       );
-      if (isManagement) node.defaultOpen = true;
-      expandManagement(node.children);
+      if (isExpanded) node.defaultOpen = true;
+      expandGroups(node.children);
     }
   }
 }
@@ -20,7 +23,7 @@ function expandManagement(nodes: Node[]): void {
 export default function Layout({ children }: { children: ReactNode }) {
   const tree = source.pageTree;
   // The API reference (`root: true`) lives in the tree's fallback branch.
-  if (tree.fallback) expandManagement(tree.fallback.children);
+  if (tree.fallback) expandGroups(tree.fallback.children);
 
   // The guides are the default root; the API reference is a `root: true`
   // folder. Derive its tab so it carries a `$folder` binding (precise active
