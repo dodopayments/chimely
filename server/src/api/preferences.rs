@@ -44,7 +44,7 @@ pub struct PreferenceWriteList {
     path = "/v1/subscribers/{subscriber_id}/preferences",
     tag = "management",
     operation_id = "getSubscriberPreferences",
-    summary = "Read a subscriber's preferences (admin)",
+    summary = "Get subscriber preferences",
     params(("subscriber_id" = String, Path, max_length = 255, description = "Customer-provided subscriber id (e.g. `usr_42`).")),
     responses(
         (status = 200, description = "Explicit preference rows only — absence means enabled.", body = crate::api::contract::PreferenceList),
@@ -77,7 +77,7 @@ pub async fn get_subscriber_preferences(
     path = "/v1/subscribers/{subscriber_id}/preferences",
     tag = "management",
     operation_id = "setSubscriberPreferences",
-    summary = "Set preferences for a subscriber (admin)",
+    summary = "Set subscriber preferences",
     params(("subscriber_id" = String, Path, max_length = 255, description = "Customer-provided subscriber id (e.g. `usr_42`).")),
     request_body = crate::api::contract::PreferenceWriteList,
     responses(
@@ -112,7 +112,7 @@ pub async fn set_subscriber_preferences(
     path = "/v1/inbox/preferences",
     tag = "subscriber",
     operation_id = "getPreferences",
-    summary = "Read own preferences",
+    summary = "Get preferences",
     responses(
         (status = 200, description = "Explicit preference rows only — absence means enabled.", body = crate::api::contract::PreferenceList),
         (status = 401, description = "Missing/invalid API key or subscriber hash.", body = crate::api::contract::Error),
@@ -133,7 +133,7 @@ pub async fn get_inbox_preferences(
     path = "/v1/inbox/preferences",
     tag = "subscriber",
     operation_id = "setPreferences",
-    summary = "Set own preferences",
+    summary = "Set preferences",
     request_body = crate::api::contract::PreferenceWriteList,
     responses(
         (status = 200, description = "Updated.", body = crate::api::contract::PreferenceList),
