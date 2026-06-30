@@ -60,6 +60,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # OIDC token for npm provenance (NPM_CONFIG_PROVENANCE on the publish step).
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -72,6 +74,18 @@ jobs:
       # The publish path must never outrun the gates.
       - run: pnpm typecheck
       - run: pnpm test
+      # npm rejects provenance from a private source repo (the publish 422s).
+      # chimely is private now and public-bound, so gate provenance on live
+      # visibility: off while private, on with no edit once the repo is public.
+      - name: Determine repo visibility (gates provenance)
+        id: vis
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$(gh repo view "$GITHUB_REPOSITORY" --json visibility --jq .visibility)" in
+            PUBLIC) echo "provenance=true" >> "$GITHUB_OUTPUT" ;;
+            *)      echo "provenance=false" >> "$GITHUB_OUTPUT" ;;
+          esac
       - name: Publish to npm
         uses: changesets/action@v1
         with:
@@ -80,3 +94,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: ${{ steps.vis.outputs.provenance }}

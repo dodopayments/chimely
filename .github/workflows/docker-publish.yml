@@ -1,0 +1,68 @@
+# Docker image publish to Google Artifact Registry (GAR), the dodo deploy plane.
+#
+# Mirrors the dodo-discord-bot publish workflow: publishing a GitHub Release
+# builds the image, tags it with the release tag, and pushes it to GAR. This is
+# the internal-deploy image. The public fair-source image is built and pushed
+# to GHCR by the `docker` job in ci.yml. The two are independent and target
+# different registries.
+#
+# Prerequisites (repo settings, one-time, human):
+#   - secrets.SERVICE_ACCOUNT_KEY: JSON key for a GCP service account with
+#     Artifact Registry write access on the target repository.
+#   - vars.REGION: GAR region host prefix, e.g. `us-central1`.
+#   - vars.CHIMELY_GAR_LOCATION: full image path without a tag, e.g.
+#     `us-central1-docker.pkg.dev/PROJECT/REPO/chimely`.
+name: Docker Publish
+
+on:
+  release:
+    types: [published]
+
+concurrency: docker-publish-${{ github.ref }}
+
+jobs:
+  docker_build_and_push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      IMAGE: ${{ vars.CHIMELY_GAR_LOCATION }}
+      REGION: ${{ vars.REGION }}
+      PRERELEASE: ${{ github.event.release.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract release tag
+        run: echo "RELEASE_TAG=${GITHUB_REF#refs/tags/}" >> "$GITHUB_ENV"
+
+      # Dockerfile at the repo root builds the single binary (admin SPA + Rust)
+      # with `.` as the context. `latest` tracks the newest stable release, so a
+      # pre-release publishes its own tag but never moves `latest`.
+      - name: Build chimely image
+        run: |
+          [ -n "$IMAGE" ] || { echo "CHIMELY_GAR_LOCATION repo variable is unset" >&2; exit 1; }
+          docker build -t "$IMAGE:$RELEASE_TAG" .
+          if [ "$PRERELEASE" != "true" ]; then
+            docker tag "$IMAGE:$RELEASE_TAG" "$IMAGE:latest"
+          fi
+
+      - name: Google Auth
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: "${{ secrets.SERVICE_ACCOUNT_KEY }}"
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Docker auth
+        run: |
+          [ -n "$REGION" ] || { echo "REGION repo variable is unset" >&2; exit 1; }
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev"
+
+      - name: Push chimely image to GAR
+        run: |
+          docker push "$IMAGE:$RELEASE_TAG"
+          if [ "$PRERELEASE" != "true" ]; then
+            docker push "$IMAGE:latest"
+          fi
