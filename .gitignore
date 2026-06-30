@@ -12,6 +12,9 @@ out/
 docs/.source/
 docs/next-env.d.ts
 
+# Cloudflare Wrangler (local dev/runtime state)
+.wrangler/
+
 # Env & editor
 .env
 .env.*
