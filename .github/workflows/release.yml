@@ -74,6 +74,18 @@ jobs:
       # The publish path must never outrun the gates.
       - run: pnpm typecheck
       - run: pnpm test
+      # npm rejects provenance from a private source repo (the publish 422s).
+      # chimely is private now and public-bound, so gate provenance on live
+      # visibility: off while private, on with no edit once the repo is public.
+      - name: Determine repo visibility (gates provenance)
+        id: vis
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$(gh repo view "$GITHUB_REPOSITORY" --json visibility --jq .visibility)" in
+            PUBLIC) echo "provenance=true" >> "$GITHUB_OUTPUT" ;;
+            *)      echo "provenance=false" >> "$GITHUB_OUTPUT" ;;
+          esac
       - name: Publish to npm
         uses: changesets/action@v1
         with:
@@ -82,6 +94,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          # Provenance attestation on npm. Aborts the publish unless each
-          # package declares a `repository` field (both do).
-          NPM_CONFIG_PROVENANCE: "true"
+          NPM_CONFIG_PROVENANCE: ${{ steps.vis.outputs.provenance }}
