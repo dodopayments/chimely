@@ -1,0 +1,8 @@
+# Cloudflare Workers Static Assets redirect rules.
+# Next.js copies public/ into the static export (out/), so this ships at
+# out/_redirects and is honored by the asset router. Redirect rules run
+# before asset matching.
+#
+# The site root forwards to the docs entry point. 302 (temporary) keeps the
+# root free to become a landing page later without a cached 301 in the way.
+/  /docs  302
