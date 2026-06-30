@@ -60,6 +60,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # OIDC token for npm provenance (NPM_CONFIG_PROVENANCE on the publish step).
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -80,3 +82,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # Provenance attestation on npm. Aborts the publish unless each
+          # package declares a `repository` field (both do).
+          NPM_CONFIG_PROVENANCE: "true"
