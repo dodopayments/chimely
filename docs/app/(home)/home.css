@@ -1,0 +1,25 @@
+/*
+ * Chimely home page — brand additions on top of Fumadocs' theme.
+ *
+ * Fumadocs (fumadocs-ui) already provides the light + dark `fd-*` design tokens
+ * (--color-fd-background, --color-fd-foreground, --color-fd-muted-foreground,
+ * --color-fd-card, --color-fd-border, …) that the page styles against, so the
+ * content sections follow the active theme automatically. The two shader bands
+ * (hero + closing) are intentionally dark in both themes to guarantee contrast.
+ *
+ * Brand accent #1264FF is referenced directly in the components (e.g.
+ * `bg-[#1264FF]`); these vars are here for convenient rebranding/reference.
+ */
+
+:root {
+  --chimely-accent: #1264ff;
+  --chimely-accent-hover: #0b53e0;
+  --chimely-accent-deep: #004f32;
+  /* Route Tailwind's monospace utilities to Geist Mono (loaded in fonts.ts). */
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Code panels stay dark in both light and dark themes. */
+.chimely-code {
+  background-color: #0b0d11;
+}

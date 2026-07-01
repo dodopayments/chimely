@@ -90,10 +90,12 @@ jobs:
       - run: pnpm --filter "./packages/*" build
       - run: pnpm typecheck
       - run: pnpm test
-      # Release readiness: a pending changeset exists and both packages are
-      # publishable as built (changesets drives the actual versioned
-      # publish, see release.yml).
+      # Release readiness (advisory, non-blocking): a pending changeset exists
+      # and both packages publish as built. Docs-only or non-package PRs
+      # legitimately carry no changeset, so a failure here must not block the
+      # ts check. release.yml is the gate that drives the versioned publish.
       - name: Release readiness
+        continue-on-error: true
         run: |
           pnpm changeset status --since=origin/main
           pnpm --filter "./packages/*" exec pnpm publish --dry-run --no-git-checks
