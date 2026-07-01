@@ -15,11 +15,8 @@ export function Quickstart() {
             <CodeBlock lang="bash" code="npx chimely dev" copyLabel="Copy npx command">
               <span className="text-[#7EE0A6]">$</span> npx chimely dev
             </CodeBlock>
-            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm leading-relaxed text-fd-muted-foreground">
-              <span className="rounded-md border border-fd-border bg-fd-muted/60 px-2 py-0.5 font-mono text-[11px] font-medium tracking-wide text-fd-muted-foreground">
-                Coming soon
-              </span>
-              Embedded Postgres, no Redis required. Use Docker Compose today.
+            <p className="text-sm leading-relaxed text-fd-muted-foreground">
+              Embedded Postgres, no Redis required. First notification in under a minute.
             </p>
           </div>
 

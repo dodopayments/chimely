@@ -87,7 +87,7 @@ export function CodeProof() {
             <T c={C.kw}>from</T> <T c={C.str}>&quot;@chimely/react&quot;</T>
             <T c={C.punct}>;</T>
           </Line>
-          <Line>{' '}</Line>
+          <Line>{'\u00A0'}</Line>
           <Line>
             <T c={C.punct}>{'<'}</T>
             <T c={C.fn}>Inbox</T> <T c={C.key}>subscriberId</T>

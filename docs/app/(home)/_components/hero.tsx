@@ -1,5 +1,6 @@
 import { CodeProof } from './code-proof';
-import { ArrowRight, GitHubIcon } from './icons';
+import { CopyButton } from './copy-button';
+import { ArrowRight, ArrowUpRight, GitHubIcon } from './icons';
 import { links } from './links';
 import { HeroGradient, HeroShader, type HeroShaderName } from './shaders/hero-shader';
 
@@ -32,20 +33,29 @@ function Ctas() {
       >
         <GitHubIcon className="size-[17px]" /> Star on GitHub
       </a>
+      <a
+        href={links.demo}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex h-[46px] items-center gap-1.5 rounded-xl px-3.5 text-[15px] font-semibold text-white/80 no-underline transition-colors hover:text-white"
+      >
+        Live demo <ArrowUpRight className="size-[15px]" />
+      </a>
     </>
   );
 }
 
 function InlineCommand() {
-  // `npx chimely dev` is not shipped yet — surfaced as "coming soon" (no copy
-  // affordance) until the CLI lands. Docker Compose is the live path today.
   return (
-    <div className="inline-flex w-fit items-center gap-3 rounded-xl border border-white/[0.13] bg-black/35 py-2.5 pl-4 pr-3.5 font-mono text-sm">
+    <div className="inline-flex w-fit items-center gap-3 rounded-xl border border-white/[0.13] bg-black/35 py-2.5 pl-4 pr-2.5 font-mono text-sm">
       <span className="text-[#7EE0A6]">$</span>
-      <span className="whitespace-nowrap text-[#E8EAED]/70">npx chimely dev</span>
-      <span className="rounded-md border border-white/15 bg-white/[0.06] px-2 py-0.5 text-[11px] font-medium tracking-wide text-white/60">
-        Coming soon
-      </span>
+      <span className="whitespace-nowrap text-[#E8EAED]">npx chimely dev</span>
+      <CopyButton
+        text="npx chimely dev"
+        label="Copy install command"
+        iconOnly
+        className="grid size-[30px] place-items-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-white/30 hover:text-white"
+      />
     </div>
   );
 }
