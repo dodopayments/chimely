@@ -35,19 +35,13 @@ jobs:
       - name: Extract release tag
         run: echo "RELEASE_TAG=${GITHUB_REF#refs/tags/}" >> "$GITHUB_ENV"
 
-      # Dockerfile at the repo root builds the single binary (admin SPA + Rust)
-      # with `.` as the context. `latest` tracks the newest stable release, so a
-      # pre-release publishes its own tag but never moves `latest`.
-      - name: Build chimely image
+      - name: Guard required repo variables
         run: |
-          [ -n "$IMAGE" ] || { echo "CHIMELY_GAR_LOCATION repo variable is unset" >&2; exit 1; }
-          docker build -t "$IMAGE:$RELEASE_TAG" .
-          if [ "$PRERELEASE" != "true" ]; then
-            docker tag "$IMAGE:$RELEASE_TAG" "$IMAGE:latest"
-          fi
+          [ -n "$IMAGE" ]  || { echo "CHIMELY_GAR_LOCATION repo variable is unset" >&2; exit 1; }
+          [ -n "$REGION" ] || { echo "REGION repo variable is unset" >&2; exit 1; }
 
+      # Auth precedes the build so the registry cache can be read from GAR.
       - name: Google Auth
-        id: auth
         uses: google-github-actions/auth@v2
         with:
           credentials_json: "${{ secrets.SERVICE_ACCOUNT_KEY }}"
@@ -56,13 +50,26 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Docker auth
-        run: |
-          [ -n "$REGION" ] || { echo "REGION repo variable is unset" >&2; exit 1; }
-          gcloud auth configure-docker "${REGION}-docker.pkg.dev"
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev"
 
-      - name: Push chimely image to GAR
+      - uses: docker/setup-buildx-action@v3
+
+      # `latest` tracks the newest stable release, so a pre-release publishes its
+      # own tag but never moves `latest`.
+      - name: Compute image tags
+        id: tags
         run: |
-          docker push "$IMAGE:$RELEASE_TAG"
-          if [ "$PRERELEASE" != "true" ]; then
-            docker push "$IMAGE:latest"
-          fi
+          TAGS="$IMAGE:$RELEASE_TAG"
+          [ "$PRERELEASE" = "true" ] || TAGS="$TAGS,$IMAGE:latest"
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+
+      # Durable registry cache in GAR. The cargo-chef dependency layer is
+      # compiled once and reused across releases.
+      - name: Build and push chimely image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
