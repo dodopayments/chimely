@@ -3,6 +3,5 @@
 # out/_redirects and is honored by the asset router. Redirect rules run
 # before asset matching.
 #
-# The site root forwards to the docs entry point. 302 (temporary) keeps the
-# root free to become a landing page later without a cached 301 in the way.
-/  /docs  302
+# The site root now serves the marketing homepage (app/(home)/page.tsx), so no
+# root redirect. Add future rules below.

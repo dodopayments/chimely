@@ -11,11 +11,13 @@
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@paper-design/shaders-react": "0.0.76",
     "fumadocs-core": "^16.9.3",
     "fumadocs-mdx": "^15.0.11",
     "fumadocs-openapi": "^10.10.3",
     "fumadocs-ui": "^16.9.3",
     "next": "16.2.8",
+    "next-themes": "0.4.6",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
