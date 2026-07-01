@@ -184,7 +184,7 @@ fn prometheus_handle() -> PrometheusHandle {
         .clone()
 }
 
-/// Liveness: process is up. Reports the build version for deploy verification.
+/// Liveness: process is up.
 async fn healthz() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") }))
 }
