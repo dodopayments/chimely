@@ -23,22 +23,16 @@ fn main() -> anyhow::Result<()> {
             print!("{yaml}");
             Ok(())
         }
-        Some("serve") | None => {
-            telemetry::init()?;
-            tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .context("building tokio runtime")?
-                .block_on(serve())
-        }
-        Some("dlq") => {
-            telemetry::init()?;
-            tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .context("building tokio runtime")?
-                .block_on(dlq_command(args.collect()))
-        }
+        Some("serve") | None => tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .context("building tokio runtime")?
+            .block_on(serve()),
+        Some("dlq") => tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .context("building tokio runtime")?
+            .block_on(dlq_command(args.collect())),
         Some(other) => {
             eprintln!("unknown subcommand: {other}\nusage: chimely [serve|openapi|dlq]");
             std::process::exit(2);
@@ -47,6 +41,9 @@ fn main() -> anyhow::Result<()> {
 }
 
 async fn serve() -> anyhow::Result<()> {
+    // The OTLP exporter builds a tonic/hyper client that needs a running
+    // reactor, so telemetry init happens on the runtime, not before it.
+    telemetry::init()?;
     let cfg = Arc::new(config::Config::from_env()?);
 
     let pool = db::connect(&cfg.database_url)
@@ -157,6 +154,7 @@ async fn serve() -> anyhow::Result<()> {
 }
 
 async fn dlq_command(args: Vec<String>) -> anyhow::Result<()> {
+    telemetry::init()?;
     let cfg = config::Config::from_env()?;
     let pool = db::connect(&cfg.database_url)
         .await
