@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { CodeBlock } from './code-block';
 
-// Syntax token colors (neutral palette — deliberately distinct from the brand
+// Syntax token colors (neutral palette, deliberately distinct from the brand
 // semantic colors, which are reserved for state).
 const C = {
   str: '#7EE0A6',
@@ -36,7 +36,7 @@ export function CodeProof() {
   return (
     <div className="flex w-full min-w-0 flex-col gap-4">
       <div className="grid w-full min-w-0 gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(290px,1fr))]">
-        <CodeBlock lang="Server · bash" code={CURL} copyLabel="Copy server snippet">
+        <CodeBlock lang="Server · bash" code={CURL} copyLabel="Copy server snippet" dot elevated>
           <Line>
             <T c={C.fn}>curl</T> <T c={C.punct}>-X</T> POST{' '}
             <T c={C.str}>https://your-app.com/v1/notifications</T> <T c={C.punct}>\</T>
@@ -81,7 +81,7 @@ export function CodeProof() {
           </Line>
         </CodeBlock>
 
-        <CodeBlock lang="Client · tsx" code={INBOX} copyLabel="Copy client snippet">
+        <CodeBlock lang="Client · tsx" code={INBOX} copyLabel="Copy client snippet" dot elevated>
           <Line>
             <T c={C.kw}>import</T> <T c={C.punct}>{'{'}</T> Inbox <T c={C.punct}>{'}'}</T>{' '}
             <T c={C.kw}>from</T> <T c={C.str}>&quot;@chimely/react&quot;</T>

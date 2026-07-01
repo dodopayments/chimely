@@ -1,15 +1,16 @@
 import { CodeProof } from './code-proof';
+import { ComingSoon } from './coming-soon';
 import { CopyButton } from './copy-button';
-import { ArrowRight, ArrowUpRight, GitHubIcon } from './icons';
+import { ArrowRight, GitHubIcon } from './icons';
 import { links } from './links';
 import { HeroGradient, HeroShader, type HeroShaderName } from './shaders/hero-shader';
 
 const SUBHEAD =
-  'The bell, the unread badge, the dropdown list — drop them into your React app with one component, and send notifications from your backend with one API call. Open-source infrastructure you run yourself: a single Rust binary, Postgres, and Redis. No workflow engine, no templates — just the inbox.';
+  'Drop in one React component, send with one API call from your backend. Open-source infrastructure you run yourself.';
 
 function Kicker() {
   return (
-    <span className="inline-flex w-fit items-center gap-2.5 rounded-full border border-white/[0.14] bg-white/[0.04] px-3.5 py-1.5 font-mono text-[12.5px] tracking-wide text-white/70">
+    <span className="inline-flex w-fit items-center gap-2.5 rounded-full border border-white/[0.14] bg-white/[0.04] px-3.5 py-1.5 font-mono text-[12.5px] font-medium tracking-wide text-white/70">
       <span className="size-[7px] rounded-full bg-[#00D87D] shadow-[0_0_0_3px_rgba(0,216,125,0.18)] motion-safe:animate-pulse" />
       Open source · Self-hostable · v0.1.0
     </span>
@@ -33,23 +34,29 @@ function Ctas() {
       >
         <GitHubIcon className="size-[17px]" /> Star on GitHub
       </a>
-      <a
-        href={links.demo}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex h-[46px] items-center gap-1.5 rounded-xl px-3.5 text-[15px] font-semibold text-white/80 no-underline transition-colors hover:text-white"
-      >
-        Live demo <ArrowUpRight className="size-[15px]" />
-      </a>
     </>
+  );
+}
+
+/**
+ * The hero headline. Instrument Serif display face with the emphasized word in
+ * true italic (same white as the rest, accent italics are reserved for the
+ * section H2s). `className` carries the per-treatment size / leading / width.
+ */
+function Headline({ className }: { className: string }) {
+  return (
+    <h1 className={`chimely-display text-balance text-white ${className}`}>
+      Give your app a notification <span className="italic">inbox</span>.
+    </h1>
   );
 }
 
 function InlineCommand() {
   return (
-    <div className="inline-flex w-fit items-center gap-3 rounded-xl border border-white/[0.13] bg-black/35 py-2.5 pl-4 pr-2.5 font-mono text-sm">
+    <div className="inline-flex w-fit items-center gap-3 rounded-xl border border-white/[0.13] bg-black/35 py-2.5 pl-4 pr-2.5 font-mono text-sm font-medium">
       <span className="text-[#7EE0A6]">$</span>
       <span className="whitespace-nowrap text-[#E8EAED]">npx chimely dev</span>
+      <ComingSoon />
       <CopyButton
         text="npx chimely dev"
         label="Copy install command"
@@ -100,9 +107,7 @@ function HeroContent({ layout }: { layout: HeroLayout }) {
       <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2 lg:gap-[52px]">
         <div className="flex flex-col items-center gap-5 text-center lg:items-start lg:text-left">
           <Kicker />
-          <h1 className="text-balance text-[clamp(2.1rem,5vw,3.5rem)] font-semibold leading-[1.05] tracking-[-0.035em] text-white">
-            Give your app a notification inbox.
-          </h1>
+          <Headline className="text-[clamp(2.75rem,5.4vw,4.125rem)] leading-[1.03] tracking-[-0.01em]" />
           <p className="max-w-[54ch] text-[18px] leading-[1.62] text-white/70">{SUBHEAD}</p>
           <div className="flex flex-wrap justify-center gap-3 lg:justify-start">
             <Ctas />
@@ -120,9 +125,7 @@ function HeroContent({ layout }: { layout: HeroLayout }) {
     return (
       <div className="flex flex-col items-start gap-6 text-left">
         <Kicker />
-        <h1 className="max-w-[18ch] text-balance text-[clamp(2.3rem,5.4vw,3.75rem)] font-semibold leading-[1.04] tracking-[-0.035em] text-white">
-          Give your app a notification inbox.
-        </h1>
+        <Headline className="max-w-[18ch] text-[clamp(2.875rem,5.6vw,4.375rem)] leading-[1.02] tracking-[-0.01em]" />
         <p className="max-w-[60ch] text-[19px] leading-[1.62] text-white/70">{SUBHEAD}</p>
         <div className="flex flex-wrap justify-start gap-3">
           <Ctas />
@@ -139,9 +142,7 @@ function HeroContent({ layout }: { layout: HeroLayout }) {
     return (
       <div className="flex flex-col items-center gap-6 text-center">
         <Kicker />
-        <h1 className="max-w-[15ch] text-balance text-[clamp(2.7rem,7vw,4.6rem)] font-semibold leading-[1.02] tracking-[-0.04em] text-white">
-          Give your app a notification inbox.
-        </h1>
+        <Headline className="max-w-[15ch] text-[clamp(3rem,7vw,5.5rem)] leading-[1] tracking-[-0.01em]" />
         <p className="max-w-[60ch] text-[19px] leading-[1.62] text-white/70">{SUBHEAD}</p>
         <div className="mt-0.5 flex flex-wrap justify-center gap-3">
           <Ctas />
@@ -155,9 +156,7 @@ function HeroContent({ layout }: { layout: HeroLayout }) {
   return (
     <div className="flex flex-col items-center gap-6 text-center">
       <Kicker />
-      <h1 className="max-w-[14ch] text-balance text-[clamp(2.45rem,6vw,4rem)] font-semibold leading-[1.04] tracking-[-0.035em] text-white">
-        Give your app a notification inbox.
-      </h1>
+      <Headline className="max-w-[14ch] text-[clamp(2.875rem,6vw,4.75rem)] leading-[1.02] tracking-[-0.01em]" />
       <p className="max-w-[62ch] text-[19px] leading-[1.62] text-white/70">{SUBHEAD}</p>
       <div className="mt-0.5 flex flex-wrap justify-center gap-3">
         <Ctas />

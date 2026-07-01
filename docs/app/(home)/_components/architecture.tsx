@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-/** Thin flow arrow — points right on desktop, down on mobile. */
+/** Thin flow arrow, points right on desktop, down on mobile. */
 function FlowArrow() {
   return (
     <svg
@@ -24,7 +24,7 @@ function Connector({ label }: { label?: string }) {
   return (
     <div className="flex shrink-0 flex-col items-center gap-1.5 text-fd-muted-foreground">
       {label ? (
-        <span className="whitespace-nowrap rounded-md bg-[#1264FF]/10 px-2 py-1 font-mono text-[11px] text-[#1264FF]">
+        <span className="whitespace-nowrap rounded-md bg-[#1264FF]/[0.12] px-2 py-1 font-mono text-[11px] font-medium text-[#1264FF]">
           {label}
         </span>
       ) : null}
@@ -37,7 +37,7 @@ function Node({ title, sub, accent }: { title: ReactNode; sub: string; accent?: 
   return (
     <div
       className={
-        'w-full max-w-[260px] rounded-2xl border px-4 py-4 text-center lg:w-auto lg:max-w-[180px] lg:flex-1 ' +
+        'w-full max-w-[260px] rounded-[14px] border px-4 py-4 text-center lg:w-auto lg:max-w-[180px] lg:flex-1 ' +
         (accent
           ? 'border-[#1264FF] bg-[#1264FF]/[0.09] shadow-[0_12px_36px_-18px_rgba(18,100,255,0.7)]'
           : 'border-fd-border bg-fd-card')
@@ -53,8 +53,8 @@ export function Architecture() {
   return (
     <section className="border-t border-fd-border bg-fd-muted/30 px-6 py-24">
       <div className="mx-auto max-w-[1200px]">
-        <h2 className="text-[40px] font-semibold leading-[1.1] tracking-[-0.03em] text-fd-foreground">
-          One service in your stack.
+        <h2 className="chimely-display text-[clamp(2rem,4vw,2.875rem)] leading-[1.08] tracking-[-0.005em] text-fd-foreground">
+          <span className="italic text-[#1264FF]">One</span> service in your stack.
         </h2>
         <p className="mt-4 max-w-[74ch] text-[17px] leading-[1.62] text-fd-muted-foreground">
           Your backend decides what to send and when. Chimely makes it durable, real-time, and
@@ -62,7 +62,7 @@ export function Architecture() {
           for small single-node deployments.
         </p>
 
-        <div className="mt-12 flex flex-col items-center justify-center gap-3 lg:flex-row">
+        <div className="mt-[46px] flex flex-col items-center justify-center gap-2.5 lg:flex-row">
           <Node title="Your backend" sub="decides what & when" />
           <Connector label="POST /v1/notifications" />
           <Node title="Chimely" sub="API + workers" accent />

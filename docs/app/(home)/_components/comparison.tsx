@@ -12,14 +12,14 @@ export function Comparison() {
   return (
     <section className="border-t border-fd-border bg-fd-background px-6 py-24">
       <div className="mx-auto max-w-[1000px] text-center">
-        <h2 className="text-[40px] font-semibold leading-[1.1] tracking-[-0.03em] text-fd-foreground">
-          Simpler than a notification platform.
+        <h2 className="chimely-display text-[clamp(2rem,4vw,2.875rem)] leading-[1.08] tracking-[-0.005em] text-fd-foreground">
+          <span className="italic text-[#1264FF]">Simpler</span> than a notification platform.
         </h2>
         <p className="mx-auto mt-4 max-w-[74ch] text-[17px] leading-[1.62] text-fd-muted-foreground">
-          Most notification tools model a workflow engine that happens to have an inbox channel —
+          Most notification tools model a workflow engine that happens to have an inbox channel:
           Mongo, several services, and a step-based mental model to learn. Chimely models the inbox
           itself: one binary, one Postgres, one POST. Multi-tenancy is solved the way Plausible
-          solves it — run another instance.
+          solves it. Run another instance.
         </p>
 
         <div className="my-10 grid gap-4 text-left [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">

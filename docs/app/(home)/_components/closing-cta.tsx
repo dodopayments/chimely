@@ -10,7 +10,7 @@ function ClosingCtas({ stacked }: { stacked?: boolean }) {
     <div className={stacked ? 'flex flex-col gap-3' : 'flex flex-wrap justify-center gap-3'}>
       <a
         href={links.docs}
-        className="inline-flex h-[46px] items-center justify-center gap-2 rounded-xl bg-[#1264FF] px-[22px] text-[15px] font-semibold text-white no-underline shadow-[0_10px_30px_-10px_rgba(18,100,255,0.7)] transition-colors hover:bg-[#0b53e0]"
+        className={`inline-flex h-[46px] items-center justify-center gap-2 rounded-xl bg-[#1264FF] ${stacked ? 'px-6' : 'px-[22px]'} text-[15px] font-semibold text-white no-underline shadow-[0_10px_30px_-10px_rgba(18,100,255,0.7)] transition-colors hover:bg-[#0b53e0]`}
       >
         Get started <ArrowRight className="size-4" />
       </a>
@@ -18,7 +18,7 @@ function ClosingCtas({ stacked }: { stacked?: boolean }) {
         href={links.repo}
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-flex h-[46px] items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/[0.06] px-5 text-[15px] font-semibold text-white no-underline transition-colors hover:bg-white/[0.12]"
+        className={`inline-flex h-[46px] items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/[0.06] ${stacked ? 'px-6' : 'px-5'} text-[15px] font-semibold text-white no-underline transition-colors hover:bg-white/[0.12]`}
       >
         <GitHubIcon className="size-[17px]" /> Star on GitHub
       </a>
@@ -27,7 +27,7 @@ function ClosingCtas({ stacked }: { stacked?: boolean }) {
 }
 
 /**
- * Closing CTA — the page's second shader band (FlutedGlass over a generated
+ * Closing CTA. The page's second shader band (FlutedGlass over a generated
  * abstract image). `variant` selects "centered" or a bordered "inset" panel.
  */
 export function ClosingCTA({ variant = 'centered' }: { variant?: 'centered' | 'inset' }) {
@@ -43,10 +43,10 @@ export function ClosingCTA({ variant = 'centered' }: { variant?: 'centered' | 'i
 
       <div className="relative mx-auto max-w-[1100px] px-6 py-[104px]">
         {variant === 'inset' ? (
-          <div className="flex flex-wrap items-center justify-between gap-7 rounded-[22px] border border-white/[0.16] bg-[#080c0e]/50 p-11 backdrop-blur-md">
+          <div className="flex flex-wrap items-center justify-between gap-7 rounded-[22px] border border-white/[0.16] bg-[#080c0e]/50 p-11 backdrop-blur">
             <div className="min-w-[280px] flex-1">
-              <h2 className="text-balance text-[42px] font-semibold leading-[1.08] tracking-[-0.035em] text-white">
-                Open source. Self-hosted. Yours.
+              <h2 className="chimely-display text-balance text-[clamp(2.25rem,4.4vw,3.125rem)] leading-[1.05] tracking-[-0.01em] text-white">
+                Open source. Self-hosted. <span className="italic">Yours</span>.
               </h2>
               <p className="mt-4 max-w-[54ch] text-[17px] leading-[1.6] text-white/[0.78]">
                 {BODY}
@@ -56,8 +56,8 @@ export function ClosingCTA({ variant = 'centered' }: { variant?: 'centered' | 'i
           </div>
         ) : (
           <div className="flex flex-col items-center gap-5 text-center">
-            <h2 className="max-w-[16ch] text-balance text-[48px] font-semibold leading-[1.07] tracking-[-0.035em] text-white">
-              Open source. Self-hosted. Yours.
+            <h2 className="chimely-display max-w-[16ch] text-balance text-[clamp(2.5rem,5vw,3.5rem)] leading-[1.04] tracking-[-0.01em] text-white">
+              Open source. Self-hosted. <span className="italic">Yours</span>.
             </h2>
             <p className="max-w-[60ch] text-[18px] leading-[1.6] text-white/[0.78]">{BODY}</p>
             <ClosingCtas />

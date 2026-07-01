@@ -1,5 +1,5 @@
 /*
- * Chimely home page — brand additions on top of Fumadocs' theme.
+ * Chimely home page. Brand additions on top of Fumadocs' theme.
  *
  * Fumadocs (fumadocs-ui) already provides the light + dark `fd-*` design tokens
  * (--color-fd-background, --color-fd-foreground, --color-fd-muted-foreground,
@@ -15,8 +15,23 @@
   --chimely-accent: #1264ff;
   --chimely-accent-hover: #0b53e0;
   --chimely-accent-deep: #004f32;
-  /* Route Tailwind's monospace utilities to Geist Mono (loaded in fonts.ts). */
+}
+
+/*
+ * The next/font variables (--font-geist-mono, --font-instrument-serif) are only
+ * defined on <main> via the font `variable` classes, so the --font-mono mapping
+ * has to live in the same scope. Declaring it at :root would resolve
+ * var(--font-geist-mono) against a scope where it is undefined, invalidating the
+ * whole value (fallbacks included) and dropping code back to the inherited font.
+ */
+.chimely-home {
   --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Display face for every headline. Real italic ships in the font (see fonts.ts). */
+.chimely-display {
+  font-family: var(--font-instrument-serif), Georgia, "Times New Roman", serif;
+  font-weight: 400;
 }
 
 /* Code panels stay dark in both light and dark themes. */

@@ -13,17 +13,31 @@ export function CodeBlock({
   lang = 'bash',
   code,
   copyLabel,
+  badge,
+  dot,
+  elevated,
   children,
 }: {
   lang?: string;
   code: string;
   copyLabel: string;
+  badge?: ReactNode;
+  dot?: boolean;
+  elevated?: boolean;
   children: ReactNode;
 }) {
   return (
-    <div className="chimely-code overflow-hidden rounded-2xl border border-white/10 shadow-[0_14px_40px_-20px_rgba(0,0,0,0.8)]">
+    <div
+      className={`chimely-code overflow-hidden rounded-[14px] border border-white/10${
+        elevated ? ' shadow-[0_14px_40px_-20px_rgba(0,0,0,0.8)]' : ''
+      }`}
+    >
       <div className="flex items-center justify-between border-b border-white/[0.06] bg-[#0E1117] px-3.5 py-2">
-        <span className="font-mono text-xs tracking-tight text-zinc-500">{lang}</span>
+        <span className="inline-flex items-center gap-2">
+          {dot ? <span className="size-[7px] shrink-0 rounded-full bg-[#1264FF]" /> : null}
+          <span className="font-mono text-xs font-medium text-[#8B949E]">{lang}</span>
+          {badge}
+        </span>
         <CopyButton text={code} label={copyLabel} />
       </div>
       {/* whitespace-pre + overflow-x-auto => code scrolls horizontally, never wraps */}
