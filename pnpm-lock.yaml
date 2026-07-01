@@ -29,6 +29,9 @@ importers:
 
   docs:
     dependencies:
+      '@dualmark/cloudflare':
+        specifier: ^0.10.0
+        version: 0.10.0
       '@paper-design/shaders-react':
         specifier: 0.0.76
         version: 0.0.76(@types/react@19.2.17)(react@19.2.7)
@@ -494,6 +497,14 @@ packages:
   '@csstools/css-tokenizer@4.0.0':
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
+
+  '@dualmark/cloudflare@0.10.0':
+    resolution: {integrity: sha512-/+Q8C0n/CX0qCooyXzlACuwEFAsaqk2VrlMLsCZZoJSQQVgZif31Nxt9wUeFHdWZWbRaf4nkAwrYjpdNbgofPA==}
+    engines: {node: '>=22.12.0'}
+
+  '@dualmark/core@0.10.0':
+    resolution: {integrity: sha512-2BC3mnJe20dOjeeqZr+u7ndjCcG0CLW8G807f2Ah7XoQAgND01n48Qocy3R9VHEnKSJYNGfdbPQVUJJy0r/fvQ==}
+    engines: {node: '>=22.12.0'}
 
   '@emnapi/core@1.10.0':
     resolution: {integrity: sha512-yq6OkJ4p82CAfPl0u9mQebQHKPJkY7WrIuk205cTYnYe+k2Z8YBh11FrbRG/H6ihirqcacOgl2BIO8oyMQLeXw==}
@@ -4327,7 +4338,7 @@ snapshots:
       '@babel/helpers': 7.29.7
       '@babel/parser': 7.29.7
       '@babel/template': 7.29.7
-      '@babel/traverse': 7.29.7
+      '@babel/traverse': 7.29.7(supports-color@10.2.2)
       '@babel/types': 7.29.7
       '@jridgewell/remapping': 2.3.5
       convert-source-map: 2.0.0
@@ -4358,7 +4369,7 @@ snapshots:
 
   '@babel/helper-module-imports@7.29.7':
     dependencies:
-      '@babel/traverse': 7.29.7
+      '@babel/traverse': 7.29.7(supports-color@10.2.2)
       '@babel/types': 7.29.7
     transitivePeerDependencies:
       - supports-color
@@ -4368,7 +4379,7 @@ snapshots:
       '@babel/core': 7.29.7(supports-color@10.2.2)
       '@babel/helper-module-imports': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
-      '@babel/traverse': 7.29.7
+      '@babel/traverse': 7.29.7(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -4407,7 +4418,7 @@ snapshots:
       '@babel/parser': 7.29.7
       '@babel/types': 7.29.7
 
-  '@babel/traverse@7.29.7':
+  '@babel/traverse@7.29.7(supports-color@10.2.2)':
     dependencies:
       '@babel/code-frame': 7.29.7
       '@babel/generator': 7.29.7
@@ -4629,6 +4640,12 @@ snapshots:
       css-tree: 3.2.1
 
   '@csstools/css-tokenizer@4.0.0': {}
+
+  '@dualmark/cloudflare@0.10.0':
+    dependencies:
+      '@dualmark/core': 0.10.0
+
+  '@dualmark/core@0.10.0': {}
 
   '@emnapi/core@1.10.0':
     dependencies:

@@ -1,10 +1,18 @@
 {
   "name": "chimely-docs",
   "compatibility_date": "2026-06-30",
-  // Assets-only Worker: the docs are a Next.js static export, so there is no
-  // Worker script. `main` and an ASSETS binding are intentionally omitted.
+  // Dualmark AEO Worker in front of the Next.js static export. createAEOWorker
+  // (worker/index.ts) serves markdown twins to AI agents and passes human
+  // traffic through to the ASSETS binding.
+  "main": "worker/index.ts",
   "assets": {
     "directory": "./out",
+    // The Worker reads static files through this binding (env.ASSETS.fetch()).
+    "binding": "ASSETS",
+    // Run the Worker before static-asset serving. Without this Cloudflare
+    // answers HTML pages directly from ./out and Dualmark never sees the
+    // request, so content negotiation cannot happen.
+    "run_worker_first": true,
     // Next export emits flat leaf files (docs/page.html) and folder indexes
     // (docs/index.html). auto-trailing-slash serves both and normalizes the
     // URL. Must stay in sync with next.config.mjs (no trailingSlash set).
