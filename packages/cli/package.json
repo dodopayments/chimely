@@ -1,0 +1,32 @@
+{
+  "name": "@chimely/cli",
+  "version": "0.0.0",
+  "description": "Zero-config local launcher for Chimely: `npx chimely dev`.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "chimely": "bin/chimely.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.8"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/that-ambuj/chimely.git",
+    "directory": "packages/cli"
+  }
+}

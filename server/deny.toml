@@ -7,6 +7,12 @@
 # dependency must be flagged and explicitly allowed here with a comment,
 # never waved through silently.
 
+[graph]
+# Resolve every feature so the gate also sees optional-feature deps (the `dev`
+# launcher pulls postgresql_embedded). Without this the CI `check licenses`
+# graph is default-features only and never inspects them.
+all-features = true
+
 [licenses]
 allow = [
     "MIT",
@@ -19,6 +25,9 @@ allow = [
     "BSL-1.0",
     "Unicode-3.0",
     "CDLA-Permissive-2.0",
+    # postgresql_embedded (server `dev` feature) is (Apache-2.0 OR MIT) AND
+    # PostgreSQL. The PostgreSQL license is a permissive BSD-style license.
+    "PostgreSQL",
 ]
 # Our own crate is the only copyleft code allowed in the graph.
 exceptions = [

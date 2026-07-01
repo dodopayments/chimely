@@ -1,9 +1,10 @@
 //! Chimely in-app notification inbox infrastructure.
 //!
-//! Single binary, three entrypoints:
+//! Single binary. Entrypoints:
 //!   `chimely serve`   (default) API plane plus workers
 //!   `chimely openapi`           print the utoipa-generated OpenAPI spec to stdout
 //!   `chimely dlq`               list and replay dead-lettered jobs
+//!   `chimely dev`               zero-config local launcher (feature `dev`)
 
 use std::sync::Arc;
 
@@ -39,8 +40,36 @@ fn main() -> anyhow::Result<()> {
                 .context("building tokio runtime")?
                 .block_on(dlq_command(args.collect()))
         }
+        Some("dev") => {
+            #[cfg(feature = "dev")]
+            {
+                // Compute config and export the environment BEFORE the runtime
+                // or telemetry start: env mutation is only sound single-threaded.
+                let plan = chimely::dev::plan()?;
+                telemetry::init()?;
+                tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .context("building tokio runtime")?
+                    .block_on(async move {
+                        let pg = chimely::dev::start_postgres(&plan).await?;
+                        chimely::dev::print_banner(&plan);
+                        let result = serve().await;
+                        let _ = pg.stop().await;
+                        result
+                    })
+            }
+            #[cfg(not(feature = "dev"))]
+            {
+                eprintln!(
+                    "`chimely dev` is only available in builds compiled with \
+                     --features dev (the npx distribution ships that build)."
+                );
+                std::process::exit(2);
+            }
+        }
         Some(other) => {
-            eprintln!("unknown subcommand: {other}\nusage: chimely [serve|openapi|dlq]");
+            eprintln!("unknown subcommand: {other}\nusage: chimely [serve|openapi|dlq|dev]");
             std::process::exit(2);
         }
     }

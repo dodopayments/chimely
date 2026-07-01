@@ -62,6 +62,14 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 utoipa = { version = "5.5.0", features = ["yaml", "chrono", "uuid"] }
 utoipa-scalar = { version = "0.3.0", features = ["axum"] }
 uuid = { version = "1.18.1", features = ["v7", "serde"] }
+# Embedded Postgres for `chimely dev` (feature `dev`, off by default so the
+# production binary and image never link it). rustls keeps the dependency tree
+# OpenSSL-free and permissive; theseus binaries download and cache on first run.
+postgresql_embedded = { version = "0.20.4", default-features = false, features = ["rustls", "tokio", "theseus"], optional = true }
+
+[features]
+# `chimely dev`: zero-config local launcher (embedded Postgres, Redis-less serve).
+dev = ["dep:postgresql_embedded"]
 
 [dev-dependencies]
 proptest = "1.8.0"

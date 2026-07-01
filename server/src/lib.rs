@@ -7,6 +7,8 @@ pub mod auth;
 pub mod bootstrap;
 pub mod config;
 pub mod db;
+#[cfg(feature = "dev")]
+pub mod dev;
 pub mod dlq;
 pub mod error;
 pub mod extract;
