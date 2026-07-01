@@ -19,12 +19,12 @@ export default function HomePage() {
                 shader="panels" | "mesh" | "dots" | "warp" />
           <ClosingCTA variant="centered" | "inset" />
       */}
-      <Hero layout="centered" shader="panels" />
+      <Hero layout="left" shader="mesh" />
       <FeatureGrid />
       <Architecture />
       <Comparison />
       <Quickstart />
-      <ClosingCTA variant="centered" />
+      <ClosingCTA variant="inset" />
 
       <SiteFooter />
     </main>
