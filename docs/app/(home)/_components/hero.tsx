@@ -85,15 +85,20 @@ export function Hero({
 }) {
   return (
     <section className="relative overflow-hidden bg-fd-background text-fd-foreground dark:bg-[#05080a] dark:text-white">
-      {/* Dark-mode art: base gradient, animated shader, contrast scrim, grid. Hidden in light. */}
+      {/* Static base shown while the shader chunk loads. Split by theme via CSS. */}
       <div className="absolute inset-0 hidden dark:block">
         <HeroGradient />
-        <HeroShader shader={shader} />
+      </div>
+      <div className="absolute inset-0 dark:hidden [background:radial-gradient(120%_90%_at_80%_8%,rgba(18,100,255,0.10),transparent_55%),radial-gradient(110%_100%_at_4%_100%,rgba(0,79,50,0.05),transparent_60%)]" />
+      {/* Animated shader, theme-aware palette, so it renders in both themes. */}
+      <HeroShader shader={shader} />
+      {/* Dark-mode contrast scrim and grid over the shader. */}
+      <div className="absolute inset-0 hidden dark:block">
         <div className="absolute inset-0 [background:linear-gradient(180deg,rgba(5,8,10,0.30)_0%,rgba(5,8,10,0.40)_50%,rgba(5,8,10,0.86)_100%)]" />
         <div className="absolute inset-0 [background-image:linear-gradient(to_right,rgba(255,255,255,0.045)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.045)_1px,transparent_1px)] [background-size:46px_46px] [mask-image:radial-gradient(120%_100%_at_50%_0%,#000_35%,transparent_78%)] [-webkit-mask-image:radial-gradient(120%_100%_at_50%_0%,#000_35%,transparent_78%)]" />
       </div>
-      {/* Light-mode art: soft accent glow and a faint grid over the page background. */}
-      <div className="absolute inset-0 dark:hidden [background:radial-gradient(120%_90%_at_80%_8%,rgba(18,100,255,0.10),transparent_55%),radial-gradient(110%_100%_at_4%_100%,rgba(0,79,50,0.05),transparent_60%)]" />
+      {/* Light-mode veil and grid so dark text stays legible over the shader. */}
+      <div className="absolute inset-0 dark:hidden [background:linear-gradient(180deg,rgba(255,255,255,0.14)_0%,rgba(255,255,255,0.30)_48%,rgba(255,255,255,0.66)_100%)]" />
       <div className="absolute inset-0 dark:hidden [background-image:linear-gradient(to_right,rgba(13,13,13,0.035)_1px,transparent_1px),linear-gradient(to_bottom,rgba(13,13,13,0.035)_1px,transparent_1px)] [background-size:46px_46px] [mask-image:radial-gradient(120%_100%_at_50%_0%,#000_30%,transparent_75%)] [-webkit-mask-image:radial-gradient(120%_100%_at_50%_0%,#000_30%,transparent_75%)]" />
 
       <div className="relative mx-auto max-w-[1200px] px-6 pb-24 pt-32 md:pt-36">

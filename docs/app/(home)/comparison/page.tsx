@@ -226,16 +226,17 @@ function WhichFits() {
 function CompareClosing() {
   return (
     <section className="relative overflow-hidden border-t border-fd-border bg-fd-background text-fd-foreground dark:bg-[#05080a] dark:text-white">
-      {/* Dark-mode art: abstract image, fluted glass, contrast scrim. Hidden in light. */}
+      {/* Base: the near-black abstract image in dark mode, a soft accent glow in light. */}
       <div
         className="absolute inset-0 hidden bg-cover bg-center dark:block"
         style={{ backgroundImage: 'url(/chimely/closing-abstract.png)' }}
-      >
-        <FlutedGlassBand />
-        <div className="absolute inset-0 [background:linear-gradient(180deg,rgba(4,7,9,0.64),rgba(4,7,9,0.84))]" />
-      </div>
-      {/* Light-mode art: soft accent glow over the page background. */}
+      />
       <div className="absolute inset-0 dark:hidden [background:radial-gradient(100%_120%_at_85%_8%,rgba(18,100,255,0.08),transparent_55%)]" />
+      {/* Fluted-glass shader (lazy, reduced-motion-safe, theme-aware), renders in both themes. */}
+      <FlutedGlassBand />
+      {/* Contrast scrim so the CTA text stays legible over the shader. */}
+      <div className="absolute inset-0 hidden dark:block [background:linear-gradient(180deg,rgba(4,7,9,0.64),rgba(4,7,9,0.84))]" />
+      <div className="absolute inset-0 dark:hidden [background:linear-gradient(180deg,rgba(255,255,255,0.20),rgba(255,255,255,0.48))]" />
 
       <div className="relative mx-auto flex max-w-[1000px] flex-col items-center gap-5 px-6 py-24 text-center">
         <h2 className="chimely-display max-w-[18ch] text-balance text-[clamp(2.5rem,5vw,3.625rem)] leading-[1.02] tracking-[-0.01em] text-fd-foreground dark:text-white">
