@@ -7,7 +7,6 @@ export const links = {
   quickstart: '/docs/quickstart',
   comparison: '/comparison',
   repo: 'https://github.com/dodopayments/chimely',
-  demo: 'https://demo.chimely.dev',
   dodo: 'https://dodopayments.com',
   twitter: 'https://x.com/dodopayments',
 } as const;

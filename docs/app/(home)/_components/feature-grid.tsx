@@ -6,7 +6,7 @@ const Mono = ({ children, accent }: { children: ReactNode; accent?: boolean }) =
     className={
       accent
         ? 'font-mono text-[0.88em] text-[#1264FF]'
-        : 'rounded bg-fd-foreground/[0.07] px-1.5 py-px font-mono text-[0.9em] text-fd-foreground'
+        : 'font-mono text-[0.9em] text-fd-foreground'
     }
   >
     {children}
@@ -65,7 +65,7 @@ const features: Feature[] = [
     id: 'small',
     icon: <ScopeIcon className="size-[19px]" />,
     title: 'Deliberately small',
-    body: 'No workflow engine, no server-side templates, no email or SMS. Web-push lands later as another transport for the same notification — not a migration.',
+    body: 'No workflow engine, no server-side templates, no email or SMS. Web-push lands later as another transport for the same notification, not a migration.',
   },
 ];
 
@@ -73,14 +73,16 @@ export function FeatureGrid() {
   return (
     <section className="border-t border-fd-border bg-fd-background px-6 py-24">
       <div className="mx-auto max-w-[1200px]">
-        <h2 className="max-w-[20ch] text-balance text-[40px] font-semibold leading-[1.1] tracking-[-0.03em] text-fd-foreground">
-          Everything an inbox needs. Nothing it doesn&apos;t.
+        <h2 className="chimely-display max-w-[20ch] text-balance text-[clamp(2rem,4vw,2.875rem)] leading-[1.08] tracking-[-0.005em] text-fd-foreground">
+          {'Everything an inbox needs. '}
+          <span className="italic text-[#1264FF]">Nothing</span>
+          {" it doesn't."}
         </h2>
         <div className="mt-12 grid gap-[18px] [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
           {features.map((feature) => (
             <div
               key={feature.id}
-              className="flex flex-col gap-3.5 rounded-2xl border border-fd-border bg-fd-card p-6"
+              className="flex flex-col gap-3.5 rounded-2xl border border-fd-border bg-fd-card px-6 py-[26px]"
             >
               <div className="grid size-[38px] place-items-center rounded-[10px] bg-[#1264FF]/[0.14] text-[#1264FF]">
                 {feature.icon}

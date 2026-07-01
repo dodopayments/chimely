@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic';
 import { useEffect, useRef, useState } from 'react';
 
 /**
- * Second (and final) shader on the page — keep the total at two instances to stay
+ * Second (and final) shader on the page. Keep the total at two instances to stay
  * under the browser's WebGL-context cap. Client-only (ssr: false) and mounted
  * lazily: it only initializes once the closing band nears the viewport. Under
  * prefers-reduced-motion it never mounts. In both cases the parent section's own

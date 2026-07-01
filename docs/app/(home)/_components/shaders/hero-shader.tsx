@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 /**
  * Hero background shaders (@paper-design/shaders-react, pinned 0.0.76).
  * WebGL/canvas + client-only: each is loaded with ssr:false so it never runs
- * during SSR/hydration. This is the eager, above-the-fold shader — keep the page
+ * during SSR/hydration. This is the eager, above-the-fold shader. Keep the page
  * total at two shader instances (this + the closing FlutedGlass) to stay under
  * the browser WebGL-context cap.
  */
@@ -68,7 +68,7 @@ export function HeroShader({ shader = 'panels' }: { shader?: HeroShaderName }) {
   if (shader === 'warp') {
     return <Warp colors={['#04070a', '#004F32', '#1264FF']} speed={0.5} scale={1} style={FILL} />;
   }
-  // panels (default) — the brief's ColorPanels preset
+  // panels (default), the brief's ColorPanels preset
   return (
     <ColorPanels
       colors={['#1467ff']}

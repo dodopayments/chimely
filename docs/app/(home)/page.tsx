@@ -6,11 +6,13 @@ import { Hero } from './_components/hero';
 import { Quickstart } from './_components/quickstart';
 import { SiteFooter } from './_components/site-footer';
 import { SiteHeader } from './_components/site-header';
-import { geistMono } from './fonts';
+import { geistMono, instrumentSerif } from './fonts';
 
 export default function HomePage() {
   return (
-    <main className={`${geistMono.variable} bg-fd-background text-fd-foreground`}>
+    <main
+      className={`${geistMono.variable} ${instrumentSerif.variable} chimely-home bg-fd-background text-fd-foreground`}
+    >
       <SiteHeader />
 
       {/*
