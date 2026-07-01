@@ -11,8 +11,7 @@ export function GET() {
   const parts = [helper.index()];
 
   // index() only walks the default root. The OpenAPI reference is a root:true
-  // tab parked in the fallback branch (an "API reference" folder), so append
-  // its nodes to cover every page.
+  // tab parked in the fallback branch (an "API reference" folder).
   const fallback = tree.fallback;
   if (fallback) {
     parts.push('');
