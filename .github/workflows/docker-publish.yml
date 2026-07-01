@@ -64,8 +64,7 @@ jobs:
           echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
 
       # Durable registry cache in GAR. The cargo-chef dependency layer is
-      # compiled once and reused across releases. A plain `docker build` on the
-      # ephemeral runner starts every release from a cold cache.
+      # compiled once and reused across releases.
       - name: Build and push chimely image
         uses: docker/build-push-action@v6
         with:
