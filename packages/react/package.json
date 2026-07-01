@@ -1,6 +1,6 @@
 {
   "name": "@chimely/react",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "React bindings and the drop-in <Inbox /> component for Chimely.",
   "license": "MIT",
   "type": "module",
