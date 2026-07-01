@@ -727,6 +727,29 @@ async fn bootstrap_admin_is_idempotent() {
         .await;
 }
 
+/// The CHIMELY_ADMIN_* bootstrap credentials authenticate through the real
+/// login endpoint. A trailing newline in the env password (heredocs, `.env`
+/// files, `export VAR=$(...)`) is trimmed at boot the way the email is, so the
+/// operator signs in with the clean value instead of hitting a phantom 401.
+#[tokio::test]
+async fn bootstrap_admin_credentials_authenticate() {
+    let app = support::spawn_configured(false, |cfg| {
+        cfg.admin_bootstrap_email = Some("root@auth.test".into());
+        cfg.admin_bootstrap_password = Some("root-password-1234\n".into());
+    })
+    .await;
+
+    chimely::bootstrap::ensure_admin(&app.pool, &app.cfg)
+        .await
+        .unwrap();
+
+    // login_client asserts a 200. The clean password authenticates even though
+    // the configured env value carried a trailing newline.
+    let _ = app
+        .login_client("root@auth.test", "root-password-1234")
+        .await;
+}
+
 /// Rotating the bootstrap credential (reconcile branch) revokes sessions that
 /// predate the rotation, so a restart recovers from a compromise.
 #[tokio::test]

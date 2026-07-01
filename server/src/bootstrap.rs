@@ -100,6 +100,17 @@ pub async fn ensure_admin(pool: &PgPool, cfg: &Config) -> anyhow::Result<()> {
         return Ok(());
     };
     let email = email.trim().to_lowercase();
+    // Env vars commonly carry a trailing newline (heredocs, `.env` files,
+    // `export VAR=$(...)`). The login form never sends surrounding whitespace,
+    // so trim the password the way the email is trimmed. Otherwise the hashed
+    // credential and the typed one differ and every login 401s.
+    let trimmed = password.trim();
+    if trimmed.len() != password.len() {
+        tracing::warn!(
+            "CHIMELY_ADMIN_PASSWORD had surrounding whitespace, using the trimmed value"
+        );
+    }
+    let password = trimmed;
     if password.chars().count() < crate::auth::MIN_PASSWORD_LEN {
         anyhow::bail!("CHIMELY_ADMIN_PASSWORD must be at least 12 characters");
     }
