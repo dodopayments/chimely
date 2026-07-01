@@ -6,7 +6,7 @@ use std::time::Duration;
 use axum::http::{HeaderName, Method, StatusCode, header};
 use axum::response::Redirect;
 use axum::routing::{get, patch, post, put};
-use axum::{Router, middleware};
+use axum::{Json, Router, middleware};
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use tower_http::cors::{Any, CorsLayer};
 use utoipa_scalar::Servable as _;
@@ -190,8 +190,8 @@ fn prometheus_handle() -> PrometheusHandle {
 }
 
 /// Liveness: process is up.
-async fn healthz() -> &'static str {
-    "ok"
+async fn healthz() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") }))
 }
 
 /// Readiness gates on Postgres reachable + migrations applied. Redis is the
