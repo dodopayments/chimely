@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use axum::http::{HeaderName, Method, StatusCode, header};
+use axum::response::Redirect;
 use axum::routing::{get, patch, post, put};
 use axum::{Router, middleware};
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
@@ -81,6 +82,10 @@ pub fn router(state: AppState) -> Router {
         // served from this binary. Explicit API routes are matched before the
         // SPA wildcard fallback.
         .merge(admin_plane())
+        // The server root is a convenience redirect to the embedded admin
+        // dashboard. Temporary so the mapping stays reversible and no browser
+        // caches / -> /admin permanently.
+        .route("/", get(|| async { Redirect::temporary("/admin") }))
         // Operational plane
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
