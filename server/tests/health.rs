@@ -15,7 +15,13 @@ async fn health_and_readiness_respond_on_a_fresh_deploy() {
         .await
         .unwrap();
     assert_eq!(res.status(), 200);
-    assert_eq!(res.text().await.unwrap(), "ok");
+    let health: serde_json::Value = res.json().await.unwrap();
+    assert_eq!(health["status"], "ok");
+    assert_eq!(
+        health["version"],
+        env!("CARGO_PKG_VERSION"),
+        "healthz reports the build version"
+    );
 
     let res = app
         .client
