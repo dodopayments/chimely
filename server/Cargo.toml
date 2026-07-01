@@ -1,6 +1,6 @@
 [package]
 name = "chimely"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "In-app notification inbox infrastructure: one binary + Postgres + Redis."
