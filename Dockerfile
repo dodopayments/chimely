@@ -9,10 +9,13 @@ FROM node:24-slim AS admin
 RUN corepack enable && corepack prepare pnpm@11.5.2 --activate
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 WORKDIR /app
-# The whole workspace is needed so pnpm can resolve the committed lockfile;
-# the focused install pulls only the admin SPA's subtree.
+# `pnpm fetch` populates the store from the lockfile alone, so the dependency
+# download layer is keyed on pnpm-lock.yaml and survives any source change. The
+# offline install then links only the admin SPA's subtree out of that store.
+COPY pnpm-lock.yaml ./
+RUN pnpm fetch
 COPY . .
-RUN pnpm install --frozen-lockfile --filter chimely-admin...
+RUN pnpm install --frozen-lockfile --offline --filter chimely-admin...
 RUN pnpm --filter chimely-admin build
 
 # --- Rust build (cargo-chef: dependency layers cached independently of src) ---
