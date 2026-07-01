@@ -1318,3 +1318,33 @@ async fn status_browser_lists_notifications_and_their_timeline() {
         .unwrap();
     assert!(filtered["items"].as_array().unwrap().is_empty());
 }
+
+// =============================================================================
+// Root path
+// =============================================================================
+
+/// The server root is a convenience redirect to the embedded admin dashboard.
+/// The binary serves the app at /admin; the marketing site is hosted elsewhere.
+/// Temporary (307), not permanent, so the mapping stays reversible and no
+/// operator's browser caches / -> /admin forever.
+#[tokio::test]
+async fn root_redirects_to_the_admin_dashboard() {
+    let app = support::spawn().await;
+    // reqwest follows redirects by default. A non-following client makes the
+    // 3xx itself observable.
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+
+    let res = client.get(format!("{}/", app.base)).send().await.unwrap();
+
+    assert_eq!(res.status(), 307, "GET / is a temporary redirect");
+    assert_eq!(
+        res.headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok()),
+        Some("/admin"),
+        "root redirects to the admin dashboard",
+    );
+}
