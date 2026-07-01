@@ -41,6 +41,10 @@ services:
       # and an API key. Never set these in production.
       CHIMELY_DEV_ENVIRONMENT: demo
       CHIMELY_DEV_API_KEY: dev-secret-key
+      # Dev-only root admin so the dashboard at /admin is loggable out of the
+      # box. Password must be at least 12 characters. Never set in production.
+      CHIMELY_ADMIN_EMAIL: admin@example.com
+      CHIMELY_ADMIN_PASSWORD: chimely-dev-admin
     ports:
       - "8080:8080"
 

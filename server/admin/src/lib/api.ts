@@ -34,7 +34,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
 
-  if (res.status === 401) {
+  // A 401 on a session-gated request means the session is gone, so route back
+  // to login. The login request has no session yet, so its 401 is a credential
+  // rejection and must surface the server message instead of "Session expired".
+  if (res.status === 401 && path !== '/login') {
     window.dispatchEvent(new CustomEvent('chimely-admin-unauthorized'));
     throw new ApiRequestError({ status: 401, code: 'unauthorized', message: 'Session expired' });
   }
