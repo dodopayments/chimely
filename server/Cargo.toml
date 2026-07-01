@@ -4,6 +4,11 @@ version = "0.1.2"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "In-app notification inbox infrastructure: one binary + Postgres + Redis."
+repository = "https://github.com/dodopayments/chimely"
+homepage = "https://chimely.dev"
+keywords = ["notifications", "inbox", "sse", "postgres", "redis"]
+categories = ["web-programming", "asynchronous"]
+rust-version = "1.96"
 # Ensures admin/dist exists (placeholder when the SPA is unbuilt) so the
 # rust-embed derive and `cargo nextest`/`cargo run -- openapi` work without a
 # Node build. The Docker/CI release build populates admin/dist first.

@@ -2,6 +2,19 @@
   "name": "@chimely/client",
   "version": "0.1.0",
   "description": "Framework-agnostic headless core for the Chimely in-app notification inbox.",
+  "keywords": [
+    "notifications",
+    "notification-inbox",
+    "in-app-notifications",
+    "inbox",
+    "sse",
+    "headless",
+    "chimely"
+  ],
+  "homepage": "https://chimely.dev",
+  "bugs": {
+    "url": "https://github.com/dodopayments/chimely/issues"
+  },
   "license": "MIT",
   "type": "module",
   "sideEffects": false,

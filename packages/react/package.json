@@ -2,6 +2,19 @@
   "name": "@chimely/react",
   "version": "0.1.0",
   "description": "React bindings and the drop-in <Inbox /> component for Chimely.",
+  "keywords": [
+    "notifications",
+    "notification-inbox",
+    "in-app-notifications",
+    "inbox",
+    "react",
+    "inbox-component",
+    "chimely"
+  ],
+  "homepage": "https://chimely.dev",
+  "bugs": {
+    "url": "https://github.com/dodopayments/chimely/issues"
+  },
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
