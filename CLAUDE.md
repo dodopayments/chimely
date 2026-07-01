@@ -77,17 +77,17 @@ no per-environment user scoping. `admin_users`/`admin_sessions` are
 instance-level tables (no `environment_id`), allowlisted in the migration
 lint like the `environments` root.
 
-**Licensing is settled:** FSL-1.1-MIT for `server/`
-(fair source — free use/self-host, no competing commercialization, each
-release converts to MIT after two years), MIT for `packages/*` and
-`examples/`. Never call the server "open source" in docs or marketing —
-"fair source" or "source available". Never add a dependency whose license
-is incompatible with this split; any copyleft transitive dependency in
-`server/` (including weak copyleft — MPL, LGPL) must be flagged for review
-and explicitly allowed in `server/deny.toml`, never waved through. The
-`cargo-deny` CI job is the gate. SDK runtime dependencies must be
-permissive (they embed in customer frontends). External code contributions
-require a CLA so exclusive commercialization rights hold.
+**Licensing is settled:** AGPL-3.0 for `server/`
+(OSI open source, copyleft — modify the server and offer it over a network
+and you must publish the modified source per AGPL §13), MIT for
+`packages/*` and `examples/`. The server is open source; the SDKs stay MIT
+so they can embed in customer frontends. Keep the server's dependency tree
+permissive: any copyleft transitive dependency in `server/` (including weak
+copyleft — MPL, LGPL) must be flagged for review and explicitly allowed in
+`server/deny.toml`, never waved through. The `cargo-deny` CI job is the
+gate. SDK runtime dependencies must be permissive (they embed in customer
+frontends). External code contributions require a CLA so the project keeps
+relicensing and commercial-licensing flexibility.
 
 ## OpenAPI spec
 

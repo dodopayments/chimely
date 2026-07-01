@@ -1,6 +1,6 @@
 # Chimely
 
-Fair-source, self-hostable **in-app notification inbox infrastructure**.
+Open-source, self-hostable **in-app notification inbox infrastructure**.
 One Rust binary + Postgres + Redis, a deliberately small HTTP API, and a
 drop-in `<Inbox />` React component. No workflow engine — the inbox is the
 primitive.
@@ -8,7 +8,7 @@ primitive.
 ## Repository layout
 
 ```
-server/            Rust binary: API, SSE, workers          (FSL-1.1-MIT)
+server/            Rust binary: API, SSE, workers          (AGPL-3.0)
 packages/client/   @chimely/client — headless TS core       (MIT)
 packages/react/    @chimely/react  — hooks + <Inbox />      (MIT)
 examples/          quickstarts and integration examples    (MIT)
@@ -56,27 +56,27 @@ Passwords and session ids are never logged.
 ## License FAQ
 
 **What is licensed how?** The server (`server/`) is
-[FSL-1.1-MIT](./LICENSE) — the Functional Source License. The SDKs
+[AGPL-3.0](./LICENSE) — the GNU Affero General Public License v3. The SDKs
 (`packages/client`, `packages/react`) and everything in `examples/` are
 MIT — they embed in your frontend, and they carry their own `LICENSE`
 files.
 
-**What does FSL mean for me?** You can use, self-host, modify, and
+**What does AGPL mean for me?** You can use, self-host, modify, and
 redistribute Chimely freely — internally, in production, commercially, at
-any scale, for free, forever. The single thing the license prohibits is
-offering Chimely itself to others as a competing commercial product or
-hosted service. Each release additionally converts to plain MIT two years
-after it ships.
+any scale, for free, forever. AGPL's one obligation is reciprocity: if you
+modify Chimely and offer it to others over a network, you must give those
+users that modified server's source (AGPL §13). Running it
+unmodified carries no such obligation.
 
 **Does the server license affect my application?** No. You run the Chimely
 binary as a standalone network service and integrate over HTTP through the
-MIT-licensed SDKs. Nothing about the server's license reaches your
-codebase, and calling the HTTP API creates no obligations.
+MIT-licensed SDKs. Your application is a separate program that talks to
+Chimely over the API — AGPL covers Chimely's own source, not the client
+code that calls it, and calling the HTTP API creates no obligations.
 
-**Is this open source?** Not by the OSI definition — FSL is
-[fair source](https://fair.io). The source is public, self-hosting is
-unrestricted, and every release becomes MIT (true open source) on its
-second anniversary.
+**Is this open source?** Yes. AGPL-3.0 is an OSI-approved open source
+license. It is copyleft: the freedom to use, study, modify, and share is
+preserved for everyone you distribute or network-serve the server to.
 
 **What about the API spec and docs?** The generated OpenAPI document and
 the documentation content are MIT, so third-party clients, bindings, and
@@ -86,5 +86,5 @@ integrations are unambiguous.
 project regardless of code license — that, not the code license, is the
 protection against confusing forks.
 
-**Contributing:** external code contributions require a CLA (so the
-licensing model above stays enforceable).
+**Contributing:** external code contributions require a CLA (so the project
+can continue to relicense or offer commercial licenses if needed).

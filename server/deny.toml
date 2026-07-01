@@ -1,7 +1,7 @@
 # cargo-deny policy — wired into CI (see .github/workflows/ci.yml).
 #
 # Licensing is settled: the server
-# is FSL-1.1-MIT (fair source; converts to MIT two years per release), the
+# is AGPL-3.0 (copyleft, OSI open source), the
 # SDKs/examples are MIT. Dependencies of the server must be permissively
 # licensed: any copyleft (including weak copyleft like MPL/LGPL) transitive
 # dependency must be flagged and explicitly allowed here with a comment,
@@ -20,9 +20,9 @@ allow = [
     "Unicode-3.0",
     "CDLA-Permissive-2.0",
 ]
-# Our own crate is the only non-permissive code allowed in the graph.
+# Our own crate is the only copyleft code allowed in the graph.
 exceptions = [
-    { name = "chimely", allow = ["FSL-1.1-MIT"] },
+    { name = "chimely", allow = ["AGPL-3.0-only"] },
 ]
 
 [bans]
