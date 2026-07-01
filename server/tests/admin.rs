@@ -1327,6 +1327,9 @@ async fn status_browser_lists_notifications_and_their_timeline() {
 /// The binary serves the app at /admin; the marketing site is hosted elsewhere.
 /// Temporary (307), not permanent, so the mapping stays reversible and no
 /// operator's browser caches / -> /admin forever.
+///
+/// The redirect is GET-only. axum get(...) registers GET (and auto HEAD) and
+/// answers other verbs with 405, so a POST to / never redirects.
 #[tokio::test]
 async fn root_redirects_to_the_admin_dashboard() {
     let app = support::spawn().await;
@@ -1346,5 +1349,14 @@ async fn root_redirects_to_the_admin_dashboard() {
             .and_then(|v| v.to_str().ok()),
         Some("/admin"),
         "root redirects to the admin dashboard",
+    );
+
+    // Only GET redirects. get(...) answers non-GET verbs with 405, so a POST
+    // to / returns Method Not Allowed and carries no Location.
+    let res = client.post(format!("{}/", app.base)).send().await.unwrap();
+    assert_eq!(res.status(), 405, "POST / is not a redirect");
+    assert!(
+        res.headers().get(reqwest::header::LOCATION).is_none(),
+        "non-GET root does not redirect",
     );
 }
