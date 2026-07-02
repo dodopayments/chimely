@@ -515,7 +515,7 @@ async fn process_deliver(
                           AND n.subscriber_id  = c.subscriber_id
                           AND n.id = ANY($2)
                           AND n.read_at IS NULL
-                          AND n.visible_at > c.read_watermark
+                          AND (n.unread_at IS NOT NULL OR n.visible_at > c.read_watermark)
                           AND NOT EXISTS (SELECT 1 FROM preferences p
                                 WHERE p.environment_id = n.environment_id
                                   AND p.subscriber_id  = n.subscriber_id
@@ -664,7 +664,7 @@ async fn process_counter_rebuild(
                     WHERE n.environment_id = $1 AND n.subscriber_id = $2
                       AND n.visible_at <= now()
                       AND n.read_at IS NULL
-                      AND n.visible_at > c.read_watermark
+                      AND (n.unread_at IS NOT NULL OR n.visible_at > c.read_watermark)
                       AND NOT EXISTS (SELECT 1 FROM preferences p
                             WHERE p.environment_id = $1 AND p.subscriber_id = $2
                               AND p.category = n.category AND p.channel = 'in_app'

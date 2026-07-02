@@ -1371,6 +1371,46 @@ paths:
       - SubscriberEnv: []
         SubscriberHash: []
         SubscriberId: []
+  /v1/inbox/broadcasts/{id}/unread:
+    post:
+      tags:
+      - subscriber
+      summary: Mark broadcast unread
+      description: Mark one broadcast as unread for this subscriber. The override survives the read watermark. Idempotent.
+      operationId: markBroadcastUnread
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/BroadcastId'
+      responses:
+        '204':
+          description: Unread (now or already).
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid subscriber hash
+        '404':
+          description: Resource not found in this environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such broadcast
+      security:
+      - SubscriberEnv: []
+        SubscriberHash: []
+        SubscriberId: []
   /v1/inbox/counts:
     get:
       tags:
@@ -1421,6 +1461,14 @@ paths:
           default: 20
           maximum: 100
           minimum: 1
+      - name: filter
+        in: query
+        description: View filter. Omit for the default view, or `unread` for unread items only.
+        required: false
+        schema:
+          type: string
+          enum:
+          - unread
       - name: If-None-Match
         in: header
         required: false
@@ -1486,6 +1534,46 @@ paths:
       responses:
         '204':
           description: Read (now or already).
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid subscriber hash
+        '404':
+          description: Resource not found in this environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such notification
+      security:
+      - SubscriberEnv: []
+        SubscriberHash: []
+        SubscriberId: []
+  /v1/inbox/notifications/{id}/unread:
+    post:
+      tags:
+      - subscriber
+      summary: Mark notification unread
+      description: Mark one direct notification as unread. The override survives the read watermark. Idempotent.
+      operationId: markNotificationUnread
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/NotificationId'
+      responses:
+        '204':
+          description: Unread (now or already).
         '401':
           description: Missing/invalid API key or subscriber hash.
           content:

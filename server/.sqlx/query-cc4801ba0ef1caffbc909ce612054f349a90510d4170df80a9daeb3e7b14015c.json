@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE notifications\n                  SET read_at = NULL,\n                      unread_at = CASE WHEN $4 THEN now() ELSE NULL END\n                WHERE environment_id = $1 AND id = $2 AND visible_at = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cc4801ba0ef1caffbc909ce612054f349a90510d4170df80a9daeb3e7b14015c"
+}

@@ -1130,6 +1130,8 @@ pub async fn get_subscriber(
 
     let mut conn = state.pool.acquire().await.map_err(ApiError::from)?;
     let counts = inbox::fetch_counts_for(&mut conn, env, identity.id, identity.created_at).await?;
+    // The admin preview always shows the default view so it can never
+    // disagree with what the subscriber sees.
     let inbox_rows = inbox::list_items_for(
         &mut *conn,
         env,
@@ -1138,6 +1140,7 @@ pub async fn get_subscriber(
         DateTime::<Utc>::MAX_UTC,
         Uuid::max(),
         ADMIN_INBOX_PREVIEW,
+        inbox::InboxFilter::Default,
     )
     .await
     .map_err(ApiError::from)?;

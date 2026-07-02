@@ -163,7 +163,7 @@ pub async fn counter_drift(pool: &PgPool, sample_size: i64) -> anyhow::Result<(i
                         AND n.subscriber_id  = s.subscriber_id
                         AND n.visible_at <= now()
                         AND n.read_at IS NULL
-                        AND n.visible_at > s.read_watermark
+                        AND (n.unread_at IS NOT NULL OR n.visible_at > s.read_watermark)
                         AND NOT EXISTS (SELECT 1 FROM jobs j
                               CROSS JOIN LATERAL jsonb_array_elements_text(
                                   CASE WHEN jsonb_typeof(j.payload->'notification_ids') = 'array'
