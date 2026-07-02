@@ -57,6 +57,12 @@ uses the context client).
 | `renderEmpty` | `() => ReactNode` | — | Custom empty state |
 | `renderFooter` | `() => ReactNode` | — | Content for the popover footer (branding, links) |
 
+`renderSubject`, `renderBody`, and `renderAvatar` render inside the row's
+`<button>` (the whole row is the click target), so they must return
+non-interactive content: no links, no buttons. Nested interactive elements
+are invalid HTML. To put interactive elements in a row, use `renderItem` and
+own the whole row including its click wiring.
+
 `appearance.variables` forwards keys as `--chimely-<key>` CSS custom
 properties (`colorPrimary`, `colorBackground`, `colorBadge`, `borderRadius`,
 `fontFamily`, …). `appearance.classNames` overrides slots: `root`, `bell`,

@@ -1,6 +1,13 @@
 import type { InboxItem, WellKnownPayload } from '@chimely/client';
 import type { ReactNode } from 'react';
 
+/**
+ * Granular overrides for parts of the default item row. The content renders
+ * inside the row button, the whole row is the click target. Returned nodes
+ * must be non-interactive, no links or buttons. Nested interactive elements
+ * are invalid HTML and behave inconsistently across browsers. Use renderItem
+ * to own the whole row including its click wiring.
+ */
 export interface ItemRenderProps<TPayload> {
   renderSubject?: (ctx: { item: InboxItem<TPayload> }) => ReactNode;
   renderBody?: (ctx: { item: InboxItem<TPayload> }) => ReactNode;

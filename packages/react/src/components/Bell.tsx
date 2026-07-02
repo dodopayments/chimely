@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { forwardRef, useEffect } from 'react';
+import { forwardRef, useEffect, useMemo } from 'react';
 import type { InboxAppearance } from '../appearance';
 import { slotClass, variablesToStyle } from '../appearance';
 import { useUnseenCount } from '../hooks';
@@ -29,6 +29,9 @@ export const Bell = forwardRef<HTMLButtonElement, BellProps>(function Bell(props
   const { count: unseenCount } = useUnseenCount();
   const strings = mergeLocalization(props.localization);
   const open = props.open === true;
+  // Bell re-renders on every unseen tick, a fresh style object per render
+  // would defeat React's shallow style comparison.
+  const style = useMemo(() => variablesToStyle(props.appearance?.variables), [props.appearance]);
 
   useEffect(() => {
     ensureStyles();
@@ -39,7 +42,7 @@ export const Bell = forwardRef<HTMLButtonElement, BellProps>(function Bell(props
       ref={ref}
       type="button"
       className={slotClass(props.appearance?.classNames, 'bell')}
-      style={variablesToStyle(props.appearance?.variables)}
+      style={style}
       aria-label={strings.bellLabel}
       aria-expanded={props.open === undefined ? undefined : open}
       aria-haspopup={props.popupId === undefined ? undefined : 'dialog'}
