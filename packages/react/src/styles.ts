@@ -61,6 +61,15 @@ export const INBOX_CSS = `
 .chimely-popover-portal {
   position: fixed;
 }
+.chimely-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  font-family: var(--chimely-fontFamily, system-ui, -apple-system, sans-serif);
+  font-size: var(--chimely-fontSize, 14px);
+  color: var(--chimely-colorForeground, #111827);
+}
 .chimely-header {
   display: flex;
   align-items: center;

@@ -1,55 +1,19 @@
-import type { ChimelyClientConfig, InboxItem, WellKnownPayload } from '@chimely/client';
+import type { ChimelyClientConfig, WellKnownPayload } from '@chimely/client';
 import { ChimelyClient } from '@chimely/client';
 import { autoUpdate, computePosition, flip, offset, shift } from '@floating-ui/dom';
-import type { CSSProperties, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import type { InboxSlot } from './appearance';
+import { slotClass, variablesToStyle } from './appearance';
+import type { BellProps } from './components/Bell';
+import { Bell } from './components/Bell';
+import type { InboxContentProps } from './components/InboxContent';
+import { InboxContent } from './components/InboxContent';
 import { ChimelyContext, useChimelyClient } from './context';
-import { useNotifications, usePreferences, useUnseenCount } from './hooks';
-import type { InboxLocalization } from './localization';
-import { mergeLocalization } from './localization';
-import { navigation, resolveActionUrl } from './navigation';
 import { ensureStyles } from './styles';
-import { useNow } from './time';
 
-/** Named slots for classNames overrides. This union only ever widens. */
-export type InboxSlot =
-  | 'root'
-  | 'bell'
-  | 'badge'
-  | 'popover'
-  | 'header'
-  | 'list'
-  | 'item'
-  | 'itemUnread'
-  | 'empty'
-  | 'footer'
-  | 'preferences';
-
-/**
- * Theming without a styling dependency: CSS custom properties applied at
- * the root, plus per-slot class hooks. Variable names are part of the
- * contract.
- */
-export interface InboxAppearance {
-  variables?: {
-    /** Primary actions, links, unread badge and dot, focus rings. Default #1264FF. */
-    colorPrimary?: string;
-    /** Hover/section accent. Default #004F32. */
-    colorPrimaryHover?: string;
-    colorBackground?: string;
-    colorForeground?: string;
-    colorMuted?: string;
-    /** Unread badge background. Default #1264FF. */
-    colorBadge?: string;
-    borderRadius?: string;
-    fontFamily?: string;
-    fontSize?: string;
-    /** Extension point: forwarded as `--chimely-<key>` verbatim. */
-    [customProperty: string]: string | undefined;
-  };
-  classNames?: Partial<Record<InboxSlot, string>>;
-}
+export type { InboxAppearance, InboxSlot } from './appearance';
 
 /**
  * Drop-in bell + badge + popover inbox.
@@ -66,15 +30,13 @@ export interface InboxAppearance {
  * - A preferences panel (per-category in_app toggles) is included. Hide it
  *   with `preferencesPanel={false}`.
  */
-export interface InboxProps<TPayload = WellKnownPayload> {
+export interface InboxProps<TPayload = WellKnownPayload> extends InboxContentProps<TPayload> {
   serverUrl?: string;
   environment?: string;
   subscriberId?: string;
   subscriberHash?: string;
   backoff?: ChimelyClientConfig['backoff'];
 
-  appearance?: InboxAppearance;
-  localization?: Partial<InboxLocalization>;
   /** Popover placement relative to the bell. Default: 'bottom-end'. */
   placement?: 'bottom-start' | 'bottom-end' | 'top-start' | 'top-end';
   /** Distance in px between the bell and the popover. Default: 8. */
@@ -88,25 +50,8 @@ export interface InboxProps<TPayload = WellKnownPayload> {
   open?: boolean;
   /** Fires on every open/close intent, controlled or not. */
   onOpenChange?: (open: boolean) => void;
-  /**
-   * SPA navigation for same-origin action URLs, called with the path form
-   * (pathname + search + hash). Cross-origin URLs still use full navigation.
-   */
-  routerPush?: (url: string) => void;
-  /** Show the per-category preferences panel. Default: true. */
-  preferencesPanel?: boolean;
 
-  /**
-   * Item click handler. Default behavior (markRead + follow
-   * `payload.action_url` if present) runs unless this returns false.
-   */
-  // biome-ignore lint/suspicious/noConfusingVoidType: frozen contract type
-  onItemClick?: (item: InboxItem<TPayload>) => boolean | void;
-
-  renderItem?: (ctx: { item: InboxItem<TPayload>; markRead: () => Promise<void> }) => ReactNode;
-  renderBell?: (ctx: { unseenCount: number; open: boolean }) => ReactNode;
-  renderEmpty?: () => ReactNode;
-  renderFooter?: () => ReactNode;
+  renderBell?: BellProps['renderBell'];
 }
 
 export function Inbox<TPayload = WellKnownPayload>(props: InboxProps<TPayload>): ReactNode {
@@ -151,20 +96,13 @@ export function Inbox<TPayload = WellKnownPayload>(props: InboxProps<TPayload>):
 
 function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
   const client = useChimelyClient();
-  const { items, isLoading, hasMore, fetchMore, markRead, markAllRead } =
-    useNotifications<TPayload>();
-  const { count: unseenCount } = useUnseenCount();
-  const preferences = usePreferences();
   const [internalOpen, setInternalOpen] = useState(false);
-  const [showPreferences, setShowPreferences] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const bellRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
-  const listRef = useRef<HTMLUListElement | null>(null);
-  const sentinelRef = useRef<HTMLLIElement | null>(null);
   const popoverId = useId();
+  const titleId = useId();
 
-  const strings = mergeLocalization(props.localization);
   const placement = props.placement ?? 'bottom-end';
   const placementOffset = props.placementOffset ?? 8;
   const portal = props.portal === true;
@@ -184,31 +122,16 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
     setOpenStateRef.current = setOpenState;
   });
 
-  const cls = (slot: InboxSlot): string => {
-    const base = `chimely-${slot.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)}`;
-    const custom = classNames?.[slot];
-    return custom ? `${base} ${custom}` : base;
-  };
+  const cls = (slot: InboxSlot): string => slotClass(classNames, slot);
 
-  const rootStyle = useMemo(() => {
-    const style: Record<string, string> = {};
-    const variables = props.appearance?.variables;
-    if (variables) {
-      for (const [key, value] of Object.entries(variables)) {
-        if (value !== undefined) {
-          style[`--chimely-${key}`] = value;
-        }
-      }
-    }
-    return style as CSSProperties;
-  }, [props.appearance]);
+  const rootStyle = useMemo(
+    () => variablesToStyle(props.appearance?.variables),
+    [props.appearance],
+  );
 
   useEffect(() => {
     ensureStyles();
   }, []);
-
-  // Minute tick keeps relative timestamps current while the list is visible.
-  useNow(isOpen && !showPreferences ? 60_000 : null);
 
   // markAllSeen fires on the rising edge of every open transition, controlled
   // or programmatic included. The badge clears and unread is untouched.
@@ -216,9 +139,6 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
   useEffect(() => {
     if (isOpen && !wasOpen.current) {
       void client.markAllSeen();
-    }
-    if (!isOpen && wasOpen.current) {
-      setShowPreferences(false);
     }
     wasOpen.current = isOpen;
   }, [isOpen, client]);
@@ -278,86 +198,6 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
     };
   }, [isOpen]);
 
-  useEffect(() => {
-    if (!isOpen || showPreferences) {
-      return undefined;
-    }
-    const list = listRef.current;
-    const sentinel = sentinelRef.current;
-    if (!list || !sentinel) {
-      return undefined;
-    }
-    const loadMore = () => {
-      if (hasMore) {
-        void fetchMore();
-      }
-    };
-    if (typeof IntersectionObserver !== 'undefined') {
-      const observer = new IntersectionObserver(
-        (entries) => {
-          if (entries.some((entry) => entry.isIntersecting)) {
-            loadMore();
-          }
-        },
-        { root: list },
-      );
-      observer.observe(sentinel);
-      return () => {
-        observer.disconnect();
-      };
-    }
-    const onScroll = () => {
-      if (list.scrollTop + list.clientHeight >= list.scrollHeight - 32) {
-        loadMore();
-      }
-    };
-    list.addEventListener('scroll', onScroll);
-    return () => {
-      list.removeEventListener('scroll', onScroll);
-    };
-  }, [isOpen, showPreferences, hasMore, fetchMore]);
-
-  const handleBellClick = () => {
-    setOpenState(!isOpen);
-  };
-
-  const handleItemClick = (item: InboxItem<TPayload>) => {
-    if (props.onItemClick?.(item) === false) {
-      return;
-    }
-    void markRead({ id: item.id, source: item.source }).then(() => {
-      const url = (item.payload as Partial<WellKnownPayload>).action_url;
-      if (typeof url !== 'string' || url.length === 0) {
-        return;
-      }
-      const resolved = resolveActionUrl(url);
-      if (!resolved) {
-        return;
-      }
-      if (resolved.kind === 'same-origin' && props.routerPush) {
-        props.routerPush(resolved.path);
-      } else {
-        navigation.assign(url);
-      }
-    });
-  };
-
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    for (const item of items) {
-      set.add(item.category);
-    }
-    for (const row of preferences.preferences) {
-      set.add(row.category);
-    }
-    return [...set].sort();
-  }, [items, preferences.preferences]);
-
-  const isEnabled = (category: string): boolean =>
-    !preferences.preferences.some(
-      (row) => row.category === category && row.channel === 'in_app' && !row.enabled,
-    );
-
   const popover = isOpen && (
     <div
       ref={popoverRef}
@@ -365,192 +205,37 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
       className={portal ? `${cls('popover')} chimely-popover-portal` : cls('popover')}
       style={rootStyle}
       role="dialog"
-      aria-label={showPreferences ? strings.preferencesTitle : strings.inboxTitle}
+      aria-labelledby={titleId}
     >
-      <div className={cls('header')}>
-        {showPreferences ? (
-          <>
-            <button
-              type="button"
-              className="chimely-header-action"
-              aria-label={strings.backLabel}
-              onClick={() => setShowPreferences(false)}
-            >
-              ←
-            </button>
-            <span className="chimely-header-title">{strings.preferencesTitle}</span>
-          </>
-        ) : (
-          <>
-            <span className="chimely-header-title">{strings.inboxTitle}</span>
-            <div className="chimely-header-actions">
-              <button
-                type="button"
-                className="chimely-header-action"
-                onClick={() => {
-                  void markAllRead();
-                }}
-              >
-                {strings.markAllRead}
-              </button>
-              {props.preferencesPanel !== false && (
-                <button
-                  type="button"
-                  className="chimely-header-action"
-                  aria-label={strings.preferencesTitle}
-                  title={strings.preferencesTitle}
-                  onClick={() => setShowPreferences(true)}
-                >
-                  <GearIcon />
-                </button>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-      {showPreferences ? (
-        <div className={cls('preferences')}>
-          {categories.map((category) => (
-            <label key={category} className="chimely-preference">
-              <span>{strings.categoryLabels[category] ?? category}</span>
-              <input
-                type="checkbox"
-                checked={isEnabled(category)}
-                onChange={(event) => {
-                  void preferences.setPreferences([
-                    { category, channel: 'in_app', enabled: event.target.checked },
-                  ]);
-                }}
-              />
-            </label>
-          ))}
-        </div>
-      ) : (
-        <ul ref={listRef} className={cls('list')}>
-          {items.length === 0 ? (
-            <li className={cls('empty')}>
-              {props.renderEmpty ? (
-                props.renderEmpty()
-              ) : (
-                <>
-                  <p className="chimely-empty-title">{strings.emptyTitle}</p>
-                  <p className="chimely-empty-body">{strings.emptyBody}</p>
-                </>
-              )}
-            </li>
-          ) : (
-            items.map((item) => (
-              <li key={item.id} className="chimely-list-row">
-                {props.renderItem ? (
-                  props.renderItem({
-                    item,
-                    markRead: () => markRead({ id: item.id, source: item.source }),
-                  })
-                ) : (
-                  <DefaultItem
-                    item={item}
-                    className={item.read ? cls('item') : `${cls('item')} ${cls('itemUnread')}`}
-                    formatTimestamp={strings.formatTimestamp}
-                    onClick={() => handleItemClick(item)}
-                  />
-                )}
-              </li>
-            ))
-          )}
-          <li ref={sentinelRef} className="chimely-sentinel" aria-hidden="true" />
-        </ul>
-      )}
-      <div className={cls('footer')} aria-busy={isLoading}>
-        {props.renderFooter?.()}
-      </div>
+      <InboxContent<TPayload>
+        appearance={props.appearance}
+        localization={props.localization}
+        titleId={titleId}
+        preferencesPanel={props.preferencesPanel}
+        onItemClick={props.onItemClick}
+        routerPush={props.routerPush}
+        renderItem={props.renderItem}
+        renderEmpty={props.renderEmpty}
+        renderFooter={props.renderFooter}
+        renderSubject={props.renderSubject}
+        renderBody={props.renderBody}
+        renderAvatar={props.renderAvatar}
+      />
     </div>
   );
 
   return (
     <div ref={rootRef} className={cls('root')} style={rootStyle}>
-      <button
+      <Bell
         ref={bellRef}
-        type="button"
-        className={cls('bell')}
-        aria-label={strings.bellLabel}
-        aria-expanded={isOpen}
-        aria-haspopup="dialog"
-        aria-controls={isOpen ? popoverId : undefined}
-        onClick={handleBellClick}
-      >
-        {props.renderBell ? (
-          props.renderBell({ unseenCount, open: isOpen })
-        ) : (
-          <>
-            <BellIcon />
-            {unseenCount > 0 && (
-              <span className={cls('badge')}>{unseenCount > 99 ? '99+' : unseenCount}</span>
-            )}
-          </>
-        )}
-      </button>
+        appearance={props.appearance}
+        localization={props.localization}
+        open={isOpen}
+        popupId={popoverId}
+        onClick={() => setOpenState(!isOpen)}
+        renderBell={props.renderBell}
+      />
       {portal && typeof document !== 'undefined' ? createPortal(popover, document.body) : popover}
     </div>
-  );
-}
-
-function DefaultItem<TPayload>(props: {
-  item: InboxItem<TPayload>;
-  className: string;
-  formatTimestamp: (iso: string) => string;
-  onClick: () => void;
-}): ReactNode {
-  const { item, className, formatTimestamp, onClick } = props;
-  const payload = item.payload as Partial<WellKnownPayload>;
-  return (
-    <button type="button" className={className} onClick={onClick}>
-      {typeof payload.icon_url === 'string' && payload.icon_url.length > 0 && (
-        <img className="chimely-item-icon" src={payload.icon_url} alt="" />
-      )}
-      <span className="chimely-item-text">
-        <span className="chimely-item-title">
-          {typeof payload.title === 'string' ? payload.title : item.category}
-        </span>
-        {typeof payload.body === 'string' && payload.body.length > 0 && (
-          // Plain text by construction. React escaping keeps it that way.
-          <span className="chimely-item-body">{payload.body}</span>
-        )}
-        <time
-          className="chimely-item-time"
-          dateTime={item.occurredAt}
-          title={new Date(item.occurredAt).toLocaleString()}
-        >
-          {formatTimestamp(item.occurredAt)}
-        </time>
-      </span>
-      {!item.read && <span className="chimely-item-dot" aria-hidden="true" />}
-    </button>
-  );
-}
-
-function BellIcon(): ReactNode {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M12 3a6 6 0 0 0-6 6v3.2l-1.7 3.1a1 1 0 0 0 .9 1.5h13.6a1 1 0 0 0 .9-1.5L18 12.2V9a6 6 0 0 0-6-6Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-      <path d="M9.8 19.5a2.3 2.3 0 0 0 4.4 0" stroke="currentColor" strokeWidth="1.6" />
-    </svg>
-  );
-}
-
-function GearIcon(): ReactNode {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
-      <path
-        d="M19.4 13.5a7.6 7.6 0 0 0 0-3l2-1.5-2-3.5-2.4 1a7.7 7.7 0 0 0-2.6-1.5L14 2.5h-4l-.4 2.5a7.7 7.7 0 0 0-2.6 1.5l-2.4-1-2 3.5 2 1.5a7.6 7.6 0 0 0 0 3l-2 1.5 2 3.5 2.4-1a7.7 7.7 0 0 0 2.6 1.5l.4 2.5h4l.4-2.5a7.7 7.7 0 0 0 2.6-1.5l2.4 1 2-3.5Z"
-        stroke="currentColor"
-        strokeWidth="1.2"
-      />
-    </svg>
   );
 }

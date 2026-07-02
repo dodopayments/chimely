@@ -49,10 +49,19 @@ uses the context client).
 | `routerPush` | `(url: string) => void` | — | SPA navigation for same-origin action URLs (called with pathname + search + hash); cross-origin still full-navigates |
 | `preferencesPanel` | `boolean` | `true` | Show per-category toggles |
 | `onItemClick` | `(item) => boolean \| void` | — | Return `false` to skip default mark-read + navigate |
-| `renderItem` | `(ctx) => ReactNode` | — | Custom item renderer |
+| `renderItem` | `(ctx) => ReactNode` | — | Full item override, including click wiring |
+| `renderSubject` | `({ item }) => ReactNode` | — | Replace only the subject line; layout and click wiring stay |
+| `renderBody` | `({ item }) => ReactNode` | — | Replace only the body line |
+| `renderAvatar` | `({ item }) => ReactNode` | — | Replace only the leading icon/avatar |
 | `renderBell` | `(ctx) => ReactNode` | — | Custom bell/badge renderer |
 | `renderEmpty` | `() => ReactNode` | — | Custom empty state |
 | `renderFooter` | `() => ReactNode` | — | Content for the popover footer (branding, links) |
+
+`renderSubject`, `renderBody`, and `renderAvatar` render inside the row's
+`<button>` (the whole row is the click target), so they must return
+non-interactive content: no links, no buttons. Nested interactive elements
+are invalid HTML. To put interactive elements in a row, use `renderItem` and
+own the whole row including its click wiring.
 
 `appearance.variables` forwards keys as `--chimely-<key>` CSS custom
 properties (`colorPrimary`, `colorBackground`, `colorBadge`, `borderRadius`,
@@ -82,6 +91,41 @@ The default timestamp rendering is relative (`5 minutes ago`, via
 `Intl.RelativeTimeFormat`), falling back to the locale date past seven days.
 The absolute time stays on the `<time>` element's `dateTime` and `title`
 attributes.
+
+## Composable components
+
+Between the drop-in `<Inbox />` and the raw hooks sit three composable
+components. All read the client from the enclosing `ChimelyProvider` and
+accept `appearance` and `localization`.
+
+- **`<InboxContent />`** is the popover interior: header, notification list,
+  preferences view, footer. Put it inside your own popover, drawer, or a
+  full-page inbox route. It takes the same item props as `<Inbox />`
+  (`onItemClick`, `routerPush`, `preferencesPanel`, and all the render props
+  except `renderBell`).
+- **`<Bell />`** is the bell button with the unseen badge, `forwardRef` so
+  your popover library can anchor to it. Props: `open`, `onClick`, `popupId`
+  (aria wiring), `renderBell`. It never calls `markAllSeen`: clearing the
+  badge on open is the popover's contract, so call `client.markAllSeen()`
+  when your container opens.
+- **`<Preferences />`** is the per-category toggle list, for settings pages.
+
+```tsx
+import { Bell, InboxContent, useChimelyClient } from '@chimely/react';
+
+function CustomInbox() {
+  const client = useChimelyClient();
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (open) void client.markAllSeen();
+  }, [open, client]);
+  return (
+    <MyPopover trigger={<Bell open={open} onClick={() => setOpen(!open)} />} open={open}>
+      <InboxContent />
+    </MyPopover>
+  );
+}
+```
 
 ## Hooks
 
