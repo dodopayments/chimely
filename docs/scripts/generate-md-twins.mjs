@@ -6,14 +6,8 @@
 // Path mapping mirrors @dualmark/core toMarkdownPath: /docs/quickstart ->
 // out/docs/quickstart.md, /docs -> out/docs.md, / -> out/index.md.
 
-import {
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-  readdirSync,
-  existsSync,
-} from 'node:fs';
-import { join, dirname, relative, sep, posix } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, posix, relative, sep } from 'node:path';
 
 const CONTENT_DIR = 'content/docs';
 const OUT_DIR = 'out';
@@ -103,7 +97,9 @@ pages.sort((a, b) => a.route.localeCompare(b.route));
 // Homepage twin (/ -> /index.md). The root is a React page with no markdown
 // source, so compose an overview plus links to every doc twin.
 const links = pages
-  .map((p) => `- [${p.title}](${toMarkdownPath(p.route)})${p.description ? `: ${p.description}` : ''}`)
+  .map(
+    (p) => `- [${p.title}](${toMarkdownPath(p.route)})${p.description ? `: ${p.description}` : ''}`,
+  )
   .join('\n');
 const home = `# ${meta.title}\n\n> ${meta.description}\n\n## Documentation\n\n${links}\n`;
 write('/index.md', home);
