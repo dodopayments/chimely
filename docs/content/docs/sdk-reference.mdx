@@ -89,6 +89,12 @@ even across "Mark all as read" (the override survives the watermark). The
 header's view select switches between the full inbox and unread-only, a
 server-side filter that paginates independently.
 
+The toggle buttons draw their glyph in `colorPrimary` on `colorBackground`
+with a `colorMuted` border, and each carries a `title` and `aria-label`. Both
+built-in presets keep the glyph above the WCAG contrast thresholds. Custom
+themes should keep `colorPrimary` legible against `colorBackground` (3:1 or
+better).
+
 ### Tabs
 
 ```tsx
