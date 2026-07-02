@@ -37,7 +37,13 @@ enum Op {
     MarkDirectRead {
         pick: usize,
     },
+    MarkDirectUnread {
+        pick: usize,
+    },
     MarkBroadcastRead {
+        pick: usize,
+    },
+    MarkBroadcastUnread {
         pick: usize,
     },
     ReadAll,
@@ -54,7 +60,9 @@ fn op_strategy(with_preferences: bool) -> impl Strategy<Value = Op> {
         (0..CATEGORIES.len()).prop_map(|category| Op::CreateScheduledFar { category }),
         (0..CATEGORIES.len()).prop_map(|category| Op::CreateBroadcast { category }),
         any::<usize>().prop_map(|pick| Op::MarkDirectRead { pick }),
+        any::<usize>().prop_map(|pick| Op::MarkDirectUnread { pick }),
         any::<usize>().prop_map(|pick| Op::MarkBroadcastRead { pick }),
+        any::<usize>().prop_map(|pick| Op::MarkBroadcastUnread { pick }),
         Just(Op::ReadAll),
         Just(Op::SeenAll),
     ];
@@ -77,7 +85,8 @@ struct ModelItem {
     api_id: String,
     category: usize,
     broadcast: bool,
-    read_exception: bool,
+    /// Explicit per-item override. None means the watermark decides.
+    explicit_read: Option<bool>,
 }
 
 #[derive(Default)]
@@ -95,7 +104,12 @@ struct Model {
 
 impl Model {
     fn read(&self, item: &ModelItem) -> bool {
-        item.read_exception || self.read_watermark.is_some_and(|w| item.order <= w)
+        item.explicit_read
+            .unwrap_or_else(|| self.read_watermark.is_some_and(|w| item.order <= w))
+    }
+
+    fn watermark_covers(&self, item: &ModelItem) -> bool {
+        self.read_watermark.is_some_and(|w| item.order <= w)
     }
 
     fn seen(&self, item: &ModelItem) -> bool {
@@ -113,18 +127,13 @@ impl Model {
     }
 
     fn expected_unread(&self) -> i64 {
-        // The broadcast term is evaluated exactly as the list arm (visible,
-        // above the watermark, no read exception, not muted) so the count
-        // agrees with the visible list at all times.
+        // The broadcast terms are evaluated exactly as the list arm: explicit
+        // override outranks the watermark, so the count agrees with the
+        // visible list at all times.
         let broadcast_unread = self
             .items
             .iter()
-            .filter(|i| {
-                i.broadcast
-                    && !self.muted.contains(&i.category)
-                    && self.read_watermark.is_none_or(|w| i.order > w)
-                    && !i.read_exception
-            })
+            .filter(|i| i.broadcast && !self.muted.contains(&i.category) && !self.read(i))
             .count() as i64;
         self.unread_direct + broadcast_unread
     }
@@ -203,6 +212,25 @@ async fn run_case(app: &TestApp, ops: Vec<Op>, check_list_equality: bool) {
         );
     }
 
+    // ---- unread view ↔ model agreement -------------------------------------
+    // The filtered list must be exactly the unread projection of the default
+    // list, in the same order, across both sources.
+    let unread_items = list_all_filtered(app, &env, "unread").await;
+    let expected_unread_ids: Vec<&str> = expected
+        .iter()
+        .filter(|i| !model.read(i))
+        .map(|i| i.api_id.as_str())
+        .collect();
+    let unread_ids: Vec<&str> = unread_items
+        .iter()
+        .map(|i| i["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(unread_ids, expected_unread_ids, "unread view");
+    assert!(
+        unread_items.iter().all(|i| !i["read"].as_bool().unwrap()),
+        "unread view returned a read item"
+    );
+
     // ---- counts ↔ model agreement ------------------------------------------
     let (unread, unseen) = counts(app, &env).await;
     assert_eq!(unread, model.expected_unread(), "unread count");
@@ -245,7 +273,7 @@ async fn apply_op(app: &TestApp, env: &TestEnvironment, model: &mut Model, order
                 api_id: id,
                 category,
                 broadcast: false,
-                read_exception: false,
+                explicit_read: None,
             });
             // A create into an already-muted category is not counted,
             // matching the list arm.
@@ -279,7 +307,7 @@ async fn apply_op(app: &TestApp, env: &TestEnvironment, model: &mut Model, order
                 api_id: id,
                 category,
                 broadcast: true,
-                read_exception: false,
+                explicit_read: None,
             });
         }
         Op::MarkDirectRead { pick } => {
@@ -306,7 +334,37 @@ async fn apply_op(app: &TestApp, env: &TestEnvironment, model: &mut Model, order
             if !muted && !model.read(&model.items[idx]) {
                 model.unread_direct -= 1;
             }
-            model.items[idx].read_exception = true;
+            model.items[idx].explicit_read = Some(true);
+        }
+        Op::MarkDirectUnread { pick } => {
+            let candidates: Vec<usize> = model
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, i)| !i.broadcast)
+                .map(|(idx, _)| idx)
+                .collect();
+            if candidates.is_empty() {
+                return;
+            }
+            let idx = candidates[pick % candidates.len()];
+            let id = model.items[idx].api_id.clone();
+            let res = inbox_post(app, env, &format!("/v1/inbox/notifications/{id}/unread")).await;
+            assert_eq!(res, 204);
+            // Server no-op on an already-unread item. On a read item the
+            // increment mirrors the mark-read decrement's mute guard.
+            if model.read(&model.items[idx]) {
+                if !model.muted.contains(&model.items[idx].category) {
+                    model.unread_direct += 1;
+                }
+                // Above the watermark, clearing read_at alone means unread
+                // (no override row). At or below, an override survives it.
+                model.items[idx].explicit_read = if model.watermark_covers(&model.items[idx]) {
+                    Some(false)
+                } else {
+                    None
+                };
+            }
         }
         Op::MarkBroadcastRead { pick } => {
             let candidates: Vec<usize> = model
@@ -323,15 +381,49 @@ async fn apply_op(app: &TestApp, env: &TestEnvironment, model: &mut Model, order
             let id = model.items[idx].api_id.clone();
             let res = inbox_post(app, env, &format!("/v1/inbox/broadcasts/{id}/read")).await;
             assert_eq!(res, 204);
-            // Below the watermark this is a server-side no-op. The model's
-            // read() already reports it read either way.
-            model.items[idx].read_exception = true;
+            // Above the watermark an explicit read row lands. At or below,
+            // the server only deletes a possible unread override and the
+            // watermark reads the item.
+            model.items[idx].explicit_read = if model.watermark_covers(&model.items[idx]) {
+                None
+            } else {
+                Some(true)
+            };
+        }
+        Op::MarkBroadcastUnread { pick } => {
+            let candidates: Vec<usize> = model
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, i)| i.broadcast)
+                .map(|(idx, _)| idx)
+                .collect();
+            if candidates.is_empty() {
+                return;
+            }
+            let idx = candidates[pick % candidates.len()];
+            let id = model.items[idx].api_id.clone();
+            let res = inbox_post(app, env, &format!("/v1/inbox/broadcasts/{id}/unread")).await;
+            assert_eq!(res, 204);
+            // At or below the watermark an unread override lands. Above it,
+            // deleting the read row is the whole operation.
+            if model.watermark_covers(&model.items[idx]) {
+                model.items[idx].explicit_read = Some(false);
+            } else if model.items[idx].explicit_read == Some(true) {
+                model.items[idx].explicit_read = None;
+            }
         }
         Op::ReadAll => {
             let res = inbox_post(app, env, "/v1/inbox/read-all").await;
             assert_eq!(res, 200);
             model.read_watermark = Some(order);
             model.unread_direct = 0;
+            // Overrides of both polarities die: broadcast rows GC'd, direct
+            // unread_at cleared. Every existing item sits below the new
+            // watermark.
+            for item in &mut model.items {
+                item.explicit_read = None;
+            }
         }
         Op::SeenAll => {
             let res = inbox_post(app, env, "/v1/inbox/seen-all").await;
@@ -413,10 +505,21 @@ async fn counts(app: &TestApp, env: &TestEnvironment) -> (i64, i64) {
 }
 
 async fn list_all(app: &TestApp, env: &TestEnvironment) -> Vec<serde_json::Value> {
+    list_all_filtered(app, env, "").await
+}
+
+async fn list_all_filtered(
+    app: &TestApp,
+    env: &TestEnvironment,
+    filter: &str,
+) -> Vec<serde_json::Value> {
     let mut items = Vec::new();
     let mut cursor: Option<String> = None;
     loop {
         let mut url = format!("{}/v1/inbox/items?limit=3", app.base); // tiny pages exercise the keyset
+        if !filter.is_empty() {
+            url.push_str(&format!("&filter={filter}"));
+        }
         if let Some(c) = &cursor {
             url.push_str(&format!("&cursor={c}"));
         }

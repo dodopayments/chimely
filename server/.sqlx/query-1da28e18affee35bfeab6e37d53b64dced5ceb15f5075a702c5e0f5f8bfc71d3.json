@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n               greatest(0, c.unread_direct_count\n                 + (SELECT count(*) FROM broadcasts b\n                     WHERE b.environment_id = $1\n                       AND b.created_at >= $3\n                       AND b.created_at >  c.read_watermark\n                       AND NOT EXISTS (SELECT 1 FROM broadcast_reads br\n                             WHERE br.environment_id = b.environment_id\n                               AND br.subscriber_id  = $2\n                               AND br.broadcast_id   = b.id\n                               AND br.read)\n                       AND NOT EXISTS (SELECT 1 FROM preferences p\n                             WHERE p.environment_id = b.environment_id\n                               AND p.subscriber_id  = $2\n                               AND p.category = b.category AND p.channel = 'in_app'\n                               AND p.enabled = false))\n                 + (SELECT count(*) FROM broadcast_reads br\n                     JOIN broadcasts b\n                       ON b.environment_id = br.environment_id AND b.id = br.broadcast_id\n                     WHERE br.environment_id = $1\n                       AND br.subscriber_id  = $2\n                       AND NOT br.read\n                       AND br.broadcast_created_at <= c.read_watermark\n                       AND b.created_at >= $3\n                       AND NOT EXISTS (SELECT 1 FROM preferences p\n                             WHERE p.environment_id = b.environment_id\n                               AND p.subscriber_id  = $2\n                               AND p.category = b.category AND p.channel = 'in_app'\n                               AND p.enabled = false)))::int AS \"unread!\",\n               greatest(0, c.unseen_direct_count\n                 + (SELECT count(*) FROM broadcasts b\n                     WHERE b.environment_id = $1\n                       AND b.created_at >= $3\n                       AND b.created_at >  c.seen_watermark\n                       AND NOT EXISTS (SELECT 1 FROM preferences p\n                             WHERE p.environment_id = b.environment_id\n                               AND p.subscriber_id  = $2\n                               AND p.category = b.category AND p.channel = 'in_app'\n                               AND p.enabled = false)))::int AS \"unseen!\"\n           FROM subscriber_counters c\n           WHERE c.environment_id = $1 AND c.subscriber_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "unread!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "unseen!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "1da28e18affee35bfeab6e37d53b64dced5ceb15f5075a702c5e0f5f8bfc71d3"
+}

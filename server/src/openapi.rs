@@ -77,7 +77,9 @@ change). Status codes are conventional and 429 carries `Retry-After`.
         crate::api::inbox::list_items,
         crate::api::inbox::get_counts,
         crate::api::inbox::mark_notification_read,
+        crate::api::inbox::mark_notification_unread,
         crate::api::inbox::mark_broadcast_read,
+        crate::api::inbox::mark_broadcast_unread,
         crate::api::inbox::mark_all_read,
         crate::api::inbox::mark_all_seen,
         crate::api::preferences::get_inbox_preferences,
@@ -255,6 +257,17 @@ fn fixups(doc: &mut utoipa::openapi::OpenApi) {
                             .minimum(Some(1))
                             .maximum(Some(100))
                             .default(Some(serde_json::json!(20)))
+                            .build()
+                            .into(),
+                    );
+                }
+                // The filter enum is part of the contract. Unknown values
+                // are rejected 400 by the handler.
+                "filter" => {
+                    param.schema = Some(
+                        ObjectBuilder::new()
+                            .schema_type(Type::String)
+                            .enum_values(Some(["unread"]))
                             .build()
                             .into(),
                     );

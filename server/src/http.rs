@@ -45,8 +45,16 @@ pub fn router(state: AppState) -> Router {
             post(inbox::mark_notification_read),
         )
         .route(
+            "/v1/inbox/notifications/{id}/unread",
+            post(inbox::mark_notification_unread),
+        )
+        .route(
             "/v1/inbox/broadcasts/{id}/read",
             post(inbox::mark_broadcast_read),
+        )
+        .route(
+            "/v1/inbox/broadcasts/{id}/unread",
+            post(inbox::mark_broadcast_unread),
         )
         .route("/v1/inbox/read-all", post(inbox::mark_all_read))
         .route("/v1/inbox/seen-all", post(inbox::mark_all_seen))

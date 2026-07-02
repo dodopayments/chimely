@@ -60,6 +60,33 @@ pub struct InboxCounts {
 pub struct ListParams {
     pub cursor: Option<String>,
     pub limit: Option<i64>,
+    pub filter: Option<String>,
+}
+
+/// Server-side list views. The default view excludes nothing (v1). The
+/// unread view filters both arms by the same expression the `read` column
+/// reports, so the view and the flag can never disagree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InboxFilter {
+    Default,
+    Unread,
+}
+
+impl InboxFilter {
+    pub fn parse(raw: Option<&str>) -> Option<Self> {
+        match raw {
+            None => Some(Self::Default),
+            Some("unread") => Some(Self::Unread),
+            Some(_) => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Unread => "unread",
+        }
+    }
 }
 
 #[utoipa::path(
@@ -72,6 +99,7 @@ pub struct ListParams {
     params(
         ("cursor" = Option<String>, Query, description = "Opaque keyset cursor; omit for the first page."),
         ("limit" = Option<i32>, Query, minimum = 1, maximum = 100),
+        ("filter" = Option<String>, Query, description = "View filter. Omit for the default view, or `unread` for unread items only."),
         ("If-None-Match" = Option<String>, Header),
     ),
     responses(
@@ -118,12 +146,14 @@ pub async fn list_items(
     if !(1..=MAX_PAGE_SIZE).contains(&limit) {
         return Err(ApiError::bad_request("limit must be between 1 and 100"));
     }
+    let filter = InboxFilter::parse(params.filter.as_deref())
+        .ok_or_else(|| ApiError::bad_request("unknown filter"))?;
     let (cursor_ts, cursor_id) = match &params.cursor {
         None => (DateTime::<Utc>::MAX_UTC, Uuid::max()),
         Some(c) => decode_cursor(c).ok_or_else(|| ApiError::bad_request("malformed cursor"))?,
     };
 
-    let etag = compute_etag(&state, &auth, params.cursor.as_deref(), limit).await?;
+    let etag = compute_etag(&state, &auth, params.cursor.as_deref(), limit, filter).await?;
     let response_headers = [
         (header::ETAG, etag.clone()),
         (header::CACHE_CONTROL, CACHE_CONTROL.to_owned()),
@@ -148,9 +178,12 @@ pub async fn list_items(
         auth.environment_id,
         auth.subscriber_id,
         auth.subscriber_created_at,
-        cursor_ts,
-        cursor_id,
-        limit,
+        ListWindow {
+            cursor_ts,
+            cursor_id,
+            limit,
+            filter,
+        },
     )
     .await
     .map_err(ApiError::from)?;
@@ -193,18 +226,25 @@ impl From<MergedRow> for InboxItem {
     }
 }
 
+/// Keyset window and view filter for one page of the merged list.
+/// `(cursor_ts, cursor_id)` is the last item of the previous page, or
+/// `(MAX_UTC, Uuid::max())` for the first page.
+pub struct ListWindow {
+    pub cursor_ts: DateTime<Utc>,
+    pub cursor_id: Uuid,
+    pub limit: i64,
+    pub filter: InboxFilter,
+}
+
 /// The canonical merged list query. Both arms are keyset range scans over
 /// notifications_inbox_idx and broadcasts_window_idx. Category mutes are
-/// read-time NOT EXISTS probes. `(cursor_ts, cursor_id)` is the last item of
-/// the previous page, or `(MAX_UTC, Uuid::max())` for the first page.
+/// read-time NOT EXISTS probes.
 pub async fn list_items_for<'e, E: sqlx::PgExecutor<'e>>(
     executor: E,
     environment_id: Uuid,
     subscriber_id: Uuid,
     subscriber_created_at: DateTime<Utc>,
-    cursor_ts: DateTime<Utc>,
-    cursor_id: Uuid,
-    limit: i64,
+    window: ListWindow,
 ) -> sqlx::Result<Vec<MergedRow>> {
     let rows = sqlx::query!(
         r#"SELECT merged.source AS "source!", merged.id AS "id!",
@@ -213,7 +253,8 @@ pub async fn list_items_for<'e, E: sqlx::PgExecutor<'e>>(
            FROM (
              (SELECT 'notification' AS source, n.id, n.category, n.payload,
                      n.visible_at AS occurred_at,
-                     (n.read_at IS NOT NULL OR n.visible_at <= c.read_watermark) AS read
+                     (n.read_at IS NOT NULL
+                        OR (n.unread_at IS NULL AND n.visible_at <= c.read_watermark)) AS read
                 FROM notifications n
                 JOIN subscriber_counters c
                   ON c.environment_id = n.environment_id
@@ -221,6 +262,8 @@ pub async fn list_items_for<'e, E: sqlx::PgExecutor<'e>>(
                WHERE n.environment_id = $1 AND n.subscriber_id = $2
                  AND n.visible_at <= now()
                  AND (n.visible_at, n.id) < ($3, $4)
+                 AND ($7 <> 'unread' OR (n.read_at IS NULL
+                        AND (n.unread_at IS NOT NULL OR n.visible_at > c.read_watermark)))
                  AND NOT EXISTS (SELECT 1 FROM preferences p
                        WHERE p.environment_id = n.environment_id
                          AND p.subscriber_id  = n.subscriber_id
@@ -229,7 +272,7 @@ pub async fn list_items_for<'e, E: sqlx::PgExecutor<'e>>(
                ORDER BY n.visible_at DESC, n.id DESC LIMIT $5)
              UNION ALL
              (SELECT 'broadcast', b.id, b.category, b.payload, b.created_at,
-                     (br.broadcast_id IS NOT NULL OR b.created_at <= c.read_watermark)
+                     COALESCE(br.read, b.created_at <= c.read_watermark)
                 FROM broadcasts b
                 JOIN subscriber_counters c
                   ON c.environment_id = b.environment_id AND c.subscriber_id = $2
@@ -240,6 +283,8 @@ pub async fn list_items_for<'e, E: sqlx::PgExecutor<'e>>(
                WHERE b.environment_id = $1
                  AND b.created_at >= $6
                  AND (b.created_at, b.id) < ($3, $4)
+                 AND ($7 <> 'unread'
+                        OR NOT COALESCE(br.read, b.created_at <= c.read_watermark))
                  AND NOT EXISTS (SELECT 1 FROM preferences p
                        WHERE p.environment_id = b.environment_id
                          AND p.subscriber_id  = $2
@@ -251,10 +296,11 @@ pub async fn list_items_for<'e, E: sqlx::PgExecutor<'e>>(
            LIMIT $5"#,
         environment_id,
         subscriber_id,
-        cursor_ts,
-        cursor_id,
-        limit,
+        window.cursor_ts,
+        window.cursor_id,
+        window.limit,
         subscriber_created_at,
+        window.filter.as_str(),
     )
     .fetch_all(executor)
     .await?;
@@ -303,12 +349,13 @@ pub async fn get_counts(
     Ok(Json(counts))
 }
 
-/// The unread/unseen count: maintained direct counters plus a live broadcast
-/// term. The broadcast term is evaluated exactly as the list's broadcast arm
-/// (visible, above the watermark, no read exception, not muted) so the count
-/// agrees with the visible list at all times. It is a count over the
-/// broadcasts table (rows are announcements, not subscribers) so the per-row
-/// `NOT EXISTS` probes stay cheap. Seen has no exceptions term.
+/// The unread/unseen count: maintained direct counters plus two live
+/// broadcast terms. Term one is evaluated exactly as the list's broadcast arm
+/// (visible, above the watermark, not explicitly read, not muted). Term two
+/// counts explicit unread overrides at or below the watermark and is bounded
+/// by exception-row cardinality. Together they agree with the visible list at
+/// all times while staying O(above-watermark + exceptions), never O(rows).
+/// Seen has no exceptions term.
 ///
 /// Category mutes are applied to the broadcast term here, unlike the maintained
 /// direct counters. The broadcast term is recomputed on every read with no
@@ -346,7 +393,21 @@ pub async fn fetch_counts_for(
                        AND NOT EXISTS (SELECT 1 FROM broadcast_reads br
                              WHERE br.environment_id = b.environment_id
                                AND br.subscriber_id  = $2
-                               AND br.broadcast_id   = b.id)
+                               AND br.broadcast_id   = b.id
+                               AND br.read)
+                       AND NOT EXISTS (SELECT 1 FROM preferences p
+                             WHERE p.environment_id = b.environment_id
+                               AND p.subscriber_id  = $2
+                               AND p.category = b.category AND p.channel = 'in_app'
+                               AND p.enabled = false))
+                 + (SELECT count(*) FROM broadcast_reads br
+                     JOIN broadcasts b
+                       ON b.environment_id = br.environment_id AND b.id = br.broadcast_id
+                     WHERE br.environment_id = $1
+                       AND br.subscriber_id  = $2
+                       AND NOT br.read
+                       AND br.broadcast_created_at <= c.read_watermark
+                       AND b.created_at >= $3
                        AND NOT EXISTS (SELECT 1 FROM preferences p
                              WHERE p.environment_id = b.environment_id
                                AND p.subscriber_id  = $2
@@ -428,7 +489,7 @@ pub async fn mark_notification_read(
     // Scheduled rows (visible_at > now()) are excluded from all subscriber
     // queries. An invisible item cannot be marked read.
     let row = sqlx::query!(
-        r#"SELECT visible_at, read_at, category FROM notifications
+        r#"SELECT visible_at, read_at, unread_at, category FROM notifications
             WHERE environment_id = $1 AND id = $2 AND subscriber_id = $3
               AND visible_at <= now()
             FOR UPDATE"#,
@@ -443,7 +504,7 @@ pub async fn mark_notification_read(
 
     if row.read_at.is_none() {
         sqlx::query!(
-            r#"UPDATE notifications SET read_at = now()
+            r#"UPDATE notifications SET read_at = now(), unread_at = NULL
                 WHERE environment_id = $1 AND id = $2 AND visible_at = $3"#,
             auth.environment_id,
             id,
@@ -475,15 +536,16 @@ pub async fn mark_notification_read(
         .fetch_one(&mut *tx)
         .await
         .map_err(ApiError::from)?;
-        // Decrement ONLY IF the row was unread above the watermark AND
-        // already counted (otherwise double-decrement). The mute guard pairs
-        // with the mute-aware increment: a muted row was never counted, so
-        // marking it read must not steal a count from an unmuted item.
+        // Decrement ONLY IF the row was counted: unread above the watermark,
+        // or an explicit unread override below it (otherwise
+        // double-decrement). The mute guard pairs with the mute-aware
+        // increment: a muted row was never counted, so marking it read must
+        // not steal a count from an unmuted item.
         // updated_at bump: EVERY read-state mutation is an ETag input.
         sqlx::query!(
             r#"UPDATE subscriber_counters c SET
                    unread_direct_count = greatest(0,
-                       c.unread_direct_count - ($3 > c.read_watermark AND NOT $4
+                       c.unread_direct_count - (($3 > c.read_watermark OR $6) AND NOT $4
                            AND NOT EXISTS (SELECT 1 FROM preferences p
                                  WHERE p.environment_id = c.environment_id
                                    AND p.subscriber_id  = c.subscriber_id
@@ -496,6 +558,7 @@ pub async fn mark_notification_read(
             row.visible_at,
             pending,
             row.category,
+            row.unread_at.is_some(),
         )
         .execute(&mut *tx)
         .await
@@ -506,6 +569,143 @@ pub async fn mark_notification_read(
         timeline::append(&mut tx, auth.environment_id, &[id], timeline::STATUS_READ)
             .await
             .map_err(ApiError::from)?;
+        jobs::enqueue_hint(
+            &mut tx,
+            auth.environment_id,
+            &[auth.subscriber_id],
+            "read_state",
+            &[],
+        )
+        .await
+        .map_err(ApiError::from)?;
+    }
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/inbox/notifications/{id}/unread",
+    tag = "subscriber",
+    operation_id = "markNotificationUnread",
+    summary = "Mark notification unread",
+    description = "Mark one direct notification as unread. The override survives the read watermark. Idempotent.",
+    params(("id" = crate::api::contract::NotificationId, Path)),
+    responses(
+        (status = 204, description = "Unread (now or already)."),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid subscriber hash"}}),
+        ),
+        (
+            status = 404,
+            description = "Resource not found in this environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such notification"}}),
+        ),
+    ),
+    security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
+)]
+pub async fn mark_notification_unread(
+    State(state): State<AppState>,
+    auth: SubscriberAuth,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let id = ids::parse_typeid(ids::NOTIFICATION, &id)
+        .ok_or_else(|| ApiError::not_found("no such notification"))?;
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    // Counters lock first, same discipline as mark_notification_read. The
+    // watermark read under the lock decides whether an override is needed.
+    let watermark = sqlx::query_scalar!(
+        r#"SELECT read_watermark FROM subscriber_counters
+            WHERE environment_id = $1 AND subscriber_id = $2 FOR UPDATE"#,
+        auth.environment_id,
+        auth.subscriber_id,
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(ApiError::from)?;
+    let row = sqlx::query!(
+        r#"SELECT visible_at, read_at, unread_at, category FROM notifications
+            WHERE environment_id = $1 AND id = $2 AND subscriber_id = $3
+              AND visible_at <= now()
+            FOR UPDATE"#,
+        auth.environment_id,
+        id,
+        auth.subscriber_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(ApiError::from)?
+    .ok_or_else(|| ApiError::not_found("no such notification"))?;
+
+    let effectively_read =
+        row.read_at.is_some() || (row.unread_at.is_none() && row.visible_at <= watermark);
+    if effectively_read {
+        // Above the watermark, clearing read_at alone means unread. At or
+        // below it, the override column keeps the item unread despite the
+        // watermark.
+        let needs_override = row.visible_at <= watermark;
+        sqlx::query!(
+            r#"UPDATE notifications
+                  SET read_at = NULL,
+                      unread_at = CASE WHEN $4 THEN now() ELSE NULL END
+                WHERE environment_id = $1 AND id = $2 AND visible_at = $3"#,
+            auth.environment_id,
+            id,
+            row.visible_at,
+            needs_override,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
+        // A row still owned by a pending deliver job stays uncounted here:
+        // the deliver bump reads the new expression (unread_at survives) and
+        // counts it exactly once. The counters lock blocks that job from
+        // completing concurrently.
+        let pending = sqlx::query_scalar!(
+            r#"SELECT EXISTS (
+                   SELECT 1 FROM jobs j
+                   CROSS JOIN LATERAL jsonb_array_elements_text(
+                       CASE WHEN jsonb_typeof(j.payload->'notification_ids') = 'array'
+                            THEN j.payload->'notification_ids' END)
+                       WITH ORDINALITY AS t(nid, idx)
+                   WHERE j.environment_id = $1 AND j.job_type = 'deliver'
+                     AND t.nid = ($2::uuid)::text
+                     AND (t.idx - 1) >= COALESCE((j.progress_cursor->>'offset')::bigint, 0)
+               ) AS "pending!""#,
+            auth.environment_id,
+            id,
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
+        // Increment mirrors the mark-read decrement: only rows the counter
+        // would have counted (not pending, not muted) gain the +1.
+        sqlx::query!(
+            r#"UPDATE subscriber_counters c SET
+                   unread_direct_count = c.unread_direct_count + (NOT $3
+                       AND NOT EXISTS (SELECT 1 FROM preferences p
+                             WHERE p.environment_id = c.environment_id
+                               AND p.subscriber_id  = c.subscriber_id
+                               AND p.category = $4 AND p.channel = 'in_app'
+                               AND p.enabled = false))::int,
+                   updated_at = now()
+             WHERE c.environment_id = $1 AND c.subscriber_id = $2"#,
+            auth.environment_id,
+            auth.subscriber_id,
+            pending,
+            row.category,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
+        // No timeline row: notification_status_log is append-once per
+        // (notification, status), so a read/unread/read cycle cannot be
+        // represented there. Unread transitions are not lifecycle events.
         jobs::enqueue_hint(
             &mut tx,
             auth.environment_id,
@@ -578,14 +778,17 @@ pub async fn mark_broadcast_read(
     .filter(|created_at| *created_at >= auth.subscriber_created_at)
     .ok_or_else(|| ApiError::not_found("no such broadcast"))?;
 
-    // No-op if already below the read watermark. The watermark covers it and
-    // an exception row would be GC fodder.
-    if broadcast_created_at > watermark {
-        let inserted = sqlx::query!(
+    // Above the watermark an explicit read row decides. At or below it the
+    // watermark already reads the item, so the only work is deleting a
+    // possible unread override.
+    let changed = if broadcast_created_at > watermark {
+        sqlx::query!(
             r#"INSERT INTO broadcast_reads
-                   (environment_id, subscriber_id, broadcast_id, broadcast_created_at)
-               VALUES ($1, $2, $3, $4)
-               ON CONFLICT (environment_id, subscriber_id, broadcast_id) DO NOTHING"#,
+                   (environment_id, subscriber_id, broadcast_id, broadcast_created_at, read)
+               VALUES ($1, $2, $3, $4, true)
+               ON CONFLICT (environment_id, subscriber_id, broadcast_id)
+               DO UPDATE SET read = true, read_at = now()
+               WHERE broadcast_reads.read = false"#,
             auth.environment_id,
             auth.subscriber_id,
             id,
@@ -594,29 +797,156 @@ pub async fn mark_broadcast_read(
         .execute(&mut *tx)
         .await
         .map_err(ApiError::from)?
-        .rows_affected();
-        if inserted > 0 {
-            // No maintained counter changes, but updated_at must move: it is
-            // the change-detection input for the list ETag.
-            sqlx::query!(
-                r#"UPDATE subscriber_counters SET updated_at = now()
-                    WHERE environment_id = $1 AND subscriber_id = $2"#,
-                auth.environment_id,
-                auth.subscriber_id,
-            )
-            .execute(&mut *tx)
-            .await
-            .map_err(ApiError::from)?;
-            jobs::enqueue_hint(
-                &mut tx,
-                auth.environment_id,
-                &[auth.subscriber_id],
-                "read_state",
-                &[],
-            )
-            .await
-            .map_err(ApiError::from)?;
-        }
+        .rows_affected()
+    } else {
+        sqlx::query!(
+            r#"DELETE FROM broadcast_reads
+                WHERE environment_id = $1 AND subscriber_id = $2
+                  AND broadcast_id = $3 AND read = false"#,
+            auth.environment_id,
+            auth.subscriber_id,
+            id,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?
+        .rows_affected()
+    };
+    if changed > 0 {
+        // No maintained counter changes, but updated_at must move: it is
+        // the change-detection input for the list ETag.
+        sqlx::query!(
+            r#"UPDATE subscriber_counters SET updated_at = now()
+                WHERE environment_id = $1 AND subscriber_id = $2"#,
+            auth.environment_id,
+            auth.subscriber_id,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
+        jobs::enqueue_hint(
+            &mut tx,
+            auth.environment_id,
+            &[auth.subscriber_id],
+            "read_state",
+            &[],
+        )
+        .await
+        .map_err(ApiError::from)?;
+    }
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/inbox/broadcasts/{id}/unread",
+    tag = "subscriber",
+    operation_id = "markBroadcastUnread",
+    summary = "Mark broadcast unread",
+    description = "Mark one broadcast as unread for this subscriber. The override survives the read watermark. Idempotent.",
+    params(("id" = crate::api::contract::BroadcastId, Path)),
+    responses(
+        (status = 204, description = "Unread (now or already)."),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid subscriber hash"}}),
+        ),
+        (
+            status = 404,
+            description = "Resource not found in this environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such broadcast"}}),
+        ),
+    ),
+    security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
+)]
+pub async fn mark_broadcast_unread(
+    State(state): State<AppState>,
+    auth: SubscriberAuth,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let id = ids::parse_typeid(ids::BROADCAST, &id)
+        .ok_or_else(|| ApiError::not_found("no such broadcast"))?;
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    // Counters lock first: serializes against mark-all-read so an unread
+    // override can never race the watermark GC.
+    let watermark = sqlx::query_scalar!(
+        r#"SELECT read_watermark FROM subscriber_counters
+            WHERE environment_id = $1 AND subscriber_id = $2 FOR UPDATE"#,
+        auth.environment_id,
+        auth.subscriber_id,
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(ApiError::from)?;
+    let broadcast_created_at = sqlx::query_scalar!(
+        r#"SELECT created_at FROM broadcasts WHERE environment_id = $1 AND id = $2"#,
+        auth.environment_id,
+        id,
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(ApiError::from)?
+    .filter(|created_at| *created_at >= auth.subscriber_created_at)
+    .ok_or_else(|| ApiError::not_found("no such broadcast"))?;
+
+    // Above the watermark, absence of a read row already means unread, so
+    // deleting the row is the whole operation. At or below it, an explicit
+    // unread override outranks the watermark.
+    let changed = if broadcast_created_at > watermark {
+        sqlx::query!(
+            r#"DELETE FROM broadcast_reads
+                WHERE environment_id = $1 AND subscriber_id = $2
+                  AND broadcast_id = $3 AND read = true"#,
+            auth.environment_id,
+            auth.subscriber_id,
+            id,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?
+        .rows_affected()
+    } else {
+        sqlx::query!(
+            r#"INSERT INTO broadcast_reads
+                   (environment_id, subscriber_id, broadcast_id, broadcast_created_at, read)
+               VALUES ($1, $2, $3, $4, false)
+               ON CONFLICT (environment_id, subscriber_id, broadcast_id)
+               DO UPDATE SET read = false, read_at = now()
+               WHERE broadcast_reads.read = true"#,
+            auth.environment_id,
+            auth.subscriber_id,
+            id,
+            broadcast_created_at,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?
+        .rows_affected()
+    };
+    if changed > 0 {
+        sqlx::query!(
+            r#"UPDATE subscriber_counters SET updated_at = now()
+                WHERE environment_id = $1 AND subscriber_id = $2"#,
+            auth.environment_id,
+            auth.subscriber_id,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
+        jobs::enqueue_hint(
+            &mut tx,
+            auth.environment_id,
+            &[auth.subscriber_id],
+            "read_state",
+            &[],
+        )
+        .await
+        .map_err(ApiError::from)?;
     }
     tx.commit().await.map_err(ApiError::from)?;
     Ok(StatusCode::NO_CONTENT)
@@ -703,6 +1033,22 @@ pub async fn mark_all_read(
         r#"DELETE FROM broadcast_reads
             WHERE environment_id = $1 AND subscriber_id = $2
               AND broadcast_created_at <= $3"#,
+        auth.environment_id,
+        auth.subscriber_id,
+        new_watermark,
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(ApiError::from)?;
+    // Direct unread overrides at or below the new watermark are redundant the
+    // same way. The scan touches only explicit exception rows via the partial
+    // index notifications_unread_exception_idx, the same cardinality class as
+    // the broadcast_reads GC above, never O(inbox). Read state for everything
+    // else still moves through the watermark alone.
+    sqlx::query!(
+        r#"UPDATE notifications SET unread_at = NULL
+            WHERE environment_id = $1 AND subscriber_id = $2
+              AND unread_at IS NOT NULL AND visible_at <= $3"#,
         auth.environment_id,
         auth.subscriber_id,
         new_watermark,
@@ -829,6 +1175,7 @@ async fn compute_etag(
     auth: &SubscriberAuth,
     cursor: Option<&str>,
     limit: i64,
+    filter: InboxFilter,
 ) -> Result<String, ApiError> {
     let row = sqlx::query!(
         r#"SELECT
@@ -859,9 +1206,16 @@ async fn compute_etag(
     .map_err(ApiError::from)?;
 
     let mut hasher = Sha256::new();
-    hasher.update(b"chimely-inbox-v1|");
+    hasher.update(b"chimely-inbox-v2|");
     hasher.update(cursor.unwrap_or("").as_bytes());
-    hasher.update(format!("|{limit}|{}", row.counters_updated_at.timestamp_micros()).as_bytes());
+    hasher.update(
+        format!(
+            "|{limit}|{}|{}",
+            filter.as_str(),
+            row.counters_updated_at.timestamp_micros()
+        )
+        .as_bytes(),
+    );
     hasher.update(
         format!(
             "|{:?}|{:?}/{:?}|{:?}/{:?}",
