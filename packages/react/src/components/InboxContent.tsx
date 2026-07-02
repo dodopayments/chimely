@@ -1,4 +1,4 @@
-import type { InboxItem, WellKnownPayload } from '@chimely/client';
+import type { InboxFilterView, InboxItem, WellKnownPayload } from '@chimely/client';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import type { InboxAppearance, InboxSlot } from '../appearance';
@@ -56,8 +56,18 @@ export interface InboxContentProps<TPayload = WellKnownPayload> extends ItemRend
 export function InboxContent<TPayload = WellKnownPayload>(
   props: InboxContentProps<TPayload>,
 ): ReactNode {
-  const { items, isLoading, hasMore, lastRefreshNewItemIds, fetchMore, markRead, markAllRead } =
-    useNotifications<TPayload>();
+  const {
+    items,
+    isLoading,
+    hasMore,
+    lastRefreshNewItemIds,
+    filter,
+    fetchMore,
+    markRead,
+    markUnread,
+    markAllRead,
+    setFilter,
+  } = useNotifications<TPayload>();
   const [showPreferences, setShowPreferences] = useState(false);
   const [activeTabIndex, setActiveTabIndex] = useState(0);
 
@@ -119,6 +129,18 @@ export function InboxContent<TPayload = WellKnownPayload>(
           <>
             <span className="chimely-header-title">{strings.inboxTitle}</span>
             <div className="chimely-header-actions">
+              <select
+                className={cls('filter')}
+                style={slotStyle(props.appearance, 'filter')}
+                aria-label={strings.filterLabel}
+                value={filter}
+                onChange={(event) => {
+                  void setFilter(event.target.value as InboxFilterView);
+                }}
+              >
+                <option value="default">{strings.filterInbox}</option>
+                <option value="unread">{strings.filterUnread}</option>
+              </select>
               <button
                 type="button"
                 className="chimely-header-action"
@@ -184,6 +206,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
           hasMore={hasMore}
           fetchMore={fetchMore}
           markRead={markRead}
+          markUnread={markUnread}
           onItem={handleItemClick}
           cls={cls}
           strings={strings}

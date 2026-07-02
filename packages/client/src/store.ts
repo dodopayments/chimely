@@ -17,6 +17,7 @@ export class InboxStore<TPayload> {
       isLoading: false,
       error: null,
       lastRefreshNewItemIds: [],
+      filter: 'default',
     };
   }
 

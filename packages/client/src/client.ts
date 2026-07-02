@@ -6,6 +6,7 @@ import { InboxStore } from './store';
 import type {
   ChimelyClientConfig,
   EventSourceLike,
+  InboxFilterView,
   InboxItem,
   InboxItemId,
   InboxItemSource,
@@ -182,6 +183,31 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
     return this.fetchingMore;
   }
 
+  /**
+   * Switch the server-side list view. Resets pagination and the ETag (the
+   * server keys validators per view) and refetches. No-op when unchanged.
+   */
+  setFilter(filter: InboxFilterView): Promise<void> {
+    if ((this.store.getSnapshot().filter ?? 'default') === filter) {
+      return Promise.resolve();
+    }
+    this.cursor = null;
+    this.etag = null;
+    this.store.patch({
+      filter,
+      items: [],
+      hasMore: true,
+      lastRefreshNewItemIds: [],
+    });
+    return this.refresh();
+  }
+
+  /** The `filter` query parameter for the active view, or empty. */
+  private filterParam(): string {
+    const filter = this.store.getSnapshot().filter ?? 'default';
+    return filter === 'default' ? '' : `&filter=${filter}`;
+  }
+
   async markRead(item: { id: InboxItemId; source: InboxItemSource }): Promise<void> {
     const prev = this.store.getSnapshot();
     const target = prev.items.find((candidate) => candidate.id === item.id);
@@ -198,6 +224,33 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
       item.source === 'notification'
         ? `/v1/inbox/notifications/${encodeURIComponent(item.id)}/read`
         : `/v1/inbox/broadcasts/${encodeURIComponent(item.id)}/read`;
+    try {
+      await this.http('POST', path);
+      this.clearError();
+    } catch (cause) {
+      const rollback = changed ? { items: prev.items, counts: prev.counts } : {};
+      this.store.patch({ ...rollback, error: asChimelyError(cause) });
+      this.reconcileAfterFailedMutation();
+    }
+  }
+
+  /** Flip an item back to unread. The override survives mark-all-read. */
+  async markUnread(item: { id: InboxItemId; source: InboxItemSource }): Promise<void> {
+    const prev = this.store.getSnapshot();
+    const target = prev.items.find((candidate) => candidate.id === item.id);
+    const changed = target?.read === true;
+    if (changed) {
+      this.store.patch({
+        items: prev.items.map((candidate) =>
+          candidate.id === item.id ? { ...candidate, read: false } : candidate,
+        ),
+        counts: { ...prev.counts, unread: prev.counts.unread + 1 },
+      });
+    }
+    const path =
+      item.source === 'notification'
+        ? `/v1/inbox/notifications/${encodeURIComponent(item.id)}/unread`
+        : `/v1/inbox/broadcasts/${encodeURIComponent(item.id)}/unread`;
     try {
       await this.http('POST', path);
       this.clearError();
@@ -302,7 +355,7 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
   private async doRefresh(): Promise<void> {
     this.store.patch({ isLoading: true });
     try {
-      const listPath = `/v1/inbox/items?limit=${this.pageSize}`;
+      const listPath = `/v1/inbox/items?limit=${this.pageSize}${this.filterParam()}`;
       const [pageResponse, countsResponse] = await Promise.all([
         this.http('GET', listPath, { ifNoneMatch: this.etag }),
         this.http('GET', '/v1/inbox/counts'),
@@ -368,6 +421,10 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
       const params = new URLSearchParams({
         limit: String(Math.min(100, Math.max(1, limit ?? this.pageSize))),
       });
+      const filter = this.store.getSnapshot().filter ?? 'default';
+      if (filter !== 'default') {
+        params.set('filter', filter);
+      }
       if (this.cursor !== null) {
         params.set('cursor', this.cursor);
       }

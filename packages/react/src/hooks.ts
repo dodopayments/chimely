@@ -2,6 +2,7 @@ import type {
   ChimelyClient,
   ConnectionStatus,
   InboxCounts,
+  InboxFilterView,
   InboxItem,
   InboxItemId,
   InboxItemSource,
@@ -47,10 +48,15 @@ export interface UseNotificationsResult<TPayload = WellKnownPayload> {
   hasMore: boolean;
   /** Ids the last refresh merged in that were not already loaded. */
   lastRefreshNewItemIds: ReadonlyArray<InboxItemId>;
+  /** The active server-side view. */
+  filter: InboxFilterView;
   fetchMore: () => Promise<void>;
   refresh: () => Promise<void>;
   markRead: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
+  markUnread: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
   markAllRead: () => Promise<void>;
+  /** Switch the server-side view. Resets pagination and refetches. */
+  setFilter: (filter: InboxFilterView) => Promise<void>;
 }
 
 /** Headless merged-inbox list. */
@@ -69,17 +75,25 @@ export function useNotifications<TPayload = WellKnownPayload>(
     (item: { id: InboxItemId; source: InboxItemSource }) => client.markRead(item),
     [client],
   );
+  const markUnread = useCallback(
+    (item: { id: InboxItemId; source: InboxItemSource }) => client.markUnread(item),
+    [client],
+  );
   const markAllRead = useCallback(() => client.markAllRead(), [client]);
+  const setFilter = useCallback((filter: InboxFilterView) => client.setFilter(filter), [client]);
   return {
     items: snapshot.items,
     isLoading: snapshot.isLoading,
     error: snapshot.error,
     hasMore: snapshot.hasMore,
     lastRefreshNewItemIds: snapshot.lastRefreshNewItemIds ?? [],
+    filter: snapshot.filter ?? 'default',
     fetchMore,
     refresh,
     markRead,
+    markUnread,
     markAllRead,
+    setFilter,
   };
 }
 

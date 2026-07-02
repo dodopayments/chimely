@@ -19,6 +19,16 @@ export interface InboxLocalization {
   backLabel?: string;
   /** New-notification indicator text. */
   newNotifications?: (count: number) => string;
+  /** View select aria-label. */
+  filterLabel?: string;
+  /** Default view option. */
+  filterInbox?: string;
+  /** Unread-only view option. */
+  filterUnread?: string;
+  /** Per-item action tooltip. */
+  markReadAction?: string;
+  /** Per-item action tooltip. */
+  markUnreadAction?: string;
   /**
    * Display names for category keys in the preferences panel.
    * Merged by whole-map replacement, not per key.
@@ -37,6 +47,11 @@ export const DEFAULT_LOCALIZATION: Required<InboxLocalization> = {
   bellLabel: 'Notifications',
   backLabel: 'Back',
   newNotifications: (count) => (count === 1 ? '1 new notification' : `${count} new notifications`),
+  filterLabel: 'View',
+  filterInbox: 'Inbox',
+  filterUnread: 'Unread',
+  markReadAction: 'Mark as read',
+  markUnreadAction: 'Mark as unread',
   categoryLabels: {},
   formatTimestamp: (iso) => formatRelativeTime(iso),
 };

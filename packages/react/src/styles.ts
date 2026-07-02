@@ -87,6 +87,15 @@ export const INBOX_CSS = `
   gap: 4px;
   margin-left: auto;
 }
+.chimely-filter {
+  border: none;
+  background: transparent;
+  color: var(--chimely-colorPrimary, #1264FF);
+  font: inherit;
+  padding: 2px 4px;
+  border-radius: var(--chimely-borderRadius, 8px);
+  cursor: pointer;
+}
 .chimely-header-action {
   border: none;
   background: transparent;
@@ -179,6 +188,38 @@ export const INBOX_CSS = `
 }
 .chimely-sentinel {
   height: 1px;
+}
+.chimely-list-row {
+  position: relative;
+}
+.chimely-item-actions {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  pointer-events: none;
+}
+.chimely-list-row:hover .chimely-item-actions,
+.chimely-list-row:focus-within .chimely-item-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.chimely-item-action {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--chimely-colorMuted, #e5e7eb);
+  border-radius: var(--chimely-borderRadius, 8px);
+  background: var(--chimely-colorBackground, #ffffff);
+  color: var(--chimely-colorPrimary, #1264FF);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.chimely-item-action:hover {
+  background: var(--chimely-colorMuted, #f3f4f6);
 }
 .chimely-item {
   display: flex;
