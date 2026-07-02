@@ -29,3 +29,23 @@ export function isSafeActionUrl(url: string): boolean {
     return false;
   }
 }
+
+export type ResolvedActionUrl =
+  | { kind: 'same-origin'; path: string }
+  | { kind: 'external'; href: string };
+
+/**
+ * Classifies a safe action_url for navigation. Same-origin targets are
+ * normalized to the path form SPA routers expect. Unsafe targets (per
+ * isSafeActionUrl) return null and must not navigate.
+ */
+export function resolveActionUrl(url: string): ResolvedActionUrl | null {
+  if (!isSafeActionUrl(url)) {
+    return null;
+  }
+  const target = new URL(url, window.location.href);
+  if (target.origin === window.location.origin) {
+    return { kind: 'same-origin', path: `${target.pathname}${target.search}${target.hash}` };
+  }
+  return { kind: 'external', href: url };
+}

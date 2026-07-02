@@ -58,6 +58,9 @@ export const INBOX_CSS = `
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   z-index: 1000;
 }
+.chimely-popover-portal {
+  position: fixed;
+}
 .chimely-header {
   display: flex;
   align-items: center;
