@@ -1,10 +1,13 @@
 {
   "name": "chimely-docs",
   "compatibility_date": "2026-06-30",
-  // Assets-only Worker: the docs are a Next.js static export, so there is no
-  // Worker script. `main` and an ASSETS binding are intentionally omitted.
+  "main": "worker/index.ts",
   "assets": {
     "directory": "./out",
+    "binding": "ASSETS",
+    // Without this, static assets serve before the Worker runs and content
+    // negotiation never happens.
+    "run_worker_first": true,
     // Next export emits flat leaf files (docs/page.html) and folder indexes
     // (docs/index.html). auto-trailing-slash serves both and normalizes the
     // URL. Must stay in sync with next.config.mjs (no trailingSlash set).
