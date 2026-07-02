@@ -9,6 +9,7 @@ import type { InboxLocalization } from './localization';
 import { mergeLocalization } from './localization';
 import { isSafeActionUrl, navigation } from './navigation';
 import { ensureStyles } from './styles';
+import { useNow } from './time';
 
 /** Named slots for classNames overrides. This union only ever widens. */
 export type InboxSlot =
@@ -88,6 +89,7 @@ export interface InboxProps<TPayload = WellKnownPayload> {
   renderItem?: (ctx: { item: InboxItem<TPayload>; markRead: () => Promise<void> }) => ReactNode;
   renderBell?: (ctx: { unseenCount: number; open: boolean }) => ReactNode;
   renderEmpty?: () => ReactNode;
+  renderFooter?: () => ReactNode;
 }
 
 export function Inbox<TPayload = WellKnownPayload>(props: InboxProps<TPayload>): ReactNode {
@@ -170,6 +172,9 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
   useEffect(() => {
     ensureStyles();
   }, []);
+
+  // Minute tick keeps relative timestamps current while the list is visible.
+  useNow(open && !showPreferences ? 60_000 : null);
 
   useEffect(() => {
     if (!open) {
@@ -303,7 +308,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
         ref={bellRef}
         type="button"
         className={cls('bell')}
-        aria-label="Notifications"
+        aria-label={strings.bellLabel}
         aria-expanded={open}
         onClick={handleBellClick}
       >
@@ -319,14 +324,19 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
         )}
       </button>
       {open && (
-        <div ref={popoverRef} className={cls('popover')} role="dialog" aria-label="Notifications">
+        <div
+          ref={popoverRef}
+          className={cls('popover')}
+          role="dialog"
+          aria-label={strings.inboxTitle}
+        >
           <div className={cls('header')}>
             {showPreferences ? (
               <>
                 <button
                   type="button"
                   className="chimely-header-action"
-                  aria-label="Back"
+                  aria-label={strings.backLabel}
                   onClick={() => setShowPreferences(false)}
                 >
                   ←
@@ -335,26 +345,29 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
               </>
             ) : (
               <>
-                <button
-                  type="button"
-                  className="chimely-header-action"
-                  onClick={() => {
-                    void markAllRead();
-                  }}
-                >
-                  {strings.markAllRead}
-                </button>
-                {props.preferencesPanel !== false && (
+                <span className="chimely-header-title">{strings.inboxTitle}</span>
+                <div className="chimely-header-actions">
                   <button
                     type="button"
                     className="chimely-header-action"
-                    aria-label={strings.preferencesTitle}
-                    title={strings.preferencesTitle}
-                    onClick={() => setShowPreferences(true)}
+                    onClick={() => {
+                      void markAllRead();
+                    }}
                   >
-                    <GearIcon />
+                    {strings.markAllRead}
                   </button>
-                )}
+                  {props.preferencesPanel !== false && (
+                    <button
+                      type="button"
+                      className="chimely-header-action"
+                      aria-label={strings.preferencesTitle}
+                      title={strings.preferencesTitle}
+                      onClick={() => setShowPreferences(true)}
+                    >
+                      <GearIcon />
+                    </button>
+                  )}
+                </div>
               </>
             )}
           </div>
@@ -362,7 +375,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
             <div className={cls('preferences')}>
               {categories.map((category) => (
                 <label key={category} className="chimely-preference">
-                  <span>{category}</span>
+                  <span>{strings.categoryLabels[category] ?? category}</span>
                   <input
                     type="checkbox"
                     checked={isEnabled(category)}
@@ -400,6 +413,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
                       <DefaultItem
                         item={item}
                         className={item.read ? cls('item') : `${cls('item')} ${cls('itemUnread')}`}
+                        formatTimestamp={strings.formatTimestamp}
                         onClick={() => handleItemClick(item)}
                       />
                     )}
@@ -409,7 +423,9 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
               <li ref={sentinelRef} className="chimely-sentinel" aria-hidden="true" />
             </ul>
           )}
-          <div className={cls('footer')} aria-busy={isLoading} />
+          <div className={cls('footer')} aria-busy={isLoading}>
+            {props.renderFooter?.()}
+          </div>
         </div>
       )}
     </div>
@@ -419,9 +435,10 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
 function DefaultItem<TPayload>(props: {
   item: InboxItem<TPayload>;
   className: string;
+  formatTimestamp: (iso: string) => string;
   onClick: () => void;
 }): ReactNode {
-  const { item, className, onClick } = props;
+  const { item, className, formatTimestamp, onClick } = props;
   const payload = item.payload as Partial<WellKnownPayload>;
   return (
     <button type="button" className={className} onClick={onClick}>
@@ -436,8 +453,12 @@ function DefaultItem<TPayload>(props: {
           // Plain text by construction. React escaping keeps it that way.
           <span className="chimely-item-body">{payload.body}</span>
         )}
-        <time className="chimely-item-time" dateTime={item.occurredAt}>
-          {new Date(item.occurredAt).toLocaleString()}
+        <time
+          className="chimely-item-time"
+          dateTime={item.occurredAt}
+          title={new Date(item.occurredAt).toLocaleString()}
+        >
+          {formatTimestamp(item.occurredAt)}
         </time>
       </span>
       {!item.read && <span className="chimely-item-dot" aria-hidden="true" />}

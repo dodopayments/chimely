@@ -248,6 +248,94 @@ describe('item click behavior', () => {
   });
 });
 
+describe('header title and footer', () => {
+  test('renders the default header title and renderFooter content', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    await renderInbox(stub, {
+      renderFooter: () => <span data-testid="footer-brand">Acme</span>,
+    });
+    fireEvent.click(bell());
+    expect(document.querySelector('.chimely-header-title')?.textContent).toBe('Notifications');
+    expect(screen.getByTestId('footer-brand').closest('.chimely-footer')).not.toBeNull();
+  });
+
+  test('inboxTitle overrides the header title and the dialog label', async () => {
+    const stub = createStubServer();
+    await renderInbox(stub, { localization: { inboxTitle: 'Meldungen' } });
+    fireEvent.click(bell());
+    expect(screen.getByRole('dialog', { name: 'Meldungen' })).toBeDefined();
+    expect(document.querySelector('.chimely-header-title')?.textContent).toBe('Meldungen');
+  });
+});
+
+describe('localized labels', () => {
+  test('bellLabel and backLabel drive the aria labels', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.alerts' });
+    await renderInbox(stub, {
+      localization: { bellLabel: 'Meine Glocke', backLabel: 'Zurueck' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Meine Glocke' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Notification preferences' }));
+    expect(screen.getByRole('button', { name: 'Zurueck' })).toBeDefined();
+  });
+
+  test('categoryLabels rename preference rows, unknown keys fall back', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.alerts' });
+    stub.addNotification({ category: 'security.alerts' });
+    await renderInbox(stub, {
+      localization: { categoryLabels: { 'billing.alerts': 'Billing' } },
+    });
+    fireEvent.click(bell());
+    fireEvent.click(screen.getByRole('button', { name: 'Notification preferences' }));
+    expect(screen.getByText('Billing')).toBeDefined();
+    expect(screen.queryByText('billing.alerts')).toBeNull();
+    expect(screen.getByText('security.alerts')).toBeDefined();
+  });
+});
+
+describe('timestamps', () => {
+  test('recent items read as relative time with absolute dateTime and title', async () => {
+    const stub = createStubServer();
+    stub.addNotification({
+      payload: { title: 'fresh' },
+      occurred_at: new Date(Date.now() - 30_000).toISOString(),
+    });
+    const { client } = await renderInbox(stub);
+    fireEvent.click(bell());
+
+    const time = document.querySelector('.chimely-item-time') as HTMLTimeElement;
+    const occurredAt = client.getSnapshot().items[0]?.occurredAt as string;
+    expect(time.textContent).toBe('now');
+    expect(time.getAttribute('datetime')).toBe(occurredAt);
+    expect(time.getAttribute('title')).toBe(new Date(occurredAt).toLocaleString());
+  });
+
+  test('old items fall back to the locale date', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ payload: { title: 'ancient' } });
+    const { client } = await renderInbox(stub);
+    fireEvent.click(bell());
+
+    const occurredAt = client.getSnapshot().items[0]?.occurredAt as string;
+    expect(document.querySelector('.chimely-item-time')?.textContent).toBe(
+      new Date(occurredAt).toLocaleDateString(),
+    );
+  });
+
+  test('formatTimestamp override wins', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    await renderInbox(stub, {
+      localization: { formatTimestamp: (iso) => `ts:${iso}` },
+    });
+    fireEvent.click(bell());
+    expect(document.querySelector('.chimely-item-time')?.textContent).toMatch(/^ts:/);
+  });
+});
+
 describe('header actions', () => {
   test('mark all read uses the localized label and hits read-all', async () => {
     const stub = createStubServer();
