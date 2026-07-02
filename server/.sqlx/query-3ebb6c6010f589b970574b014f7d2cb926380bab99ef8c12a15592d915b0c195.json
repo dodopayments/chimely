@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT merged.source AS \"source!\", merged.id AS \"id!\",\n                  merged.category AS \"category!\", merged.payload AS \"payload!\",\n                  merged.occurred_at AS \"occurred_at!\", merged.read AS \"read!\",\n                  merged.archived AS \"archived!\"\n           FROM (\n             (SELECT 'notification' AS source, n.id, n.category, n.payload,\n                     n.visible_at AS occurred_at,\n                     (n.read_at IS NOT NULL\n                        OR (n.unread_at IS NULL AND n.visible_at <= c.read_watermark)) AS read,\n                     (n.archived_at IS NOT NULL\n                        OR (n.unarchived_at IS NULL\n                            AND n.visible_at <= c.archive_watermark)) AS archived\n                FROM notifications n\n                JOIN subscriber_counters c\n                  ON c.environment_id = n.environment_id\n                 AND c.subscriber_id  = n.subscriber_id\n               WHERE n.environment_id = $1 AND n.subscriber_id = $2\n                 AND n.visible_at <= now()\n                 AND (n.visible_at, n.id) < ($3, $4)\n                 AND ($7 <> 'unread' OR (n.read_at IS NULL\n                        AND (n.unread_at IS NOT NULL OR n.visible_at > c.read_watermark)))\n                 AND CASE WHEN $7 = 'archived'\n                          THEN (n.archived_at IS NOT NULL\n                                OR (n.unarchived_at IS NULL\n                                    AND n.visible_at <= c.archive_watermark))\n                          ELSE NOT (n.archived_at IS NOT NULL\n                                OR (n.unarchived_at IS NULL\n                                    AND n.visible_at <= c.archive_watermark))\n                     END\n                 AND NOT EXISTS (SELECT 1 FROM preferences p\n                       WHERE p.environment_id = n.environment_id\n                         AND p.subscriber_id  = n.subscriber_id\n                         AND p.category = n.category AND p.channel = 'in_app'\n                         AND p.enabled = false)\n               ORDER BY n.visible_at DESC, n.id DESC LIMIT $5)\n             UNION ALL\n             (SELECT 'broadcast', b.id, b.category, b.payload, b.created_at,\n                     COALESCE(br.read, b.created_at <= c.read_watermark),\n                     COALESCE(ba.archived, b.created_at <= c.archive_watermark)\n                FROM broadcasts b\n                JOIN subscriber_counters c\n                  ON c.environment_id = b.environment_id AND c.subscriber_id = $2\n                LEFT JOIN broadcast_reads br\n                  ON br.environment_id = b.environment_id\n                 AND br.subscriber_id  = $2\n                 AND br.broadcast_id   = b.id\n                LEFT JOIN broadcast_archives ba\n                  ON ba.environment_id = b.environment_id\n                 AND ba.subscriber_id  = $2\n                 AND ba.broadcast_id   = b.id\n               WHERE b.environment_id = $1\n                 AND b.created_at >= $6\n                 AND (b.created_at, b.id) < ($3, $4)\n                 AND ($7 <> 'unread'\n                        OR NOT COALESCE(br.read, b.created_at <= c.read_watermark))\n                 AND CASE WHEN $7 = 'archived'\n                          THEN COALESCE(ba.archived, b.created_at <= c.archive_watermark)\n                          ELSE NOT COALESCE(ba.archived, b.created_at <= c.archive_watermark)\n                     END\n                 AND NOT EXISTS (SELECT 1 FROM preferences p\n                       WHERE p.environment_id = b.environment_id\n                         AND p.subscriber_id  = $2\n                         AND p.category = b.category AND p.channel = 'in_app'\n                         AND p.enabled = false)\n               ORDER BY b.created_at DESC, b.id DESC LIMIT $5)\n           ) merged\n           ORDER BY occurred_at DESC, id DESC\n           LIMIT $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "source!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "category!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "payload!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "occurred_at!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "read!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "archived!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Uuid",
+        "Int8",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "3ebb6c6010f589b970574b014f7d2cb926380bab99ef8c12a15592d915b0c195"
+}

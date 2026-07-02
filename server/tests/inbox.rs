@@ -848,3 +848,150 @@ async fn unread_filter_rejects_unknown_values_and_moves_the_etag() {
     let after_unread = etag(&app, SUB).await;
     assert_ne!(after_read, after_unread);
 }
+
+#[tokio::test]
+async fn archive_round_trips_across_the_watermark_without_touching_read_state() {
+    let app = support::spawn().await;
+    app.create_notification(SUB, "a").await;
+    app.create_notification(SUB, "b").await;
+    let items = app.list_all_items(SUB, 10).await;
+    let target = items[0]["id"].as_str().unwrap().to_owned();
+
+    // Archiving an unread item removes it from the default view AND the
+    // count, read state untouched.
+    let res = app
+        .post_inbox(SUB, &format!("/v1/inbox/notifications/{target}/archive"))
+        .await;
+    assert_eq!(res.status(), 204);
+    let (unread, _) = app.counts(SUB).await;
+    assert_eq!(unread, 1);
+    let default_view = app.list_all_items(SUB, 10).await;
+    assert_eq!(default_view.len(), 1);
+    let archived_view = list_filtered(&app, SUB, "archived").await;
+    assert_eq!(archived_view.len(), 1);
+    assert_eq!(archived_view[0]["id"].as_str().unwrap(), target);
+    assert!(!archived_view[0]["read"].as_bool().unwrap(), "still unread");
+
+    // Unarchive restores it, still unread, counted again. Idempotent.
+    let res = app
+        .post_inbox(SUB, &format!("/v1/inbox/notifications/{target}/unarchive"))
+        .await;
+    assert_eq!(res.status(), 204);
+    let res = app
+        .post_inbox(SUB, &format!("/v1/inbox/notifications/{target}/unarchive"))
+        .await;
+    assert_eq!(res.status(), 204);
+    let (unread, _) = app.counts(SUB).await;
+    assert_eq!(unread, 2);
+    assert_eq!(app.list_all_items(SUB, 10).await.len(), 2);
+
+    // Archive-all: default view empties, counter zeroes, archived view has
+    // everything. Read state still untouched.
+    let res = app.post_inbox(SUB, "/v1/inbox/archive-all").await;
+    assert_eq!(res.status(), 200);
+    let (unread, _) = app.counts(SUB).await;
+    assert_eq!(unread, 0);
+    assert!(app.list_all_items(SUB, 10).await.is_empty());
+    let archived_view = list_filtered(&app, SUB, "archived").await;
+    assert_eq!(archived_view.len(), 2);
+    assert!(archived_view.iter().all(|i| !i["read"].as_bool().unwrap()));
+
+    // Unarchive below the archive watermark: the override survives it and
+    // the unread item re-enters the count.
+    let res = app
+        .post_inbox(SUB, &format!("/v1/inbox/notifications/{target}/unarchive"))
+        .await;
+    assert_eq!(res.status(), 204);
+    let (unread, _) = app.counts(SUB).await;
+    assert_eq!(unread, 1);
+    let default_view = app.list_all_items(SUB, 10).await;
+    assert_eq!(default_view.len(), 1);
+    assert_eq!(default_view[0]["id"].as_str().unwrap(), target);
+}
+
+#[tokio::test]
+async fn broadcast_archive_overrides_round_trip_and_read_state_is_independent() {
+    let app = support::spawn().await;
+    let res = app
+        .client
+        .put(format!("{}/v1/subscribers/{SUB}", app.base))
+        .bearer_auth(&app.env.api_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let created = app.create_broadcast("announce").await;
+    let id = created["id"].as_str().unwrap().to_owned();
+
+    // Archive above the watermark: override row, out of the default view
+    // and the count.
+    let res = app
+        .post_inbox(SUB, &format!("/v1/inbox/broadcasts/{id}/archive"))
+        .await;
+    assert_eq!(res.status(), 204);
+    let (unread, _) = app.counts(SUB).await;
+    assert_eq!(unread, 0);
+    assert!(app.list_all_items(SUB, 10).await.is_empty());
+
+    // Read-all while archived, then unarchive: comes back read (read state
+    // never changed with archive state).
+    let res = app.post_inbox(SUB, "/v1/inbox/read-all").await;
+    assert_eq!(res.status(), 200);
+    let res = app
+        .post_inbox(SUB, &format!("/v1/inbox/broadcasts/{id}/unarchive"))
+        .await;
+    assert_eq!(res.status(), 204);
+    let items = app.list_all_items(SUB, 10).await;
+    assert_eq!(items.len(), 1);
+    assert!(items[0]["read"].as_bool().unwrap(), "unarchived as read");
+    assert!(!items[0]["archived"].as_bool().unwrap());
+    let (unread, _) = app.counts(SUB).await;
+    assert_eq!(unread, 0);
+}
+
+#[tokio::test]
+async fn archive_read_job_archives_read_items_across_chunk_boundaries() {
+    let app = support::spawn().await;
+    // 505 direct notifications cross the 500-per-chunk keyset boundary.
+    let payload: Vec<serde_json::Value> = (0..505)
+        .map(|_| json!({ "subscriber_id": SUB, "category": "bulk" }))
+        .collect();
+    for chunk in payload.chunks(100) {
+        for body in chunk {
+            let res = app
+                .mgmt_post("/v1/notifications", body.clone())
+                .send()
+                .await
+                .expect("create");
+            assert_eq!(res.status(), 201);
+        }
+    }
+    let created = app.create_broadcast("announce").await;
+    let bcast = created["id"].as_str().unwrap().to_owned();
+
+    // Everything read except two fresh arrivals after the read-all.
+    let res = app.post_inbox(SUB, "/v1/inbox/read-all").await;
+    assert_eq!(res.status(), 200);
+    app.create_notification(SUB, "fresh").await;
+    app.create_notification(SUB, "fresh").await;
+    let (unread, _) = app.counts(SUB).await;
+    assert_eq!(unread, 2);
+
+    let res = app.post_inbox(SUB, "/v1/inbox/archive-read").await;
+    assert_eq!(res.status(), 202);
+    app.drain_jobs().await;
+
+    // Read items (505 direct + the broadcast) archived; the two unread
+    // arrivals stay, counted exactly as before.
+    let default_view = app.list_all_items(SUB, 100).await;
+    assert_eq!(default_view.len(), 2, "only the unread arrivals remain");
+    assert!(default_view.iter().all(|i| !i["read"].as_bool().unwrap()));
+    let (unread, _) = app.counts(SUB).await;
+    assert_eq!(unread, 2, "the job never touched the counter");
+    let archived_view = list_filtered(&app, SUB, "archived").await;
+    assert_eq!(archived_view.len(), 506);
+    assert!(
+        archived_view.iter().any(|i| i["id"] == bcast.as_str()),
+        "the read broadcast was archived too"
+    );
+}

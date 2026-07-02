@@ -282,12 +282,19 @@ contract_schema!(
                 "Computed — per-item exception OR at-or-below the read watermark.",
             )),
         )
+        .property(
+            "archived",
+            ObjectBuilder::new().schema_type(Type::Boolean).description(Some(
+                "Computed — per-item override OR at-or-below the archive watermark.",
+            )),
+        )
         .required("id")
         .required("source")
         .required("category")
         .required("payload")
         .required("occurred_at")
         .required("read")
+        .required("archived")
         .into()
 );
 

@@ -12,3 +12,5 @@ cc 06935d00e7ef4504bd6877106a44ef099ab5eed6a4e6f31cfff56d31ea5e6b09 # shrinks to
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 0b98304fe68d6e8f35c63f5752adf5cce19924297fcb61d1567afff4a55d354e # shrinks to ops = [MarkDirectRead { pick: 841 }]
+cc dfc1366c7d499df71b364d8d1c7c074088d004134df180d5f274e5ea3548732b # shrinks to ops = [CreateBroadcast { category: 0 }, ArchiveAll]
+cc 65ac58bb4d775c572f8adcca2e83c90ac2c298240f7218b6ba9f07ea64c18167 # shrinks to ops = [CreateDirect { category: 0 }, ArchiveDirect { pick: 5569 }]

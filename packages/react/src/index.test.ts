@@ -1,11 +1,8 @@
 import { expect, test } from 'vitest';
 import {
-  Bell,
   ChimelyProvider,
   DEFAULT_LOCALIZATION,
   Inbox,
-  InboxContent,
-  Preferences,
   useChimelyClient,
   useInbox,
   useNotifications,
@@ -23,9 +20,5 @@ test('public surface exports', () => {
   expect(typeof usePreferences).toBe('function');
   expect(typeof useInbox).toBe('function');
   expect(typeof Inbox).toBe('function');
-  expect(typeof InboxContent).toBe('function');
-  expect(typeof Preferences).toBe('function');
-  // forwardRef components are objects with a render function.
-  expect(Bell).toBeDefined();
   expect(DEFAULT_LOCALIZATION.markAllRead.length).toBeGreaterThan(0);
 });

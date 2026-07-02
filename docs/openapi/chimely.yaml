@@ -1331,6 +1331,98 @@ paths:
           $ref: '#/components/responses/RateLimited'
       security:
       - ApiKeyBearer: []
+  /v1/inbox/archive-all:
+    post:
+      tags:
+      - subscriber
+      summary: Archive all
+      description: Archive every item, direct and broadcast, for this subscriber. Read state is untouched.
+      operationId: archiveAll
+      responses:
+        '200':
+          description: Watermark moved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboxCounts'
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid subscriber hash
+      security:
+      - SubscriberEnv: []
+        SubscriberHash: []
+        SubscriberId: []
+  /v1/inbox/archive-read:
+    post:
+      tags:
+      - subscriber
+      summary: Archive read items
+      description: Archive every currently read item, direct and broadcast. Runs asynchronously as a resumable job; completion is signaled by an SSE hint and ETag movement.
+      operationId: archiveRead
+      responses:
+        '202':
+          description: Accepted. The job runs asynchronously.
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid subscriber hash
+      security:
+      - SubscriberEnv: []
+        SubscriberHash: []
+        SubscriberId: []
+  /v1/inbox/broadcasts/{id}/archive:
+    post:
+      tags:
+      - subscriber
+      summary: Archive broadcast
+      description: Archive one broadcast for this subscriber. Idempotent.
+      operationId: archiveBroadcast
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/BroadcastId'
+      responses:
+        '204':
+          description: Archived (now or already).
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid subscriber hash
+        '404':
+          description: Resource not found in this environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such broadcast
+      security:
+      - SubscriberEnv: []
+        SubscriberHash: []
+        SubscriberId: []
   /v1/inbox/broadcasts/{id}/read:
     post:
       tags:
@@ -1347,6 +1439,46 @@ paths:
       responses:
         '204':
           description: Read (now or already).
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid subscriber hash
+        '404':
+          description: Resource not found in this environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such broadcast
+      security:
+      - SubscriberEnv: []
+        SubscriberHash: []
+        SubscriberId: []
+  /v1/inbox/broadcasts/{id}/unarchive:
+    post:
+      tags:
+      - subscriber
+      summary: Unarchive broadcast
+      description: Return one broadcast to this subscriber's inbox. The override survives the archive watermark. Idempotent.
+      operationId: unarchiveBroadcast
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/BroadcastId'
+      responses:
+        '204':
+          description: Unarchived (now or already).
         '401':
           description: Missing/invalid API key or subscriber hash.
           content:
@@ -1469,6 +1601,7 @@ paths:
           type: string
           enum:
           - unread
+          - archived
       - name: If-None-Match
         in: header
         required: false
@@ -1518,6 +1651,46 @@ paths:
       - SubscriberEnv: []
         SubscriberHash: []
         SubscriberId: []
+  /v1/inbox/notifications/{id}/archive:
+    post:
+      tags:
+      - subscriber
+      summary: Archive notification
+      description: Archive one direct notification. Archiving never changes read state. Idempotent.
+      operationId: archiveNotification
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/NotificationId'
+      responses:
+        '204':
+          description: Archived (now or already).
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid subscriber hash
+        '404':
+          description: Resource not found in this environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such notification
+      security:
+      - SubscriberEnv: []
+        SubscriberHash: []
+        SubscriberId: []
   /v1/inbox/notifications/{id}/read:
     post:
       tags:
@@ -1534,6 +1707,46 @@ paths:
       responses:
         '204':
           description: Read (now or already).
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid subscriber hash
+        '404':
+          description: Resource not found in this environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such notification
+      security:
+      - SubscriberEnv: []
+        SubscriberHash: []
+        SubscriberId: []
+  /v1/inbox/notifications/{id}/unarchive:
+    post:
+      tags:
+      - subscriber
+      summary: Unarchive notification
+      description: Return one direct notification to the inbox. Read state is untouched. Idempotent.
+      operationId: unarchiveNotification
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/NotificationId'
+      responses:
+        '204':
+          description: Unarchived (now or already).
         '401':
           description: Missing/invalid API key or subscriber hash.
           content:
@@ -2567,7 +2780,11 @@ components:
       - payload
       - occurred_at
       - read
+      - archived
       properties:
+        archived:
+          type: boolean
+          description: Computed — per-item override OR at-or-below the archive watermark.
         category:
           type: string
         id:

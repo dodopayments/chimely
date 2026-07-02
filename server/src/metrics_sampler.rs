@@ -142,7 +142,7 @@ pub async fn counter_drift(pool: &PgPool, sample_size: i64) -> anyhow::Result<(i
         r#"WITH sampled AS (
                SELECT c.environment_id, c.subscriber_id,
                       c.unread_direct_count, c.unseen_direct_count,
-                      c.read_watermark, c.seen_watermark
+                      c.read_watermark, c.seen_watermark, c.archive_watermark
                  FROM subscriber_counters c
                 WHERE NOT EXISTS (SELECT 1 FROM preferences p
                       WHERE p.environment_id = c.environment_id
@@ -164,6 +164,9 @@ pub async fn counter_drift(pool: &PgPool, sample_size: i64) -> anyhow::Result<(i
                         AND n.visible_at <= now()
                         AND n.read_at IS NULL
                         AND (n.unread_at IS NOT NULL OR n.visible_at > s.read_watermark)
+                        AND n.archived_at IS NULL
+                        AND (n.unarchived_at IS NOT NULL
+                             OR n.visible_at > s.archive_watermark)
                         AND NOT EXISTS (SELECT 1 FROM jobs j
                               CROSS JOIN LATERAL jsonb_array_elements_text(
                                   CASE WHEN jsonb_typeof(j.payload->'notification_ids') = 'array'

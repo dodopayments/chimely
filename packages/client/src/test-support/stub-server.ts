@@ -300,18 +300,15 @@ export class StubServer {
     if (method === 'GET' && path === '/v1/inbox/counts') {
       return json(200, this.counts());
     }
-    const readMatch = path.match(
-      /^\/v1\/inbox\/(notifications|broadcasts)\/([^/]+)\/(read|unread)$/,
-    );
+    const readMatch = path.match(/^\/v1\/inbox\/(notifications|broadcasts)\/([^/]+)\/read$/);
     if (method === 'POST' && readMatch) {
       const source = readMatch[1] === 'notifications' ? 'notification' : 'broadcast';
       const item = this.items.find((row) => row.id === readMatch[2] && row.source === source);
       if (!item) {
         return json(404, errorBody('not_found', 'no such item in this environment'));
       }
-      const wantRead = readMatch[3] === 'read';
-      if (item.read !== wantRead) {
-        item.read = wantRead;
+      if (!item.read) {
+        item.read = true;
         this.version += 1;
       }
       return new Response(null, { status: 204 });
@@ -344,26 +341,24 @@ export class StubServer {
   private listItems(url: URL, headers: Record<string, string>): Response {
     const cursor = url.searchParams.get('cursor');
     const limit = Number(url.searchParams.get('limit') ?? '20');
-    const filter = url.searchParams.get('filter');
-    const visible = filter === 'unread' ? this.items.filter((item) => !item.read) : this.items;
-    const etag = `"v${this.version}:${filter ?? ''}:${cursor ?? ''}"`;
+    const etag = `"v${this.version}:${cursor ?? ''}"`;
     if (headers['if-none-match'] === etag) {
       return new Response(null, { status: 304 });
     }
     let start = 0;
     if (cursor !== null) {
       const [occurredAt, id] = decodeCursor(cursor);
-      start = visible.findIndex(
+      start = this.items.findIndex(
         (item) =>
           item.occurred_at < occurredAt || (item.occurred_at === occurredAt && item.id < id),
       );
       if (start === -1) {
-        start = visible.length;
+        start = this.items.length;
       }
     }
-    const pageItems = visible.slice(start, start + limit);
+    const pageItems = this.items.slice(start, start + limit);
     const last = pageItems[pageItems.length - 1];
-    const hasMore = start + limit < visible.length;
+    const hasMore = start + limit < this.items.length;
     const page: WirePage = {
       items: pageItems,
       next_cursor: hasMore && last ? encodeCursor(last) : null,

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT archive_watermark FROM subscriber_counters\n            WHERE environment_id = $1 AND subscriber_id = $2 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "archive_watermark",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "subscriber_counters",
+            "name": "archive_watermark"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2fd7fd7e490e5478cb871dff9c8da9f191eef409c6ee3dad2fc7713008cfdd1a"
+}

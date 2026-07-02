@@ -22,7 +22,9 @@ use tracing::Instrument as _;
 use uuid::Uuid;
 
 use crate::config::Config;
-use crate::jobs::{TYPE_COUNTER_REBUILD, TYPE_DELIVER, TYPE_HINT, TYPE_TIMELINE};
+use crate::jobs::{
+    TYPE_ARCHIVE_READ, TYPE_COUNTER_REBUILD, TYPE_DELIVER, TYPE_HINT, TYPE_TIMELINE,
+};
 use crate::pubsub::{Hint, PubSub};
 use crate::{ids, jobs, telemetry, timeline};
 
@@ -182,6 +184,16 @@ pub async fn process_one(
                 .await
             }
             TYPE_COUNTER_REBUILD => process_counter_rebuild(&mut tx, env, &job.payload).await,
+            TYPE_ARCHIVE_READ => {
+                process_archive_read(
+                    &mut tx,
+                    env,
+                    job.id,
+                    &job.payload,
+                    job.progress_cursor.as_ref(),
+                )
+                .await
+            }
             TYPE_TIMELINE => {
                 process_timeline(
                     &mut tx,
@@ -516,6 +528,9 @@ async fn process_deliver(
                           AND n.id = ANY($2)
                           AND n.read_at IS NULL
                           AND (n.unread_at IS NOT NULL OR n.visible_at > c.read_watermark)
+                          AND n.archived_at IS NULL
+                          AND (n.unarchived_at IS NOT NULL
+                               OR n.visible_at > c.archive_watermark)
                           AND NOT EXISTS (SELECT 1 FROM preferences p
                                 WHERE p.environment_id = n.environment_id
                                   AND p.subscriber_id  = n.subscriber_id
@@ -632,6 +647,202 @@ async fn process_timeline(
 }
 
 // =============================================================================
+// archive_read: chunked archive of every read item
+// =============================================================================
+
+/// Archives the read, unarchived items that existed at `as_of`, one keyset
+/// chunk per claim (direct phase, then broadcasts). Chunks are idempotent
+/// (archiving archived rows is a no-op) and commit atomically with the
+/// cursor advance, so a crashed chunk replays safely. No counter changes:
+/// read items are never counted.
+async fn process_archive_read(
+    tx: &mut sqlx::PgConnection,
+    env: Uuid,
+    job_id: Uuid,
+    payload: &Value,
+    cursor: Option<&Value>,
+) -> anyhow::Result<Outcome> {
+    const CHUNK: i64 = 500;
+    let subscriber: Uuid = serde_json::from_value(payload["subscriber_id"].clone())?;
+    let as_of: DateTime<Utc> = serde_json::from_value(payload["as_of"].clone())?;
+
+    // The counters lock serializes each chunk against watermark moves and
+    // per-item flips, which all mutate under the same lock.
+    let counters = sqlx::query!(
+        r#"SELECT 1 AS one FROM subscriber_counters
+            WHERE environment_id = $1 AND subscriber_id = $2 FOR UPDATE"#,
+        env,
+        subscriber,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    if counters.is_none() {
+        return Ok(Outcome::Done);
+    }
+
+    let phase = cursor
+        .and_then(|c| c["phase"].as_str())
+        .unwrap_or("direct")
+        .to_owned();
+    let after_ts: DateTime<Utc> = cursor
+        .and_then(|c| serde_json::from_value(c["after_ts"].clone()).ok())
+        .unwrap_or(DateTime::<Utc>::UNIX_EPOCH);
+    let after_id: Uuid = cursor
+        .and_then(|c| serde_json::from_value(c["after_id"].clone()).ok())
+        .unwrap_or(Uuid::nil());
+
+    let advance = |phase: &str, ts: DateTime<Utc>, id: Uuid| json!({ "phase": phase, "after_ts": ts, "after_id": id });
+
+    if phase == "direct" {
+        let rows = sqlx::query!(
+            r#"SELECT visible_at, id FROM notifications
+                WHERE environment_id = $1 AND subscriber_id = $2
+                  AND (visible_at, id) > ($3, $4)
+                  AND visible_at <= $5
+                ORDER BY visible_at, id
+                LIMIT $6"#,
+            env,
+            subscriber,
+            after_ts,
+            after_id,
+            as_of,
+            CHUNK,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        let next = if let Some(last) = rows.last() {
+            sqlx::query!(
+                r#"UPDATE notifications n
+                      SET archived_at = now(), unarchived_at = NULL
+                     FROM subscriber_counters c
+                    WHERE c.environment_id = n.environment_id
+                      AND c.subscriber_id  = n.subscriber_id
+                      AND n.environment_id = $1 AND n.subscriber_id = $2
+                      AND (n.visible_at, n.id) > ($3, $4)
+                      AND (n.visible_at, n.id) <= ($5, $6)
+                      AND (n.read_at IS NOT NULL
+                           OR (n.unread_at IS NULL AND n.visible_at <= c.read_watermark))
+                      AND NOT (n.archived_at IS NOT NULL
+                           OR (n.unarchived_at IS NULL
+                               AND n.visible_at <= c.archive_watermark))"#,
+                env,
+                subscriber,
+                after_ts,
+                after_id,
+                last.visible_at,
+                last.id,
+            )
+            .execute(&mut *tx)
+            .await?;
+            if rows.len() as i64 == CHUNK {
+                advance("direct", last.visible_at, last.id)
+            } else {
+                advance("broadcast", DateTime::<Utc>::UNIX_EPOCH, Uuid::nil())
+            }
+        } else {
+            advance("broadcast", DateTime::<Utc>::UNIX_EPOCH, Uuid::nil())
+        };
+        sqlx::query!(
+            r#"UPDATE jobs SET progress_cursor = $3 WHERE environment_id = $1 AND id = $2"#,
+            env,
+            job_id,
+            next,
+        )
+        .execute(&mut *tx)
+        .await?;
+        return Ok(Outcome::Continue);
+    }
+
+    // Broadcast phase. Visibility follows subscribers.created_at.
+    let subscriber_created_at = sqlx::query_scalar!(
+        r#"SELECT created_at FROM subscribers WHERE environment_id = $1 AND id = $2"#,
+        env,
+        subscriber,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(subscriber_created_at) = subscriber_created_at else {
+        return Ok(Outcome::Done);
+    };
+    let rows = sqlx::query!(
+        r#"SELECT b.created_at, b.id FROM broadcasts b
+            WHERE b.environment_id = $1
+              AND b.created_at >= $2
+              AND b.created_at <= $3
+              AND (b.created_at, b.id) > ($4, $5)
+            ORDER BY b.created_at, b.id
+            LIMIT $6"#,
+        env,
+        subscriber_created_at,
+        as_of,
+        after_ts,
+        after_id,
+        CHUNK,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    if let Some(last) = rows.last() {
+        // Read and not archived within the scanned range gains an explicit
+        // archived override. This materializes per-subscriber rows, bounded
+        // by the broadcast count (small by construction) and by as_of.
+        sqlx::query!(
+            r#"INSERT INTO broadcast_archives
+                   (environment_id, subscriber_id, broadcast_id, broadcast_created_at, archived)
+               SELECT b.environment_id, $2, b.id, b.created_at, true
+                 FROM broadcasts b
+                 JOIN subscriber_counters c
+                   ON c.environment_id = b.environment_id AND c.subscriber_id = $2
+                 LEFT JOIN broadcast_reads br
+                   ON br.environment_id = b.environment_id
+                  AND br.subscriber_id  = $2
+                  AND br.broadcast_id   = b.id
+                 LEFT JOIN broadcast_archives ba
+                   ON ba.environment_id = b.environment_id
+                  AND ba.subscriber_id  = $2
+                  AND ba.broadcast_id   = b.id
+                WHERE b.environment_id = $1
+                  AND (b.created_at, b.id) > ($3, $4)
+                  AND (b.created_at, b.id) <= ($5, $6)
+                  AND COALESCE(br.read, b.created_at <= c.read_watermark)
+                  AND NOT COALESCE(ba.archived, b.created_at <= c.archive_watermark)
+               ON CONFLICT (environment_id, subscriber_id, broadcast_id)
+               DO UPDATE SET archived = true, updated_at = now()
+               WHERE broadcast_archives.archived = false"#,
+            env,
+            subscriber,
+            after_ts,
+            after_id,
+            last.created_at,
+            last.id,
+        )
+        .execute(&mut *tx)
+        .await?;
+        if rows.len() as i64 == CHUNK {
+            sqlx::query!(
+                r#"UPDATE jobs SET progress_cursor = $3 WHERE environment_id = $1 AND id = $2"#,
+                env,
+                job_id,
+                advance("broadcast", last.created_at, last.id),
+            )
+            .execute(&mut *tx)
+            .await?;
+            return Ok(Outcome::Continue);
+        }
+    }
+    // Exhausted: one ETag bump and one hint signal completion.
+    sqlx::query!(
+        r#"UPDATE subscriber_counters SET updated_at = now()
+            WHERE environment_id = $1 AND subscriber_id = $2"#,
+        env,
+        subscriber,
+    )
+    .execute(&mut *tx)
+    .await?;
+    jobs::enqueue_hint(tx, env, &[subscriber], "archive_state", &[]).await?;
+    Ok(Outcome::Done)
+}
+
+// =============================================================================
 // counter_rebuild: exact recount of one subscriber
 // =============================================================================
 
@@ -665,6 +876,9 @@ async fn process_counter_rebuild(
                       AND n.visible_at <= now()
                       AND n.read_at IS NULL
                       AND (n.unread_at IS NOT NULL OR n.visible_at > c.read_watermark)
+                      AND n.archived_at IS NULL
+                      AND (n.unarchived_at IS NOT NULL
+                           OR n.visible_at > c.archive_watermark)
                       AND NOT EXISTS (SELECT 1 FROM preferences p
                             WHERE p.environment_id = $1 AND p.subscriber_id = $2
                               AND p.category = n.category AND p.channel = 'in_app'

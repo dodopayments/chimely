@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE subscriber_counters SET\n               archive_watermark = clock_timestamp(),\n               unread_direct_count = 0,\n               updated_at = clock_timestamp()\n         WHERE environment_id = $1 AND subscriber_id = $2\n         RETURNING archive_watermark",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "archive_watermark",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "subscriber_counters",
+            "name": "archive_watermark"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "90010dd281cdb1b73162b9e1fd1046a65a6cace679cc38e3813df8e6b814123c"
+}

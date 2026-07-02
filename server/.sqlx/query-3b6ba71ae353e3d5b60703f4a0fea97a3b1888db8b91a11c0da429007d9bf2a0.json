@@ -1,0 +1,45 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT visible_at, id FROM notifications\n                WHERE environment_id = $1 AND subscriber_id = $2\n                  AND (visible_at, id) > ($3, $4)\n                  AND visible_at <= $5\n                ORDER BY visible_at, id\n                LIMIT $6",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "visible_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "visible_at"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Uuid",
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "3b6ba71ae353e3d5b60703f4a0fea97a3b1888db8b91a11c0da429007d9bf2a0"
+}

@@ -18,38 +18,14 @@ export const navigation = {
  * navigate. Relative URLs resolve against the embedding page and stay
  * same-origin, so they pass.
  */
-function parseSafeActionUrl(url: string): URL | null {
+export function isSafeActionUrl(url: string): boolean {
   if (typeof window === 'undefined') {
-    return null;
+    return false;
   }
   try {
     const target = new URL(url, window.location.href);
-    return target.protocol === 'https:' || target.protocol === 'http:' ? target : null;
+    return target.protocol === 'https:' || target.protocol === 'http:';
   } catch {
-    return null;
+    return false;
   }
-}
-
-export function isSafeActionUrl(url: string): boolean {
-  return parseSafeActionUrl(url) !== null;
-}
-
-export type ResolvedActionUrl =
-  | { kind: 'same-origin'; path: string }
-  | { kind: 'external'; href: string };
-
-/**
- * Classifies a safe action_url for navigation. Same-origin targets are
- * normalized to the path form SPA routers expect. Unsafe targets (per
- * isSafeActionUrl) return null and must not navigate.
- */
-export function resolveActionUrl(url: string): ResolvedActionUrl | null {
-  const target = parseSafeActionUrl(url);
-  if (target === null) {
-    return null;
-  }
-  if (target.origin === window.location.origin) {
-    return { kind: 'same-origin', path: `${target.pathname}${target.search}${target.hash}` };
-  }
-  return { kind: 'external', href: url };
 }
