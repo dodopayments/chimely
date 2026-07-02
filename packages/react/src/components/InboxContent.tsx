@@ -1,6 +1,6 @@
 import type { InboxItem, WellKnownPayload } from '@chimely/client';
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import type { InboxAppearance, InboxSlot } from '../appearance';
 import { slotClass, variablesToStyle } from '../appearance';
 import { useNotifications } from '../hooks';
@@ -14,8 +14,8 @@ import { NotificationList } from './NotificationList';
 import { Preferences } from './Preferences';
 
 /**
- * One tab of the inbox list. The filter runs client-side over loaded items;
- * omitting it shows everything. Unread counts per tab cover loaded pages
+ * One tab of the inbox list. The filter runs client-side over loaded items.
+ * Omitting it shows everything. Unread counts per tab cover loaded pages
  * only.
  */
 export interface InboxTab<TPayload = WellKnownPayload> {
@@ -56,7 +56,7 @@ export interface InboxContentProps<TPayload = WellKnownPayload> extends ItemRend
 export function InboxContent<TPayload = WellKnownPayload>(
   props: InboxContentProps<TPayload>,
 ): ReactNode {
-  const { items, isLoading, hasMore, fetchMore, markRead, markAllRead } =
+  const { items, isLoading, error, hasMore, fetchMore, markRead, markAllRead } =
     useNotifications<TPayload>();
   const [showPreferences, setShowPreferences] = useState(false);
   const [activeTabIndex, setActiveTabIndex] = useState(0);
@@ -66,6 +66,10 @@ export function InboxContent<TPayload = WellKnownPayload>(
   const activeIndex = hasTabs ? Math.min(activeTabIndex, tabs.length - 1) : 0;
   const activeFilter = hasTabs ? tabs[activeIndex]?.filter : undefined;
   const visibleItems = activeFilter ? items.filter(activeFilter) : items;
+
+  const idBase = useId();
+  const panelId = `${idBase}-panel`;
+  const tabId = (index: number): string => `${idBase}-tab-${index}`;
 
   const strings = mergeLocalization(props.localization);
   const classNames = props.appearance?.classNames;
@@ -152,7 +156,9 @@ export function InboxContent<TPayload = WellKnownPayload>(
                 key={`${index}-${tab.label}`}
                 type="button"
                 role="tab"
+                id={tabId(index)}
                 aria-selected={index === activeIndex}
+                aria-controls={panelId}
                 className={index === activeIndex ? `${cls('tab')} ${cls('tabActive')}` : cls('tab')}
                 onClick={() => setActiveTabIndex(index)}
               >
@@ -175,6 +181,8 @@ export function InboxContent<TPayload = WellKnownPayload>(
           items={visibleItems}
           hasMore={hasMore}
           fetchMore={fetchMore}
+          error={error}
+          panel={hasTabs ? { id: panelId, labelledBy: tabId(activeIndex) } : undefined}
           markRead={markRead}
           onItem={handleItemClick}
           cls={cls}

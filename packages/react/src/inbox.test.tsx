@@ -622,6 +622,38 @@ describe('infinite scroll', () => {
     });
     expect(client.getSnapshot().hasMore).toBe(false);
   });
+
+  test('a failed page fetch pauses the drain until the client recovers', async () => {
+    vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
+    const stub = createStubServer();
+    for (let i = 0; i < 5; i += 1) {
+      stub.addNotification();
+    }
+    const { client } = await renderInbox(stub, {}, { pageSize: 2 });
+    fireEvent.click(bell());
+    // Let the open-gesture markAllSeen settle so its success cannot clear
+    // the injected error mid-test.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    stub.failNext('GET', '/v1/inbox/items', { status: 500, code: 'internal' });
+    MockIntersectionObserver.intersect();
+    await waitFor(() => {
+      expect(client.getSnapshot().error).not.toBeNull();
+    });
+
+    // The sentinel is still visible but the error gate holds the loop.
+    const requestsAfterFailure = stub.requestsFor('/v1/inbox/items').length;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(stub.requestsFor('/v1/inbox/items')).toHaveLength(requestsAfterFailure);
+    expect(client.getSnapshot().items).toHaveLength(2);
+
+    // A hint-driven refresh succeeds, clears the error, and the drain resumes.
+    stub.emitHint();
+    await waitFor(() => {
+      expect(client.getSnapshot().items).toHaveLength(5);
+    });
+    expect(client.getSnapshot().hasMore).toBe(false);
+  });
 });
 
 describe('tabs', () => {
@@ -646,10 +678,17 @@ describe('tabs', () => {
     expect(tabButtons[0]?.getAttribute('aria-selected')).toBe('true');
     expect(screen.getByText('maintenance')).toBeDefined();
 
+    // Tabs control the list panel and the panel is labelled by the active tab.
+    const panel = screen.getByRole('tabpanel');
+    expect(tabButtons[0]?.getAttribute('aria-controls')).toBe(panel.id);
+    expect(tabButtons[1]?.getAttribute('aria-controls')).toBe(panel.id);
+    expect(panel.getAttribute('aria-labelledby')).toBe(tabButtons[0]?.id);
+
     fireEvent.click(screen.getByRole('tab', { name: /Billing/ }));
     expect(screen.getByText('invoice')).toBeDefined();
     expect(screen.queryByText('maintenance')).toBeNull();
     expect(screen.getByRole('tab', { name: /Billing/ }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(tabButtons[1]?.id);
   });
 
   test('a sparse tab keeps fetching until its item appears', async () => {
