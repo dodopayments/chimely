@@ -67,6 +67,22 @@ export function InboxContent<TPayload = WellKnownPayload>(
   const activeFilter = hasTabs ? tabs[activeIndex]?.filter : undefined;
   const visibleItems = activeFilter ? items.filter(activeFilter) : items;
 
+  // Arrival ids restricted to the active tab so items in other tabs never
+  // bump the pill. Keyed on the merge, not on items, so later renders
+  // cannot re-emit ids the list already dismissed. Items and the filter
+  // are read from the render that carried the merge.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: recompute only per merge
+  const visibleNewItemIds = useMemo(() => {
+    if (!activeFilter || lastRefreshNewItemIds === undefined) {
+      return lastRefreshNewItemIds;
+    }
+    const byId = new Map(items.map((item) => [item.id, item]));
+    return lastRefreshNewItemIds.filter((id) => {
+      const item = byId.get(id);
+      return item !== undefined && activeFilter(item);
+    });
+  }, [lastRefreshNewItemIds]);
+
   const strings = mergeLocalization(props.localization);
   const classNames = props.appearance?.classNames;
   const cls = (slot: InboxSlot): string => slotClass(classNames, slot);
@@ -188,7 +204,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
           cls={cls}
           strings={strings}
           appearance={props.appearance}
-          newItemIds={lastRefreshNewItemIds}
+          newItemIds={visibleNewItemIds}
           deferEmpty={activeFilter !== undefined && hasMore}
           renderItem={props.renderItem}
           renderEmpty={props.renderEmpty}

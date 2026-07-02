@@ -73,6 +73,10 @@ export function NotificationList<TPayload>(props: NotificationListProps<TPayload
 
   // New arrivals prepend silently when the list is at the top. Scrolled
   // down, they accumulate behind the pill instead of yanking the viewport.
+  // The rows still enter the DOM above the viewport on the same render.
+  // Browser scroll anchoring (overflow-anchor, default auto in Chromium
+  // and Firefox) keeps the viewed rows in place inside a scrolled
+  // container, so the insert is not deferred here.
   useEffect(() => {
     if (newItemIds === undefined || newItemIds.length === 0) {
       return;
@@ -86,6 +90,23 @@ export function NotificationList<TPayload>(props: NotificationListProps<TPayload
     }
     setPendingCount(pendingNewIds.current.size);
   }, [newItemIds]);
+
+  // A non-contiguous refresh resets the list wholesale, evicting loaded
+  // items. Pending ids that no longer exist in the list would overstate
+  // the pill count, so they are pruned whenever the items change.
+  useEffect(() => {
+    const pending = pendingNewIds.current;
+    if (pending.size === 0) {
+      return;
+    }
+    const present = new Set(items.map((item) => item.id));
+    for (const id of pending) {
+      if (!present.has(id)) {
+        pending.delete(id);
+      }
+    }
+    setPendingCount(pending.size);
+  }, [items]);
 
   useEffect(() => {
     const list = listRef.current;
