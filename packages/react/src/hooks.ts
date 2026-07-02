@@ -2,6 +2,7 @@ import type {
   ChimelyClient,
   ConnectionStatus,
   InboxCounts,
+  InboxFilterView,
   InboxItem,
   InboxItemId,
   InboxItemSource,
@@ -45,10 +46,22 @@ export interface UseNotificationsResult<TPayload = WellKnownPayload> {
   isLoading: boolean;
   error: ChimelyError | null;
   hasMore: boolean;
+  /** Ids the last refresh merged in that were not already loaded. */
+  lastRefreshNewItemIds: ReadonlyArray<InboxItemId>;
+  /** The active server-side view. */
+  filter: InboxFilterView;
   fetchMore: () => Promise<void>;
   refresh: () => Promise<void>;
   markRead: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
+  markUnread: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
   markAllRead: () => Promise<void>;
+  archive: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
+  unarchive: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
+  archiveAll: () => Promise<void>;
+  /** Archive every currently read item. Asynchronous server-side. */
+  archiveRead: () => Promise<void>;
+  /** Switch the server-side view. Resets pagination and refetches. */
+  setFilter: (filter: InboxFilterView) => Promise<void>;
 }
 
 /** Headless merged-inbox list. */
@@ -67,16 +80,39 @@ export function useNotifications<TPayload = WellKnownPayload>(
     (item: { id: InboxItemId; source: InboxItemSource }) => client.markRead(item),
     [client],
   );
+  const markUnread = useCallback(
+    (item: { id: InboxItemId; source: InboxItemSource }) => client.markUnread(item),
+    [client],
+  );
   const markAllRead = useCallback(() => client.markAllRead(), [client]);
+  const archive = useCallback(
+    (item: { id: InboxItemId; source: InboxItemSource }) => client.archive(item),
+    [client],
+  );
+  const unarchive = useCallback(
+    (item: { id: InboxItemId; source: InboxItemSource }) => client.unarchive(item),
+    [client],
+  );
+  const archiveAll = useCallback(() => client.archiveAll(), [client]);
+  const archiveRead = useCallback(() => client.archiveRead(), [client]);
+  const setFilter = useCallback((filter: InboxFilterView) => client.setFilter(filter), [client]);
   return {
     items: snapshot.items,
     isLoading: snapshot.isLoading,
     error: snapshot.error,
     hasMore: snapshot.hasMore,
+    lastRefreshNewItemIds: snapshot.lastRefreshNewItemIds ?? [],
+    filter: snapshot.filter ?? 'default',
     fetchMore,
     refresh,
     markRead,
+    markUnread,
     markAllRead,
+    archive,
+    unarchive,
+    archiveAll,
+    archiveRead,
+    setFilter,
   };
 }
 

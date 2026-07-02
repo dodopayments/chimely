@@ -6,6 +6,7 @@ import { InboxStore } from './store';
 import type {
   ChimelyClientConfig,
   EventSourceLike,
+  InboxFilterView,
   InboxItem,
   InboxItemId,
   InboxItemSource,
@@ -28,6 +29,7 @@ function toItem<TPayload>(wire: WireInboxItem): InboxItem<TPayload> {
     payload: wire.payload as TPayload,
     occurredAt: wire.occurred_at,
     read: wire.read,
+    archived: wire.archived,
   };
 }
 
@@ -94,6 +96,12 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
   private etag: string | null = null;
   /** Keyset cursor of the deepest fetched page. */
   private cursor: string | null = null;
+  /**
+   * Bumped by setFilter. A list response that started under the old view
+   * carries that view's items and cursor, so applying it after the switch
+   * would corrupt the store. Stale responses are discarded instead.
+   */
+  private viewGeneration = 0;
 
   private refreshing: Promise<void> | null = null;
   private refreshAgain = false;
@@ -182,6 +190,33 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
     return this.fetchingMore;
   }
 
+  /**
+   * Switch the server-side list view. Resets pagination and the ETag (the
+   * server keys validators per view) and refetches. In-flight list responses
+   * for the old view are discarded. No-op when unchanged.
+   */
+  setFilter(filter: InboxFilterView): Promise<void> {
+    if ((this.store.getSnapshot().filter ?? 'default') === filter) {
+      return Promise.resolve();
+    }
+    this.viewGeneration += 1;
+    this.cursor = null;
+    this.etag = null;
+    this.store.patch({
+      filter,
+      items: [],
+      hasMore: true,
+      lastRefreshNewItemIds: [],
+    });
+    return this.refresh();
+  }
+
+  /** The `filter` query parameter for the active view, or empty. */
+  private filterParam(): string {
+    const filter = this.store.getSnapshot().filter ?? 'default';
+    return filter === 'default' ? '' : `&filter=${filter}`;
+  }
+
   async markRead(item: { id: InboxItemId; source: InboxItemSource }): Promise<void> {
     const prev = this.store.getSnapshot();
     const target = prev.items.find((candidate) => candidate.id === item.id);
@@ -205,6 +240,131 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
       const rollback = changed ? { items: prev.items, counts: prev.counts } : {};
       this.store.patch({ ...rollback, error: asChimelyError(cause) });
       this.reconcileAfterFailedMutation();
+    }
+  }
+
+  /** Flip an item back to unread. The override survives mark-all-read. */
+  async markUnread(item: { id: InboxItemId; source: InboxItemSource }): Promise<void> {
+    const prev = this.store.getSnapshot();
+    const target = prev.items.find((candidate) => candidate.id === item.id);
+    const changed = target?.read === true;
+    if (changed) {
+      this.store.patch({
+        items: prev.items.map((candidate) =>
+          candidate.id === item.id ? { ...candidate, read: false } : candidate,
+        ),
+        counts: { ...prev.counts, unread: prev.counts.unread + 1 },
+      });
+    }
+    const path =
+      item.source === 'notification'
+        ? `/v1/inbox/notifications/${encodeURIComponent(item.id)}/unread`
+        : `/v1/inbox/broadcasts/${encodeURIComponent(item.id)}/unread`;
+    try {
+      await this.http('POST', path);
+      this.clearError();
+    } catch (cause) {
+      const rollback = changed ? { items: prev.items, counts: prev.counts } : {};
+      this.store.patch({ ...rollback, error: asChimelyError(cause) });
+      this.reconcileAfterFailedMutation();
+    }
+  }
+
+  /**
+   * Archive an item. It leaves the current view optimistically (except the
+   * archived view, which cannot contain it) and an unread item leaves the
+   * count. Read state is untouched.
+   */
+  async archive(item: { id: InboxItemId; source: InboxItemSource }): Promise<void> {
+    const prev = this.store.getSnapshot();
+    const target = prev.items.find((candidate) => candidate.id === item.id);
+    const changed = target !== undefined && (prev.filter ?? 'default') !== 'archived';
+    if (changed) {
+      this.store.patch({
+        items: prev.items.filter((candidate) => candidate.id !== item.id),
+        counts: {
+          ...prev.counts,
+          unread: target.read ? prev.counts.unread : Math.max(0, prev.counts.unread - 1),
+        },
+      });
+    }
+    const path =
+      item.source === 'notification'
+        ? `/v1/inbox/notifications/${encodeURIComponent(item.id)}/archive`
+        : `/v1/inbox/broadcasts/${encodeURIComponent(item.id)}/archive`;
+    try {
+      await this.http('POST', path);
+      this.clearError();
+    } catch (cause) {
+      const rollback = changed ? { items: prev.items, counts: prev.counts } : {};
+      this.store.patch({ ...rollback, error: asChimelyError(cause) });
+      this.reconcileAfterFailedMutation();
+    }
+  }
+
+  /** Return an item to the inbox. The override survives archive-all. */
+  async unarchive(item: { id: InboxItemId; source: InboxItemSource }): Promise<void> {
+    const prev = this.store.getSnapshot();
+    const target = prev.items.find((candidate) => candidate.id === item.id);
+    const changed = target !== undefined && (prev.filter ?? 'default') === 'archived';
+    if (changed) {
+      this.store.patch({
+        items: prev.items.filter((candidate) => candidate.id !== item.id),
+        counts: {
+          ...prev.counts,
+          unread: target.read ? prev.counts.unread : prev.counts.unread + 1,
+        },
+      });
+    }
+    const path =
+      item.source === 'notification'
+        ? `/v1/inbox/notifications/${encodeURIComponent(item.id)}/unarchive`
+        : `/v1/inbox/broadcasts/${encodeURIComponent(item.id)}/unarchive`;
+    try {
+      await this.http('POST', path);
+      this.clearError();
+    } catch (cause) {
+      const rollback = changed ? { items: prev.items, counts: prev.counts } : {};
+      this.store.patch({ ...rollback, error: asChimelyError(cause) });
+      this.reconcileAfterFailedMutation();
+    }
+  }
+
+  /** Watermark move server-side. Optimistically archives everything locally. */
+  async archiveAll(): Promise<void> {
+    const prev = this.store.getSnapshot();
+    this.store.patch({
+      items: (prev.filter ?? 'default') === 'archived' ? prev.items : [],
+      counts: { ...prev.counts, unread: 0 },
+    });
+    try {
+      const response = await this.http('POST', '/v1/inbox/archive-all');
+      const counts = (await response.json()) as WireCounts;
+      // Only the owned field is applied. Archive state never changes unseen
+      // server side, and the response was computed before a concurrent
+      // markAllSeen may have landed, so its unseen value would clobber that
+      // mutation's optimistic zero.
+      this.store.patch({
+        counts: { ...this.store.getSnapshot().counts, unread: counts.unread },
+        error: null,
+      });
+    } catch (cause) {
+      this.store.patch({ items: prev.items, counts: prev.counts, error: asChimelyError(cause) });
+      this.reconcileAfterFailedMutation();
+    }
+  }
+
+  /**
+   * Archive every currently read item. Runs asynchronously server-side; the
+   * snapshot converges via the completion hint, so there is no optimistic
+   * patch.
+   */
+  async archiveRead(): Promise<void> {
+    try {
+      await this.http('POST', '/v1/inbox/archive-read');
+      this.clearError();
+    } catch (cause) {
+      this.store.patch({ error: asChimelyError(cause) });
     }
   }
 
@@ -300,25 +460,36 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
   }
 
   private async doRefresh(): Promise<void> {
+    const generation = this.viewGeneration;
     this.store.patch({ isLoading: true });
     try {
-      const listPath = `/v1/inbox/items?limit=${this.pageSize}`;
+      const listPath = `/v1/inbox/items?limit=${this.pageSize}${this.filterParam()}`;
       const [pageResponse, countsResponse] = await Promise.all([
         this.http('GET', listPath, { ifNoneMatch: this.etag }),
         this.http('GET', '/v1/inbox/counts'),
       ]);
+      const counts = (await countsResponse.json()) as WireCounts;
+      const page =
+        pageResponse.status === 200 ? ((await pageResponse.json()) as WireInboxPage) : null;
+      if (generation !== this.viewGeneration) {
+        // The rerun queued by setFilter's refresh() call reloads the new
+        // view and clears isLoading.
+        return;
+      }
       const patch: Partial<InboxSnapshot<TPayload>> = {
-        counts: (await countsResponse.json()) as WireCounts,
+        counts,
         isLoading: false,
         error: null,
       };
-      if (pageResponse.status === 200) {
+      if (page !== null) {
         this.etag = pageResponse.headers.get('ETag');
-        const page = (await pageResponse.json()) as WireInboxPage;
         Object.assign(patch, this.mergeFirstPage(page));
       }
       this.store.patch(patch);
     } catch (cause) {
+      if (generation !== this.viewGeneration) {
+        return;
+      }
       this.store.patch({ isLoading: false, error: asChimelyError(cause) });
     }
   }
@@ -335,13 +506,18 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
    */
   private mergeFirstPage(page: WireInboxPage): Partial<InboxSnapshot<TPayload>> {
     const pageItems = page.items.map((item) => toItem<TPayload>(item));
+    const existing = this.store.getSnapshot();
+    const existingIds = new Set(existing.items.map((item) => item.id));
+    // Fresh array per merge so consumers can detect arrivals by identity.
+    const lastRefreshNewItemIds = pageItems
+      .filter((item) => !existingIds.has(item.id))
+      .map((item) => item.id);
     const boundary = pageItems[pageItems.length - 1];
     if (page.next_cursor === null || boundary === undefined) {
       // A cursor-less page with no next page is the entire inbox.
       this.cursor = null;
-      return { items: pageItems, hasMore: false };
+      return { items: pageItems, hasMore: false, lastRefreshNewItemIds };
     }
-    const existing = this.store.getSnapshot();
     const pageIds = new Set(pageItems.map((item) => item.id));
     const tail = existing.items.filter(
       (item) => !pageIds.has(item.id) && isOlderThan(item, boundary),
@@ -349,21 +525,33 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
     const contiguous = existing.items.some((item) => pageIds.has(item.id));
     if (tail.length === 0 || !contiguous) {
       this.cursor = page.next_cursor;
-      return { items: pageItems, hasMore: true };
+      return { items: pageItems, hasMore: true, lastRefreshNewItemIds };
     }
-    return { items: [...pageItems, ...tail], hasMore: existing.hasMore };
+    return {
+      items: [...pageItems, ...tail],
+      hasMore: existing.hasMore,
+      lastRefreshNewItemIds,
+    };
   }
 
   private async doFetchMore(limit?: number): Promise<void> {
+    const generation = this.viewGeneration;
     try {
       const params = new URLSearchParams({
         limit: String(Math.min(100, Math.max(1, limit ?? this.pageSize))),
       });
+      const filter = this.store.getSnapshot().filter ?? 'default';
+      if (filter !== 'default') {
+        params.set('filter', filter);
+      }
       if (this.cursor !== null) {
         params.set('cursor', this.cursor);
       }
       const response = await this.http('GET', `/v1/inbox/items?${params.toString()}`);
       const page = (await response.json()) as WireInboxPage;
+      if (generation !== this.viewGeneration) {
+        return;
+      }
       const snapshot = this.store.getSnapshot();
       const loaded = new Set(snapshot.items.map((item) => item.id));
       const appended = page.items
@@ -376,6 +564,9 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
         error: null,
       });
     } catch (cause) {
+      if (generation !== this.viewGeneration) {
+        return;
+      }
       this.store.patch({ error: asChimelyError(cause) });
     }
   }

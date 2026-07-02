@@ -248,13 +248,287 @@ describe('item click behavior', () => {
   });
 });
 
+describe('portal', () => {
+  test('portal renders the popover under document.body with theme variables', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    await renderInbox(stub, {
+      portal: true,
+      appearance: { variables: { colorPrimary: '#ff0000' } },
+    });
+    fireEvent.click(bell());
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.parentElement).toBe(document.body);
+    expect(dialog.classList.contains('chimely-popover-portal')).toBe(true);
+    expect((dialog as HTMLElement).style.getPropertyValue('--chimely-colorPrimary')).toBe(
+      '#ff0000',
+    );
+  });
+
+  test('outside click closes a portaled popover, inside click does not', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    await renderInbox(stub, { portal: true });
+    fireEvent.click(bell());
+
+    fireEvent.pointerDown(screen.getByRole('dialog'));
+    expect(screen.getByRole('dialog')).toBeDefined();
+
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  test('escape closes and refocuses the bell', async () => {
+    const stub = createStubServer();
+    await renderInbox(stub);
+    fireEvent.click(bell());
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(bell());
+  });
+});
+
+describe('controlled open', () => {
+  function controlledView(
+    client: ChimelyClient,
+    open: boolean,
+    onOpenChange: (o: boolean) => void,
+  ) {
+    return (
+      <ChimelyProvider client={client}>
+        <Inbox open={open} onOpenChange={onOpenChange} />
+      </ChimelyProvider>
+    );
+  }
+
+  test('open intents surface via onOpenChange, state stays with the parent', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    const client = makeClient(stub);
+    await loadClient(client, stub);
+    const onOpenChange = vi.fn();
+    const { rerender } = render(controlledView(client, false, onOpenChange));
+
+    fireEvent.click(bell());
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    rerender(controlledView(client, true, onOpenChange));
+    expect(screen.getByRole('dialog')).toBeDefined();
+    await waitFor(() => {
+      expect(stub.requestsFor('/v1/inbox/seen-all')).toHaveLength(1);
+    });
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(screen.getByRole('dialog')).toBeDefined();
+
+    rerender(controlledView(client, false, onOpenChange));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  test('mounting with open already true fires markAllSeen once', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    const client = makeClient(stub);
+    await loadClient(client, stub);
+    render(controlledView(client, true, () => {}));
+
+    expect(screen.getByRole('dialog')).toBeDefined();
+    await waitFor(() => {
+      expect(stub.requestsFor('/v1/inbox/seen-all')).toHaveLength(1);
+    });
+  });
+
+  test('uncontrolled mode still reports transitions through onOpenChange', async () => {
+    const stub = createStubServer();
+    const onOpenChange = vi.fn();
+    await renderInbox(stub, { onOpenChange });
+    fireEvent.click(bell());
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+    expect(screen.getByRole('dialog')).toBeDefined();
+  });
+});
+
+describe('routerPush', () => {
+  test('same-origin action URLs go through routerPush in path form', async () => {
+    const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {});
+    const routerPush = vi.fn();
+    const stub = createStubServer();
+    const item = stub.addNotification({
+      payload: { title: 'spa', action_url: '/invoices/42?x=1#y' },
+    });
+    await renderInbox(stub, { routerPush });
+    fireEvent.click(bell());
+
+    fireEvent.click(screen.getByText('spa'));
+    await waitFor(() => {
+      expect(stub.requestsFor(`/v1/inbox/notifications/${item.id}/read`)).toHaveLength(1);
+    });
+    expect(routerPush).toHaveBeenCalledWith('/invoices/42?x=1#y');
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  test('absolute same-origin URLs are normalized before routerPush', async () => {
+    vi.spyOn(navigation, 'assign').mockImplementation(() => {});
+    const routerPush = vi.fn();
+    const stub = createStubServer();
+    stub.addNotification({
+      payload: { title: 'absolute', action_url: `${window.location.origin}/invoices/9` },
+    });
+    await renderInbox(stub, { routerPush });
+    fireEvent.click(bell());
+
+    fireEvent.click(screen.getByText('absolute'));
+    await waitFor(() => {
+      expect(routerPush).toHaveBeenCalledWith('/invoices/9');
+    });
+  });
+
+  test('cross-origin URLs bypass routerPush and use full navigation', async () => {
+    const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {});
+    const routerPush = vi.fn();
+    const stub = createStubServer();
+    stub.addNotification({
+      payload: { title: 'external', action_url: 'https://elsewhere.test/x' },
+    });
+    await renderInbox(stub, { routerPush });
+    fireEvent.click(bell());
+
+    fireEvent.click(screen.getByText('external'));
+    await waitFor(() => {
+      expect(assign).toHaveBeenCalledWith('https://elsewhere.test/x');
+    });
+    expect(routerPush).not.toHaveBeenCalled();
+  });
+
+  test('unsafe URLs navigate through neither path', async () => {
+    const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {});
+    const routerPush = vi.fn();
+    const stub = createStubServer();
+    const item = stub.addNotification({
+      payload: { title: 'hostile', action_url: 'javascript:alert(1)' },
+    });
+    await renderInbox(stub, { routerPush });
+    fireEvent.click(bell());
+
+    fireEvent.click(screen.getByText('hostile'));
+    await waitFor(() => {
+      expect(stub.requestsFor(`/v1/inbox/notifications/${item.id}/read`)).toHaveLength(1);
+    });
+    expect(assign).not.toHaveBeenCalled();
+    expect(routerPush).not.toHaveBeenCalled();
+  });
+});
+
+describe('header title and footer', () => {
+  test('renders the default header title and renderFooter content', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    await renderInbox(stub, {
+      renderFooter: () => <span data-testid="footer-brand">Acme</span>,
+    });
+    fireEvent.click(bell());
+    expect(document.querySelector('.chimely-header-title')?.textContent).toBe('Notifications');
+    expect(screen.getByTestId('footer-brand').closest('.chimely-footer')).not.toBeNull();
+  });
+
+  test('inboxTitle overrides the header title and the dialog label', async () => {
+    const stub = createStubServer();
+    await renderInbox(stub, { localization: { inboxTitle: 'Meldungen' } });
+    fireEvent.click(bell());
+    expect(screen.getByRole('dialog', { name: 'Meldungen' })).toBeDefined();
+    expect(document.querySelector('.chimely-header-title')?.textContent).toBe('Meldungen');
+  });
+
+  test('dialog label follows the preferences panel', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.alerts' });
+    await renderInbox(stub);
+    fireEvent.click(bell());
+    fireEvent.click(screen.getByRole('button', { name: 'Notification preferences' }));
+    expect(screen.getByRole('dialog', { name: 'Notification preferences' })).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByRole('dialog', { name: 'Notifications' })).toBeDefined();
+  });
+});
+
+describe('localized labels', () => {
+  test('bellLabel and backLabel drive the aria labels', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.alerts' });
+    await renderInbox(stub, {
+      localization: { bellLabel: 'Meine Glocke', backLabel: 'Zurueck' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Meine Glocke' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Notification preferences' }));
+    expect(screen.getByRole('button', { name: 'Zurueck' })).toBeDefined();
+  });
+
+  test('categoryLabels rename preference rows, unknown keys fall back', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.alerts' });
+    stub.addNotification({ category: 'security.alerts' });
+    await renderInbox(stub, {
+      localization: { categoryLabels: { 'billing.alerts': 'Billing' } },
+    });
+    fireEvent.click(bell());
+    fireEvent.click(screen.getByRole('button', { name: 'Notification preferences' }));
+    expect(screen.getByText('Billing')).toBeDefined();
+    expect(screen.queryByText('billing.alerts')).toBeNull();
+    expect(screen.getByText('security.alerts')).toBeDefined();
+  });
+});
+
+describe('timestamps', () => {
+  test('recent items read as relative time with absolute dateTime and title', async () => {
+    const stub = createStubServer();
+    stub.addNotification({
+      payload: { title: 'fresh' },
+      occurred_at: new Date(Date.now() - 30_000).toISOString(),
+    });
+    const { client } = await renderInbox(stub);
+    fireEvent.click(bell());
+
+    const time = document.querySelector('.chimely-item-time') as HTMLTimeElement;
+    const occurredAt = client.getSnapshot().items[0]?.occurredAt as string;
+    expect(time.textContent).toBe('now');
+    expect(time.getAttribute('datetime')).toBe(occurredAt);
+    expect(time.getAttribute('title')).toBe(new Date(occurredAt).toLocaleString());
+  });
+
+  test('old items fall back to the locale date', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ payload: { title: 'ancient' } });
+    const { client } = await renderInbox(stub);
+    fireEvent.click(bell());
+
+    const occurredAt = client.getSnapshot().items[0]?.occurredAt as string;
+    expect(document.querySelector('.chimely-item-time')?.textContent).toBe(
+      new Date(occurredAt).toLocaleDateString(),
+    );
+  });
+
+  test('formatTimestamp override wins', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    await renderInbox(stub, {
+      localization: { formatTimestamp: (iso) => `ts:${iso}` },
+    });
+    fireEvent.click(bell());
+    expect(document.querySelector('.chimely-item-time')?.textContent).toMatch(/^ts:/);
+  });
+});
+
 describe('header actions', () => {
-  test('mark all read uses the localized label and hits read-all', async () => {
+  test('mark all read lives in the more-actions menu and hits read-all', async () => {
     const stub = createStubServer();
     stub.addNotification();
     const { client } = await renderInbox(stub, { localization: { markAllRead: 'Tout lire' } });
     fireEvent.click(bell());
 
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     fireEvent.click(screen.getByText('Tout lire'));
     await waitFor(() => {
       expect(stub.requestsFor('/v1/inbox/read-all')).toHaveLength(1);
@@ -341,7 +615,7 @@ describe('appearance', () => {
 });
 
 describe('infinite scroll', () => {
-  test('the end sentinel pages in more items via fetchMore', async () => {
+  test('a visible end sentinel drains pages until the inbox is exhausted', async () => {
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
     const stub = createStubServer();
     for (let i = 0; i < 5; i += 1) {
@@ -352,16 +626,166 @@ describe('infinite scroll', () => {
     expect(client.getSnapshot().items).toHaveLength(2);
     expect(MockIntersectionObserver.instances.length).toBeGreaterThan(0);
 
-    MockIntersectionObserver.intersect();
-    await waitFor(() => {
-      expect(client.getSnapshot().items).toHaveLength(4);
-    });
-
+    // The mock never reports the sentinel leaving, so one intersection
+    // drives the fill loop through every remaining page.
     MockIntersectionObserver.intersect();
     await waitFor(() => {
       expect(client.getSnapshot().items).toHaveLength(5);
     });
     expect(client.getSnapshot().hasMore).toBe(false);
+  });
+
+  test('a failed page fetch pauses the drain until the client recovers', async () => {
+    vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
+    const stub = createStubServer();
+    for (let i = 0; i < 5; i += 1) {
+      stub.addNotification();
+    }
+    const { client } = await renderInbox(stub, {}, { pageSize: 2 });
+    fireEvent.click(bell());
+    // Let the open-gesture markAllSeen settle so its success cannot clear
+    // the injected error mid-test.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    stub.failNext('GET', '/v1/inbox/items', { status: 500, code: 'internal' });
+    MockIntersectionObserver.intersect();
+    await waitFor(() => {
+      expect(client.getSnapshot().error).not.toBeNull();
+    });
+
+    // The sentinel is still visible but the error gate holds the loop.
+    const requestsAfterFailure = stub.requestsFor('/v1/inbox/items').length;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(stub.requestsFor('/v1/inbox/items')).toHaveLength(requestsAfterFailure);
+    expect(client.getSnapshot().items).toHaveLength(2);
+
+    // A hint-driven refresh succeeds, clears the error, and the drain resumes.
+    stub.emitHint();
+    await waitFor(() => {
+      expect(client.getSnapshot().items).toHaveLength(5);
+    });
+    expect(client.getSnapshot().hasMore).toBe(false);
+  });
+});
+
+describe('tabs', () => {
+  const TABS = [
+    { label: 'All' },
+    {
+      label: 'Billing',
+      filter: (item: { category: string }) => item.category === 'billing.alerts',
+    },
+  ];
+
+  test('renders the strip, filters the list, and counts unread per tab', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.alerts', payload: { title: 'invoice' } });
+    stub.addNotification({ category: 'system', payload: { title: 'maintenance' } });
+    stub.addNotification({ category: 'system', payload: { title: 'seen one' }, read: true });
+    await renderInbox(stub, { tabs: TABS });
+    fireEvent.click(bell());
+
+    const tabButtons = screen.getAllByRole('tab');
+    expect(tabButtons.map((t) => t.textContent)).toEqual(['All2', 'Billing1']);
+    expect(tabButtons[0]?.getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByText('maintenance')).toBeDefined();
+
+    // Tabs control the list panel and the panel is labelled by the active tab.
+    const panel = screen.getByRole('tabpanel');
+    expect(tabButtons[0]?.getAttribute('aria-controls')).toBe(panel.id);
+    expect(tabButtons[1]?.getAttribute('aria-controls')).toBe(panel.id);
+    expect(panel.getAttribute('aria-labelledby')).toBe(tabButtons[0]?.id);
+
+    fireEvent.click(screen.getByRole('tab', { name: /Billing/ }));
+    expect(screen.getByText('invoice')).toBeDefined();
+    expect(screen.queryByText('maintenance')).toBeNull();
+    expect(screen.getByRole('tab', { name: /Billing/ }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(tabButtons[1]?.id);
+  });
+
+  test('arrow keys move focus and selection with a roving tabindex', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.alerts', payload: { title: 'invoice' } });
+    stub.addNotification({ category: 'system', payload: { title: 'maintenance' } });
+    await renderInbox(stub, { tabs: TABS });
+    fireEvent.click(bell());
+
+    const [all, billing] = screen.getAllByRole('tab');
+    expect(all?.tabIndex).toBe(0);
+    expect(billing?.tabIndex).toBe(-1);
+
+    all?.focus();
+    fireEvent.keyDown(all as HTMLElement, { key: 'ArrowRight' });
+    expect(billing?.getAttribute('aria-selected')).toBe('true');
+    expect(billing?.tabIndex).toBe(0);
+    expect(all?.tabIndex).toBe(-1);
+    expect(document.activeElement).toBe(billing);
+    expect(screen.getByText('invoice')).toBeDefined();
+    expect(screen.queryByText('maintenance')).toBeNull();
+
+    // Wraps from the last tab back to the first.
+    fireEvent.keyDown(billing as HTMLElement, { key: 'ArrowRight' });
+    expect(all?.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(all);
+
+    fireEvent.keyDown(all as HTMLElement, { key: 'End' });
+    expect(billing?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(billing as HTMLElement, { key: 'Home' });
+    expect(all?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  test('a sparse tab keeps fetching until its item appears', async () => {
+    vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
+    const stub = createStubServer();
+    // Newest first: five non-matching items, then the single billing item.
+    stub.addNotification({ category: 'billing.alerts', payload: { title: 'deep invoice' } });
+    for (let i = 0; i < 5; i += 1) {
+      stub.addNotification({ category: 'system' });
+    }
+    await renderInbox(stub, { tabs: TABS }, { pageSize: 2 });
+    fireEvent.click(bell());
+
+    fireEvent.click(screen.getByRole('tab', { name: /Billing/ }));
+    MockIntersectionObserver.intersect();
+    await waitFor(() => {
+      expect(screen.getByText('deep invoice')).toBeDefined();
+    });
+  });
+
+  test('a tab matching nothing drains the inbox then shows the empty state', async () => {
+    vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
+    const stub = createStubServer();
+    for (let i = 0; i < 5; i += 1) {
+      stub.addNotification({ category: 'system' });
+    }
+    const { client } = await renderInbox(
+      stub,
+      { tabs: [{ label: 'None', filter: () => false }] },
+      { pageSize: 2 },
+    );
+    fireEvent.click(bell());
+
+    // While pages remain the empty state stays hidden.
+    expect(screen.queryByText('No notifications')).toBeNull();
+    MockIntersectionObserver.intersect();
+    await waitFor(() => {
+      expect(client.getSnapshot().hasMore).toBe(false);
+    });
+    const requests = stub.requestsFor('/v1/inbox/items').length;
+    expect(screen.getByText('No notifications')).toBeDefined();
+
+    // Exhausted: no further requests are issued.
+    MockIntersectionObserver.intersect();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(stub.requestsFor('/v1/inbox/items')).toHaveLength(requests);
+  });
+
+  test('without tabs there is no tablist', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    await renderInbox(stub);
+    fireEvent.click(bell());
+    expect(screen.queryByRole('tablist')).toBeNull();
   });
 });
 

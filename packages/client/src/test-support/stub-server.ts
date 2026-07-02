@@ -116,7 +116,9 @@ export class StubServer {
 
   /** Inserts a direct notification. Items stay sorted newest-first. */
   addNotification(
-    overrides: Partial<Pick<WireItem, 'category' | 'payload' | 'read' | 'occurred_at'>> & {
+    overrides: Partial<
+      Pick<WireItem, 'category' | 'payload' | 'read' | 'archived' | 'occurred_at'>
+    > & {
       seen?: boolean;
     } = {},
   ): WireItem {
@@ -125,7 +127,9 @@ export class StubServer {
 
   /** Inserts a broadcast. Items stay sorted newest-first. */
   addBroadcast(
-    overrides: Partial<Pick<WireItem, 'category' | 'payload' | 'read' | 'occurred_at'>> & {
+    overrides: Partial<
+      Pick<WireItem, 'category' | 'payload' | 'read' | 'archived' | 'occurred_at'>
+    > & {
       seen?: boolean;
     } = {},
   ): WireItem {
@@ -134,7 +138,9 @@ export class StubServer {
 
   private addItem(
     source: WireItem['source'],
-    overrides: Partial<Pick<WireItem, 'category' | 'payload' | 'read' | 'occurred_at'>> & {
+    overrides: Partial<
+      Pick<WireItem, 'category' | 'payload' | 'read' | 'archived' | 'occurred_at'>
+    > & {
       seen?: boolean;
     },
   ): WireItem {
@@ -148,6 +154,7 @@ export class StubServer {
       occurred_at:
         overrides.occurred_at ?? new Date(this.baseTimeMs + this.seq * 1000).toISOString(),
       read: overrides.read ?? false,
+      archived: overrides.archived ?? false,
     };
     this.items.push(item);
     this.items.sort((a, b) => {
@@ -165,7 +172,7 @@ export class StubServer {
 
   counts(): WireCounts {
     return {
-      unread: this.items.filter((item) => !item.read).length,
+      unread: this.items.filter((item) => !item.read && !item.archived).length,
       unseen: this.unseen,
     };
   }
@@ -300,18 +307,48 @@ export class StubServer {
     if (method === 'GET' && path === '/v1/inbox/counts') {
       return json(200, this.counts());
     }
-    const readMatch = path.match(/^\/v1\/inbox\/(notifications|broadcasts)\/([^/]+)\/read$/);
+    const readMatch = path.match(
+      /^\/v1\/inbox\/(notifications|broadcasts)\/([^/]+)\/(read|unread|archive|unarchive)$/,
+    );
     if (method === 'POST' && readMatch) {
       const source = readMatch[1] === 'notifications' ? 'notification' : 'broadcast';
       const item = this.items.find((row) => row.id === readMatch[2] && row.source === source);
       if (!item) {
         return json(404, errorBody('not_found', 'no such item in this environment'));
       }
-      if (!item.read) {
-        item.read = true;
-        this.version += 1;
+      const action = readMatch[3];
+      if (action === 'read' || action === 'unread') {
+        const wantRead = action === 'read';
+        if (item.read !== wantRead) {
+          item.read = wantRead;
+          this.version += 1;
+        }
+      } else {
+        const wantArchived = action === 'archive';
+        if (item.archived !== wantArchived) {
+          item.archived = wantArchived;
+          this.version += 1;
+        }
       }
       return new Response(null, { status: 204 });
+    }
+    if (method === 'POST' && path === '/v1/inbox/archive-all') {
+      for (const item of this.items) {
+        item.archived = true;
+      }
+      this.version += 1;
+      return json(200, this.counts());
+    }
+    if (method === 'POST' && path === '/v1/inbox/archive-read') {
+      // The real server runs this as an async chunked job; the stub applies
+      // it synchronously and the client converges on the next refresh.
+      for (const item of this.items) {
+        if (item.read) {
+          item.archived = true;
+        }
+      }
+      this.version += 1;
+      return new Response(null, { status: 202 });
     }
     if (method === 'POST' && path === '/v1/inbox/read-all') {
       for (const item of this.items) {
@@ -341,24 +378,31 @@ export class StubServer {
   private listItems(url: URL, headers: Record<string, string>): Response {
     const cursor = url.searchParams.get('cursor');
     const limit = Number(url.searchParams.get('limit') ?? '20');
-    const etag = `"v${this.version}:${cursor ?? ''}"`;
+    const filter = url.searchParams.get('filter');
+    const visible =
+      filter === 'unread'
+        ? this.items.filter((item) => !item.read && !item.archived)
+        : filter === 'archived'
+          ? this.items.filter((item) => item.archived)
+          : this.items.filter((item) => !item.archived);
+    const etag = `"v${this.version}:${filter ?? ''}:${cursor ?? ''}"`;
     if (headers['if-none-match'] === etag) {
       return new Response(null, { status: 304 });
     }
     let start = 0;
     if (cursor !== null) {
       const [occurredAt, id] = decodeCursor(cursor);
-      start = this.items.findIndex(
+      start = visible.findIndex(
         (item) =>
           item.occurred_at < occurredAt || (item.occurred_at === occurredAt && item.id < id),
       );
       if (start === -1) {
-        start = this.items.length;
+        start = visible.length;
       }
     }
-    const pageItems = this.items.slice(start, start + limit);
+    const pageItems = visible.slice(start, start + limit);
     const last = pageItems[pageItems.length - 1];
-    const hasMore = start + limit < this.items.length;
+    const hasMore = start + limit < visible.length;
     const page: WirePage = {
       items: pageItems,
       next_cursor: hasMore && last ? encodeCursor(last) : null,

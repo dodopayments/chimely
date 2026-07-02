@@ -1,31 +1,95 @@
+import { formatRelativeTime } from './time';
+
 /**
  * No index signature so typos fail to type-check.
- * New strings are added as optional fields to keep minor versions non-breaking.
+ * New fields are added as optional to keep minor versions non-breaking.
+ * DEFAULT_LOCALIZATION supplies a value for every field, so merged results
+ * are fully populated.
  */
 export interface InboxLocalization {
   emptyTitle: string;
   emptyBody: string;
   markAllRead: string;
   preferencesTitle: string;
+  /** List-view header title. Also labels the popover dialog. */
+  inboxTitle?: string;
+  /** Bell button aria-label. */
+  bellLabel?: string;
+  /** Preferences back button aria-label. */
+  backLabel?: string;
+  /** New-notification indicator text. */
+  newNotifications?: (count: number) => string;
+  /** View select aria-label. */
+  filterLabel?: string;
+  /** Default view option. */
+  filterInbox?: string;
+  /** Unread-only view option. */
+  filterUnread?: string;
+  /** Archived view option. */
+  filterArchived?: string;
+  /** Per-item action tooltip. */
+  markReadAction?: string;
+  /** Per-item action tooltip. */
+  markUnreadAction?: string;
+  /** Per-item action tooltip. */
+  archiveAction?: string;
+  /** Per-item action tooltip. */
+  unarchiveAction?: string;
+  /** Header menu trigger aria-label. */
+  moreActions?: string;
+  /** Header menu entry. */
+  archiveAllAction?: string;
+  /** Header menu entry. */
+  archiveReadAction?: string;
+  /**
+   * Display names for category keys in the preferences panel.
+   * Merged by whole-map replacement, not per key.
+   */
+  categoryLabels?: Record<string, string>;
+  /** Timestamp text in the default item rendering. Defaults to relative time. */
+  formatTimestamp?: (iso: string) => string;
 }
 
-export const DEFAULT_LOCALIZATION: InboxLocalization = {
+export const DEFAULT_LOCALIZATION: Required<InboxLocalization> = {
   emptyTitle: 'No notifications',
   emptyBody: "You're all caught up.",
   markAllRead: 'Mark all as read',
   preferencesTitle: 'Notification preferences',
+  inboxTitle: 'Notifications',
+  bellLabel: 'Notifications',
+  backLabel: 'Back',
+  newNotifications: (count) => (count === 1 ? '1 new notification' : `${count} new notifications`),
+  filterLabel: 'View',
+  filterInbox: 'Inbox',
+  filterUnread: 'Unread',
+  filterArchived: 'Archived',
+  markReadAction: 'Mark as read',
+  markUnreadAction: 'Mark as unread',
+  archiveAction: 'Archive',
+  unarchiveAction: 'Unarchive',
+  moreActions: 'More actions',
+  archiveAllAction: 'Archive all',
+  archiveReadAction: 'Archive read',
+  categoryLabels: {},
+  formatTimestamp: (iso) => formatRelativeTime(iso),
 };
 
-export function mergeLocalization(overrides?: Partial<InboxLocalization>): InboxLocalization {
+export function mergeLocalization(
+  overrides?: Partial<InboxLocalization>,
+): Required<InboxLocalization> {
   const merged = { ...DEFAULT_LOCALIZATION };
   if (!overrides) {
     return merged;
   }
-  for (const key of Object.keys(DEFAULT_LOCALIZATION) as Array<keyof InboxLocalization>) {
+  const apply = <K extends keyof InboxLocalization>(key: K): void => {
     const value = overrides[key];
     if (value !== undefined) {
-      merged[key] = value;
+      // The undefined check narrows the value, which the indexed write cannot see.
+      merged[key] = value as Required<InboxLocalization>[K];
     }
+  };
+  for (const key of Object.keys(DEFAULT_LOCALIZATION) as Array<keyof InboxLocalization>) {
+    apply(key);
   }
   return merged;
 }

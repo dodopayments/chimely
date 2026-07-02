@@ -48,6 +48,11 @@ export interface InboxItem<TPayload = WellKnownPayload> {
   /** Ordering timestamp (RFC 3339). visible_at for direct, created_at for broadcast. */
   occurredAt: string;
   read: boolean;
+  /**
+   * Per-item override OR at-or-below the archive watermark. Optional in the
+   * type for older item literals; the client always populates it.
+   */
+  archived?: boolean;
 }
 
 export interface InboxCounts {
@@ -63,6 +68,9 @@ export interface Preference {
   channel: 'in_app';
   enabled: boolean;
 }
+
+/** Server-side list views. The union widens (never narrows) as views land. */
+export type InboxFilterView = 'default' | 'unread' | 'archived';
 
 export type ConnectionStatus =
   | 'idle' // constructed, connect() not yet called
@@ -150,4 +158,17 @@ export interface InboxSnapshot<TPayload = WellKnownPayload> {
   isLoading: boolean;
   /** Last unrecovered error. Cleared by the next successful operation. */
   error: ChimelyError | null;
+  /**
+   * Ids the last first-page merge added that were not already loaded.
+   * Fresh array identity per merge. Untouched by 304 refreshes and by
+   * fetchMore. Optional in the type for older snapshot literals. The
+   * client always populates it.
+   */
+  lastRefreshNewItemIds?: ReadonlyArray<InboxItemId>;
+  /**
+   * The active server-side view. Changed by setFilter, which resets
+   * pagination and refetches. Optional in the type for older snapshot
+   * literals; the client always populates it.
+   */
+  filter?: InboxFilterView;
 }

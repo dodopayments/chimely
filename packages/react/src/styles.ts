@@ -37,7 +37,7 @@ export const INBOX_CSS = `
   padding: 0 4px;
   border-radius: 999px;
   background: var(--chimely-colorBadge, #1264FF);
-  color: #ffffff;
+  color: var(--chimely-colorBadgeForeground, #ffffff);
   font-size: 11px;
   font-weight: 600;
   line-height: 16px;
@@ -55,8 +55,20 @@ export const INBOX_CSS = `
   background: var(--chimely-colorBackground, #ffffff);
   border: 1px solid var(--chimely-colorMuted, #e5e7eb);
   border-radius: var(--chimely-borderRadius, 8px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--chimely-shadow, 0 8px 24px rgba(0, 0, 0, 0.12));
   z-index: 1000;
+}
+.chimely-popover-portal {
+  position: fixed;
+}
+.chimely-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  font-family: var(--chimely-fontFamily, system-ui, -apple-system, sans-serif);
+  font-size: var(--chimely-fontSize, 14px);
+  color: var(--chimely-colorForeground, #111827);
 }
 .chimely-header {
   display: flex;
@@ -68,6 +80,52 @@ export const INBOX_CSS = `
 }
 .chimely-header-title {
   font-weight: 600;
+}
+.chimely-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.chimely-header-menu {
+  position: relative;
+  display: inline-flex;
+}
+.chimely-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--chimely-colorBackground, #ffffff);
+  border: 1px solid var(--chimely-colorMuted, #e5e7eb);
+  border-radius: var(--chimely-borderRadius, 8px);
+  box-shadow: var(--chimely-shadow, 0 8px 24px rgba(0, 0, 0, 0.12));
+  z-index: 2;
+}
+.chimely-menu button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: var(--chimely-borderRadius, 8px);
+  cursor: pointer;
+}
+.chimely-menu button:hover {
+  background: var(--chimely-colorMuted, #f3f4f6);
+}
+.chimely-filter {
+  border: none;
+  background: transparent;
+  color: var(--chimely-colorPrimary, #1264FF);
+  font: inherit;
+  padding: 2px 4px;
+  border-radius: var(--chimely-borderRadius, 8px);
+  cursor: pointer;
 }
 .chimely-header-action {
   border: none;
@@ -88,6 +146,70 @@ export const INBOX_CSS = `
   outline: 2px solid var(--chimely-colorPrimary, #1264FF);
   outline-offset: 2px;
 }
+.chimely-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--chimely-colorMuted, #e5e7eb);
+  overflow-x: auto;
+}
+.chimely-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--chimely-borderRadius, 8px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chimely-tab:hover {
+  background: var(--chimely-colorMuted, #f3f4f6);
+}
+.chimely-tab-active {
+  color: var(--chimely-colorPrimary, #1264FF);
+  box-shadow: inset 0 -2px 0 var(--chimely-colorPrimary, #1264FF);
+}
+.chimely-tab-count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--chimely-colorBadge, #1264FF);
+  color: var(--chimely-colorBadgeForeground, #ffffff);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+.chimely-list-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.chimely-pill {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border: none;
+  border-radius: 999px;
+  background: var(--chimely-colorPrimary, #1264FF);
+  color: var(--chimely-colorBadgeForeground, #ffffff);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--chimely-shadow, 0 8px 24px rgba(0, 0, 0, 0.12));
+  z-index: 1;
+}
 .chimely-list {
   flex: 1;
   overflow-y: auto;
@@ -97,6 +219,38 @@ export const INBOX_CSS = `
 }
 .chimely-sentinel {
   height: 1px;
+}
+.chimely-list-row {
+  position: relative;
+}
+.chimely-item-actions {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  pointer-events: none;
+}
+.chimely-list-row:hover .chimely-item-actions,
+.chimely-list-row:focus-within .chimely-item-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.chimely-item-action {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--chimely-colorMuted, #e5e7eb);
+  border-radius: var(--chimely-borderRadius, 8px);
+  background: var(--chimely-colorBackground, #ffffff);
+  color: var(--chimely-colorPrimary, #1264FF);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.chimely-item-action:hover {
+  background: var(--chimely-colorMuted, #f3f4f6);
 }
 .chimely-item {
   display: flex;
@@ -166,6 +320,9 @@ export const INBOX_CSS = `
   flex: none;
   border-top: 1px solid var(--chimely-colorMuted, #f3f4f6);
   min-height: 4px;
+}
+.chimely-footer:not(:empty) {
+  padding: 8px 14px;
 }
 .chimely-preferences {
   flex: 1;
