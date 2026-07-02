@@ -22,6 +22,11 @@ import { Preferences } from './Preferences';
 export interface InboxContentProps<TPayload = WellKnownPayload> extends ItemRenderProps<TPayload> {
   appearance?: InboxAppearance;
   localization?: Partial<InboxLocalization>;
+  /**
+   * Id placed on the header title element so a wrapping dialog can reference
+   * it via aria-labelledby. The title text tracks the visible view.
+   */
+  titleId?: string;
   /** Show the per-category preferences panel. Default: true. */
   preferencesPanel?: boolean;
   /**
@@ -90,11 +95,15 @@ export function InboxContent<TPayload = WellKnownPayload>(
             >
               ←
             </button>
-            <span className="chimely-header-title">{strings.preferencesTitle}</span>
+            <span id={props.titleId} className="chimely-header-title">
+              {strings.preferencesTitle}
+            </span>
           </>
         ) : (
           <>
-            <span className="chimely-header-title">{strings.inboxTitle}</span>
+            <span id={props.titleId} className="chimely-header-title">
+              {strings.inboxTitle}
+            </span>
             <div className="chimely-header-actions">
               <button
                 type="button"

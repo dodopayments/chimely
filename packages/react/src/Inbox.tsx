@@ -11,7 +11,6 @@ import { Bell } from './components/Bell';
 import type { InboxContentProps } from './components/InboxContent';
 import { InboxContent } from './components/InboxContent';
 import { ChimelyContext, useChimelyClient } from './context';
-import { mergeLocalization } from './localization';
 import { ensureStyles } from './styles';
 
 export type { InboxAppearance, InboxSlot } from './appearance';
@@ -102,8 +101,8 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
   const bellRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const popoverId = useId();
+  const titleId = useId();
 
-  const strings = mergeLocalization(props.localization);
   const placement = props.placement ?? 'bottom-end';
   const placementOffset = props.placementOffset ?? 8;
   const portal = props.portal === true;
@@ -206,11 +205,12 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
       className={portal ? `${cls('popover')} chimely-popover-portal` : cls('popover')}
       style={rootStyle}
       role="dialog"
-      aria-label={showPreferences ? strings.preferencesTitle : strings.inboxTitle}
+      aria-labelledby={titleId}
     >
       <InboxContent<TPayload>
         appearance={props.appearance}
         localization={props.localization}
+        titleId={titleId}
         preferencesPanel={props.preferencesPanel}
         onItemClick={props.onItemClick}
         routerPush={props.routerPush}
