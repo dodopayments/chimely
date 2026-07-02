@@ -648,3 +648,203 @@ async fn cursor_pagination_is_stable_under_concurrent_inserts() {
 
     tokio::time::sleep(Duration::from_millis(10)).await;
 }
+
+async fn list_filtered(
+    app: &support::TestApp,
+    subscriber: &str,
+    filter: &str,
+) -> Vec<serde_json::Value> {
+    let mut items = Vec::new();
+    let mut cursor: Option<String> = None;
+    loop {
+        let mut url = format!("{}/v1/inbox/items?limit=2&filter={filter}", app.base);
+        if let Some(c) = &cursor {
+            url.push_str(&format!("&cursor={c}"));
+        }
+        let res = app
+            .client
+            .get(url)
+            .headers(app.subscriber_headers(subscriber))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 200);
+        let page: serde_json::Value = res.json().await.unwrap();
+        items.extend(page["items"].as_array().unwrap().clone());
+        match page["next_cursor"].as_str() {
+            Some(next) => cursor = Some(next.to_owned()),
+            None => return items,
+        }
+    }
+}
+
+#[tokio::test]
+async fn mark_unread_survives_the_watermark_and_feeds_the_unread_view() {
+    let app = support::spawn().await;
+    app.create_notification(SUB, "a").await;
+    app.create_notification(SUB, "b").await;
+    app.create_notification(SUB, "c").await;
+    let items = app.list_all_items(SUB, 10).await;
+    let target = items[1]["id"].as_str().unwrap().to_owned();
+
+    // Everything watermark-read, counter zero.
+    let res = app.post_inbox(SUB, "/v1/inbox/read-all").await;
+    assert_eq!(res.status(), 200);
+    let (unread, _) = app.counts(SUB).await;
+    assert_eq!(unread, 0);
+
+    // The override outranks the watermark: counted, unread in the list, and
+    // the only row in the unread view. Tiny pages exercise the filtered
+    // keyset.
+    let res = app
+        .post_inbox(SUB, &format!("/v1/inbox/notifications/{target}/unread"))
+        .await;
+    assert_eq!(res.status(), 204);
+    let (unread, _) = app.counts(SUB).await;
+    assert_eq!(unread, 1);
+    let unread_view = list_filtered(&app, SUB, "unread").await;
+    assert_eq!(unread_view.len(), 1);
+    assert_eq!(unread_view[0]["id"].as_str().unwrap(), target);
+    assert!(!unread_view[0]["read"].as_bool().unwrap());
+
+    // Idempotent: a second unread does not double-increment.
+    let res = app
+        .post_inbox(SUB, &format!("/v1/inbox/notifications/{target}/unread"))
+        .await;
+    assert_eq!(res.status(), 204);
+    let (unread, _) = app.counts(SUB).await;
+    assert_eq!(unread, 1);
+
+    // Read again clears the override and the count.
+    let res = app
+        .post_inbox(SUB, &format!("/v1/inbox/notifications/{target}/read"))
+        .await;
+    assert_eq!(res.status(), 204);
+    let (unread, _) = app.counts(SUB).await;
+    assert_eq!(unread, 0);
+    assert!(list_filtered(&app, SUB, "unread").await.is_empty());
+
+    // A later read-all clears any remaining override state.
+    let res = app
+        .post_inbox(SUB, &format!("/v1/inbox/notifications/{target}/unread"))
+        .await;
+    assert_eq!(res.status(), 204);
+    let res = app.post_inbox(SUB, "/v1/inbox/read-all").await;
+    assert_eq!(res.status(), 200);
+    let (unread, _) = app.counts(SUB).await;
+    assert_eq!(unread, 0);
+    let overrides: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM notifications
+          WHERE environment_id = $1 AND unread_at IS NOT NULL",
+    )
+    .bind(app.env.id)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(overrides, 0, "read-all GC'd the direct override");
+}
+
+#[tokio::test]
+async fn broadcast_unread_overrides_round_trip_across_the_watermark() {
+    let app = support::spawn().await;
+    let res = app
+        .client
+        .put(format!("{}/v1/subscribers/{SUB}", app.base))
+        .bearer_auth(&app.env.api_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let created = app.create_broadcast("announce").await;
+    let id = created["id"].as_str().unwrap().to_owned();
+
+    // Watermark-read, then explicitly unread below the watermark.
+    let res = app.post_inbox(SUB, "/v1/inbox/read-all").await;
+    assert_eq!(res.status(), 200);
+    let res = app
+        .post_inbox(SUB, &format!("/v1/inbox/broadcasts/{id}/unread"))
+        .await;
+    assert_eq!(res.status(), 204);
+    let (unread, _) = app.counts(SUB).await;
+    assert_eq!(unread, 1, "broadcast override term counts it");
+    let unread_view = list_filtered(&app, SUB, "unread").await;
+    assert_eq!(unread_view.len(), 1);
+    assert_eq!(unread_view[0]["id"].as_str().unwrap(), id);
+
+    // Individual read below the watermark deletes the override (previously a
+    // no-op branch).
+    let res = app
+        .post_inbox(SUB, &format!("/v1/inbox/broadcasts/{id}/read"))
+        .await;
+    assert_eq!(res.status(), 204);
+    let (unread, _) = app.counts(SUB).await;
+    assert_eq!(unread, 0);
+    let rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM broadcast_reads WHERE environment_id = $1")
+            .bind(app.env.id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(rows, 0, "the override row was deleted, not flipped");
+
+    // Above the watermark: unread deletes a read row instead of writing one.
+    let created = app.create_broadcast("announce2").await;
+    let id2 = created["id"].as_str().unwrap().to_owned();
+    let res = app
+        .post_inbox(SUB, &format!("/v1/inbox/broadcasts/{id2}/read"))
+        .await;
+    assert_eq!(res.status(), 204);
+    let (unread, _) = app.counts(SUB).await;
+    assert_eq!(unread, 0);
+    let res = app
+        .post_inbox(SUB, &format!("/v1/inbox/broadcasts/{id2}/unread"))
+        .await;
+    assert_eq!(res.status(), 204);
+    let (unread, _) = app.counts(SUB).await;
+    assert_eq!(unread, 1);
+}
+
+#[tokio::test]
+async fn unread_filter_rejects_unknown_values_and_moves_the_etag() {
+    let app = support::spawn().await;
+    app.create_notification(SUB, "a").await;
+
+    let res = app
+        .client
+        .get(format!("{}/v1/inbox/items?filter=bogus", app.base))
+        .headers(app.subscriber_headers(SUB))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+
+    // The filter is an ETag input: the same state serves different
+    // validators per view.
+    let default_etag = etag(&app, SUB).await;
+    let res = app
+        .client
+        .get(format!("{}/v1/inbox/items?filter=unread", app.base))
+        .headers(app.subscriber_headers(SUB))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let unread_etag = res.headers()["etag"].to_str().unwrap().to_owned();
+    assert_ne!(default_etag, unread_etag);
+
+    // Unread mutations move the ETag.
+    let items = app.list_all_items(SUB, 10).await;
+    let id = items[0]["id"].as_str().unwrap().to_owned();
+    let res = app
+        .post_inbox(SUB, &format!("/v1/inbox/notifications/{id}/read"))
+        .await;
+    assert_eq!(res.status(), 204);
+    let after_read = etag(&app, SUB).await;
+    assert_ne!(default_etag, after_read);
+    let res = app
+        .post_inbox(SUB, &format!("/v1/inbox/notifications/{id}/unread"))
+        .await;
+    assert_eq!(res.status(), 204);
+    let after_unread = etag(&app, SUB).await;
+    assert_ne!(after_read, after_unread);
+}

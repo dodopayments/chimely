@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE subscriber_counters c SET\n                   unread_direct_count = greatest(0,\n                       c.unread_direct_count - (($3 > c.read_watermark OR $6) AND NOT $4\n                           AND NOT EXISTS (SELECT 1 FROM preferences p\n                                 WHERE p.environment_id = c.environment_id\n                                   AND p.subscriber_id  = c.subscriber_id\n                                   AND p.category = $5 AND p.channel = 'in_app'\n                                   AND p.enabled = false))::int),\n                   updated_at = now()\n             WHERE c.environment_id = $1 AND c.subscriber_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Bool",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4a7e03c4af99e59857fdedcbb9a01324a1d8e13bc373edad48e1572e0918db14"
+}

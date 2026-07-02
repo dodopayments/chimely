@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO broadcast_reads\n                   (environment_id, subscriber_id, broadcast_id, broadcast_created_at, read)\n               VALUES ($1, $2, $3, $4, true)\n               ON CONFLICT (environment_id, subscriber_id, broadcast_id)\n               DO UPDATE SET read = true, read_at = now()\n               WHERE broadcast_reads.read = false",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "92c7c813ca9a39604238aa8d3cb0a5b6b7767c138965d0f975731630bf7e3f6c"
+}
