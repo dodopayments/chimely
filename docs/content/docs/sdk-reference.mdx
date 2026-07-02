@@ -47,12 +47,36 @@ uses the context client).
 | `renderItem` | `(ctx) => ReactNode` | — | Custom item renderer |
 | `renderBell` | `(ctx) => ReactNode` | — | Custom bell/badge renderer |
 | `renderEmpty` | `() => ReactNode` | — | Custom empty state |
+| `renderFooter` | `() => ReactNode` | — | Content for the popover footer (branding, links) |
 
 `appearance.variables` forwards keys as `--chimely-<key>` CSS custom
 properties (`colorPrimary`, `colorBackground`, `colorBadge`, `borderRadius`,
 `fontFamily`, …). `appearance.classNames` overrides slots: `root`, `bell`,
 `badge`, `popover`, `header`, `list`, `item`, `itemUnread`, `empty`, `footer`,
 `preferences`.
+
+### Localization
+
+Every user-visible string routes through `localization`. All fields optional;
+omitted keys keep the `en-US` defaults.
+
+| Key | Default | Notes |
+|---|---|---|
+| `emptyTitle` | `No notifications` | |
+| `emptyBody` | `You're all caught up.` | |
+| `markAllRead` | `Mark all as read` | |
+| `preferencesTitle` | `Notification preferences` | Preferences header and gear label |
+| `inboxTitle` | `Notifications` | List-view header title and dialog label |
+| `bellLabel` | `Notifications` | Bell button aria-label |
+| `backLabel` | `Back` | Preferences back button aria-label |
+| `categoryLabels` | `{}` | Display names for category keys in the preferences panel |
+| `formatTimestamp` | relative time | `(iso) => string` for item timestamps |
+| `newNotifications` | `N new notifications` | `(count) => string` |
+
+The default timestamp rendering is relative (`5 minutes ago`, via
+`Intl.RelativeTimeFormat`), falling back to the locale date past seven days.
+The absolute time stays on the `<time>` element's `dateTime` and `title`
+attributes.
 
 ## Hooks
 

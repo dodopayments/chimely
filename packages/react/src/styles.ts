@@ -69,6 +69,12 @@ export const INBOX_CSS = `
 .chimely-header-title {
   font-weight: 600;
 }
+.chimely-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
 .chimely-header-action {
   border: none;
   background: transparent;
@@ -166,6 +172,9 @@ export const INBOX_CSS = `
   flex: none;
   border-top: 1px solid var(--chimely-colorMuted, #f3f4f6);
   min-height: 4px;
+}
+.chimely-footer:not(:empty) {
+  padding: 8px 14px;
 }
 .chimely-preferences {
   flex: 1;
