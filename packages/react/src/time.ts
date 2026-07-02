@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 
-let relativeFormatter: Intl.RelativeTimeFormat | undefined;
-
+// Constructed per call so the resolved locale tracks the runtime default,
+// matching the toLocaleDateString fallback below.
 function formatter(): Intl.RelativeTimeFormat {
-  relativeFormatter ??= new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-  return relativeFormatter;
+  return new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 }
 
 const MINUTE = 60;
@@ -41,7 +40,7 @@ export function formatRelativeTime(iso: string, nowMs?: number): string {
 
 /**
  * Re-renders the caller on an interval so relative timestamps stay current.
- * Pass null to pause. Returns the current epoch milliseconds.
+ * Pass null to pause. Returns the epoch milliseconds of the last tick.
  */
 export function useNow(intervalMs: number | null): number {
   const [now, setNow] = useState(() => Date.now());
@@ -49,7 +48,6 @@ export function useNow(intervalMs: number | null): number {
     if (intervalMs === null) {
       return undefined;
     }
-    setNow(Date.now());
     const timer = setInterval(() => {
       setNow(Date.now());
     }, intervalMs);

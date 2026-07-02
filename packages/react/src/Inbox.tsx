@@ -365,7 +365,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
       className={portal ? `${cls('popover')} chimely-popover-portal` : cls('popover')}
       style={rootStyle}
       role="dialog"
-      aria-label={strings.inboxTitle}
+      aria-label={showPreferences ? strings.preferencesTitle : strings.inboxTitle}
     >
       <div className={cls('header')}>
         {showPreferences ? (
