@@ -6,6 +6,7 @@ import { InboxStore } from './store';
 import type {
   ChimelyClientConfig,
   EventSourceLike,
+  InboxFilterView,
   InboxItem,
   InboxItemId,
   InboxItemSource,
@@ -94,6 +95,12 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
   private etag: string | null = null;
   /** Keyset cursor of the deepest fetched page. */
   private cursor: string | null = null;
+  /**
+   * Bumped by setFilter. A list response that started under the old view
+   * carries that view's items and cursor, so applying it after the switch
+   * would corrupt the store. Stale responses are discarded instead.
+   */
+  private viewGeneration = 0;
 
   private refreshing: Promise<void> | null = null;
   private refreshAgain = false;
@@ -182,6 +189,33 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
     return this.fetchingMore;
   }
 
+  /**
+   * Switch the server-side list view. Resets pagination and the ETag (the
+   * server keys validators per view) and refetches. In-flight list responses
+   * for the old view are discarded. No-op when unchanged.
+   */
+  setFilter(filter: InboxFilterView): Promise<void> {
+    if ((this.store.getSnapshot().filter ?? 'default') === filter) {
+      return Promise.resolve();
+    }
+    this.viewGeneration += 1;
+    this.cursor = null;
+    this.etag = null;
+    this.store.patch({
+      filter,
+      items: [],
+      hasMore: true,
+      lastRefreshNewItemIds: [],
+    });
+    return this.refresh();
+  }
+
+  /** The `filter` query parameter for the active view, or empty. */
+  private filterParam(): string {
+    const filter = this.store.getSnapshot().filter ?? 'default';
+    return filter === 'default' ? '' : `&filter=${filter}`;
+  }
+
   async markRead(item: { id: InboxItemId; source: InboxItemSource }): Promise<void> {
     const prev = this.store.getSnapshot();
     const target = prev.items.find((candidate) => candidate.id === item.id);
@@ -198,6 +232,33 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
       item.source === 'notification'
         ? `/v1/inbox/notifications/${encodeURIComponent(item.id)}/read`
         : `/v1/inbox/broadcasts/${encodeURIComponent(item.id)}/read`;
+    try {
+      await this.http('POST', path);
+      this.clearError();
+    } catch (cause) {
+      const rollback = changed ? { items: prev.items, counts: prev.counts } : {};
+      this.store.patch({ ...rollback, error: asChimelyError(cause) });
+      this.reconcileAfterFailedMutation();
+    }
+  }
+
+  /** Flip an item back to unread. The override survives mark-all-read. */
+  async markUnread(item: { id: InboxItemId; source: InboxItemSource }): Promise<void> {
+    const prev = this.store.getSnapshot();
+    const target = prev.items.find((candidate) => candidate.id === item.id);
+    const changed = target?.read === true;
+    if (changed) {
+      this.store.patch({
+        items: prev.items.map((candidate) =>
+          candidate.id === item.id ? { ...candidate, read: false } : candidate,
+        ),
+        counts: { ...prev.counts, unread: prev.counts.unread + 1 },
+      });
+    }
+    const path =
+      item.source === 'notification'
+        ? `/v1/inbox/notifications/${encodeURIComponent(item.id)}/unread`
+        : `/v1/inbox/broadcasts/${encodeURIComponent(item.id)}/unread`;
     try {
       await this.http('POST', path);
       this.clearError();
@@ -300,25 +361,36 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
   }
 
   private async doRefresh(): Promise<void> {
+    const generation = this.viewGeneration;
     this.store.patch({ isLoading: true });
     try {
-      const listPath = `/v1/inbox/items?limit=${this.pageSize}`;
+      const listPath = `/v1/inbox/items?limit=${this.pageSize}${this.filterParam()}`;
       const [pageResponse, countsResponse] = await Promise.all([
         this.http('GET', listPath, { ifNoneMatch: this.etag }),
         this.http('GET', '/v1/inbox/counts'),
       ]);
+      const counts = (await countsResponse.json()) as WireCounts;
+      const page =
+        pageResponse.status === 200 ? ((await pageResponse.json()) as WireInboxPage) : null;
+      if (generation !== this.viewGeneration) {
+        // The rerun queued by setFilter's refresh() call reloads the new
+        // view and clears isLoading.
+        return;
+      }
       const patch: Partial<InboxSnapshot<TPayload>> = {
-        counts: (await countsResponse.json()) as WireCounts,
+        counts,
         isLoading: false,
         error: null,
       };
-      if (pageResponse.status === 200) {
+      if (page !== null) {
         this.etag = pageResponse.headers.get('ETag');
-        const page = (await pageResponse.json()) as WireInboxPage;
         Object.assign(patch, this.mergeFirstPage(page));
       }
       this.store.patch(patch);
     } catch (cause) {
+      if (generation !== this.viewGeneration) {
+        return;
+      }
       this.store.patch({ isLoading: false, error: asChimelyError(cause) });
     }
   }
@@ -364,15 +436,23 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
   }
 
   private async doFetchMore(limit?: number): Promise<void> {
+    const generation = this.viewGeneration;
     try {
       const params = new URLSearchParams({
         limit: String(Math.min(100, Math.max(1, limit ?? this.pageSize))),
       });
+      const filter = this.store.getSnapshot().filter ?? 'default';
+      if (filter !== 'default') {
+        params.set('filter', filter);
+      }
       if (this.cursor !== null) {
         params.set('cursor', this.cursor);
       }
       const response = await this.http('GET', `/v1/inbox/items?${params.toString()}`);
       const page = (await response.json()) as WireInboxPage;
+      if (generation !== this.viewGeneration) {
+        return;
+      }
       const snapshot = this.store.getSnapshot();
       const loaded = new Set(snapshot.items.map((item) => item.id));
       const appended = page.items
@@ -385,6 +465,9 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
         error: null,
       });
     } catch (cause) {
+      if (generation !== this.viewGeneration) {
+        return;
+      }
       this.store.patch({ error: asChimelyError(cause) });
     }
   }

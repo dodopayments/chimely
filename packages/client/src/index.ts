@@ -16,6 +16,7 @@ export type {
   ConnectionStatus,
   EventSourceLike,
   InboxCounts,
+  InboxFilterView,
   InboxItem,
   InboxItemId,
   InboxItemSource,

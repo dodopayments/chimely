@@ -17,6 +17,7 @@ interface NotificationListProps<TPayload> extends ItemRenderProps<TPayload> {
   /** ARIA tabpanel linkage, set when a tab strip controls the list. */
   panel?: { id: string; labelledBy: string };
   markRead: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
+  markUnread: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
   onItem: (item: InboxItem<TPayload>) => void;
   cls: (slot: InboxSlot) => string;
   strings: Required<InboxLocalization>;
@@ -34,7 +35,18 @@ interface NotificationListProps<TPayload> extends ItemRenderProps<TPayload> {
 
 /** Scrolling list with the infinite-scroll sentinel. Internal to the package. */
 export function NotificationList<TPayload>(props: NotificationListProps<TPayload>): ReactNode {
-  const { items, hasMore, fetchMore, error, markRead, onItem, cls, strings, newItemIds } = props;
+  const {
+    items,
+    hasMore,
+    fetchMore,
+    error,
+    markRead,
+    markUnread,
+    onItem,
+    cls,
+    strings,
+    newItemIds,
+  } = props;
   const listRef = useRef<HTMLUListElement | null>(null);
   const sentinelRef = useRef<HTMLLIElement | null>(null);
   const pendingNewIds = useRef<Set<InboxItemId>>(new Set());
@@ -148,7 +160,6 @@ export function NotificationList<TPayload>(props: NotificationListProps<TPayload
   };
 
   // The loop advances when fetchMore settles, not on render timing: a page
-
   // can land and re-render before the client clears its in-flight coalescing
   // guard, which would stall a purely render-driven drain. The error gate
   // pauses the drain after a failed fetch, otherwise the still-visible
@@ -210,24 +221,42 @@ export function NotificationList<TPayload>(props: NotificationListProps<TPayload
                     markRead: () => markRead({ id: item.id, source: item.source }),
                   })
                 ) : (
-                  <DefaultItem
-                    item={item}
-                    className={item.read ? cls('item') : `${cls('item')} ${cls('itemUnread')}`}
-                    style={
-                      item.read
-                        ? slotStyle(props.appearance, 'item')
-                        : slotStyle(
-                            props.appearance,
-                            'itemUnread',
-                            slotStyle(props.appearance, 'item'),
-                          )
-                    }
-                    formatTimestamp={strings.formatTimestamp}
-                    onClick={() => onItem(item)}
-                    renderSubject={props.renderSubject}
-                    renderBody={props.renderBody}
-                    renderAvatar={props.renderAvatar}
-                  />
+                  <>
+                    <DefaultItem
+                      item={item}
+                      className={item.read ? cls('item') : `${cls('item')} ${cls('itemUnread')}`}
+                      style={
+                        item.read
+                          ? slotStyle(props.appearance, 'item')
+                          : slotStyle(
+                              props.appearance,
+                              'itemUnread',
+                              slotStyle(props.appearance, 'item'),
+                            )
+                      }
+                      formatTimestamp={strings.formatTimestamp}
+                      onClick={() => onItem(item)}
+                      renderSubject={props.renderSubject}
+                      renderBody={props.renderBody}
+                      renderAvatar={props.renderAvatar}
+                    />
+                    {/* Sibling of the item button, not a child: a button
+                        cannot nest inside a button. Revealed on row hover. */}
+                    <span className="chimely-item-actions">
+                      <button
+                        type="button"
+                        className="chimely-item-action"
+                        aria-label={item.read ? strings.markUnreadAction : strings.markReadAction}
+                        title={item.read ? strings.markUnreadAction : strings.markReadAction}
+                        onClick={() => {
+                          const flip = item.read ? markUnread : markRead;
+                          void flip({ id: item.id, source: item.source });
+                        }}
+                      >
+                        {item.read ? '\u25cf' : '\u2713'}
+                      </button>
+                    </span>
+                  </>
                 )}
               </li>
             ))}

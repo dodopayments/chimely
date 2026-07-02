@@ -64,6 +64,9 @@ export interface Preference {
   enabled: boolean;
 }
 
+/** Server-side list views. The union widens (never narrows) as views land. */
+export type InboxFilterView = 'default' | 'unread';
+
 export type ConnectionStatus =
   | 'idle' // constructed, connect() not yet called
   | 'connecting' // first SSE attempt in flight
@@ -157,4 +160,10 @@ export interface InboxSnapshot<TPayload = WellKnownPayload> {
    * client always populates it.
    */
   lastRefreshNewItemIds?: ReadonlyArray<InboxItemId>;
+  /**
+   * The active server-side view. Changed by setFilter, which resets
+   * pagination and refetches. Optional in the type for older snapshot
+   * literals; the client always populates it.
+   */
+  filter?: InboxFilterView;
 }

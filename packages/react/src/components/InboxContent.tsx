@@ -1,4 +1,4 @@
-import type { InboxItem, WellKnownPayload } from '@chimely/client';
+import type { InboxFilterView, InboxItem, WellKnownPayload } from '@chimely/client';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { useEffect, useId, useMemo, useState } from 'react';
 import type { InboxAppearance, InboxSlot } from '../appearance';
@@ -67,9 +67,12 @@ export function InboxContent<TPayload = WellKnownPayload>(
     error,
     hasMore,
     lastRefreshNewItemIds,
+    filter,
     fetchMore,
     markRead,
+    markUnread,
     markAllRead,
+    setFilter,
   } = useNotifications<TPayload>();
   const [showPreferences, setShowPreferences] = useState(false);
   const [activeTabIndex, setActiveTabIndex] = useState(0);
@@ -184,6 +187,18 @@ export function InboxContent<TPayload = WellKnownPayload>(
               {strings.inboxTitle}
             </span>
             <div className="chimely-header-actions">
+              <select
+                className={cls('filter')}
+                style={slotStyle(props.appearance, 'filter')}
+                aria-label={strings.filterLabel}
+                value={filter}
+                onChange={(event) => {
+                  void setFilter(event.target.value as InboxFilterView);
+                }}
+              >
+                <option value="default">{strings.filterInbox}</option>
+                <option value="unread">{strings.filterUnread}</option>
+              </select>
               <button
                 type="button"
                 className="chimely-header-action"
@@ -255,6 +270,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
           error={error}
           panel={hasTabs ? { id: panelId, labelledBy: tabId(activeIndex) } : undefined}
           markRead={markRead}
+          markUnread={markUnread}
           onItem={handleItemClick}
           cls={cls}
           strings={strings}

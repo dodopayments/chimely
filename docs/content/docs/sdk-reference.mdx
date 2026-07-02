@@ -88,6 +88,19 @@ notifications" pill overlays the list top instead of yanking the viewport;
 clicking it scrolls back up. The text comes from
 `localization.newNotifications`.
 
+### Read state and views
+
+Hovering a row reveals a read/unread toggle; items marked unread stay unread
+even across "Mark all as read" (the override survives the watermark). The
+header's view select switches between the full inbox and unread-only, a
+server-side filter that paginates independently.
+
+The toggle buttons draw their glyph in `colorPrimary` on `colorBackground`
+with a `colorMuted` border, and each carries a `title` and `aria-label`. Both
+built-in presets keep the glyph above the WCAG contrast thresholds. Custom
+themes should keep `colorPrimary` legible against `colorBackground` (3:1 or
+better).
+
 ### Tabs
 
 ```tsx
@@ -123,6 +136,11 @@ omitted keys keep the `en-US` defaults.
 | `bellLabel` | `Notifications` | Bell button aria-label |
 | `backLabel` | `Back` | Preferences back button aria-label |
 | `categoryLabels` | `{}` | Display names for category keys in the preferences panel |
+| `filterLabel` | `View` | View select aria-label |
+| `filterInbox` | `Inbox` | Default view option |
+| `filterUnread` | `Unread` | Unread-only view option |
+| `markReadAction` | `Mark as read` | Per-item action tooltip |
+| `markUnreadAction` | `Mark as unread` | Per-item action tooltip |
 | `formatTimestamp` | relative time | `(iso) => string` for item timestamps |
 | `newNotifications` | `N new notifications` | `(count) => string` |
 
@@ -177,10 +195,14 @@ useNotifications(options?: { pageSize?: number }): {
   isLoading: boolean;
   error: ChimelyError | null;
   hasMore: boolean;
+  lastRefreshNewItemIds: ReadonlyArray<InboxItemId>;
+  filter: InboxFilterView;                  // 'default' | 'unread'
   fetchMore: () => Promise<void>;
   refresh: () => Promise<void>;
   markRead: (item: { id; source }) => Promise<void>;
+  markUnread: (item: { id; source }) => Promise<void>;
   markAllRead: () => Promise<void>;
+  setFilter: (filter: InboxFilterView) => Promise<void>;
 }
 
 useUnreadCount(): { count: number; isLoading: boolean; error: ChimelyError | null }

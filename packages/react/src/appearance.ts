@@ -17,6 +17,7 @@ export type InboxSlot =
   | 'empty'
   | 'footer'
   | 'pill'
+  | 'filter'
   | 'preferences';
 
 /**
