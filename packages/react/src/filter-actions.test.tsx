@@ -94,12 +94,18 @@ describe('filter view select', () => {
     const stub = createStubServer();
     stub.addNotification();
     await renderInbox(stub, {
-      localization: { filterLabel: 'Ansicht', filterInbox: 'Alle', filterUnread: 'Ungelesen' },
+      localization: {
+        filterLabel: 'Ansicht',
+        filterInbox: 'Alle',
+        filterUnread: 'Ungelesen',
+        filterArchived: 'Archiviert',
+      },
     });
     const select = screen.getByRole('combobox', { name: 'Ansicht' });
     expect([...select.querySelectorAll('option')].map((o) => o.textContent)).toEqual([
       'Alle',
       'Ungelesen',
+      'Archiviert',
     ]);
   });
 });

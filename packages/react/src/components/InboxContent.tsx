@@ -1,6 +1,6 @@
 import type { InboxFilterView, InboxItem, WellKnownPayload } from '@chimely/client';
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { InboxAppearance, InboxSlot } from '../appearance';
 import { slotClass, slotStyle, variablesToStyle } from '../appearance';
 import { useNotifications } from '../hooks';
@@ -66,8 +66,14 @@ export function InboxContent<TPayload = WellKnownPayload>(
     markRead,
     markUnread,
     markAllRead,
+    archive,
+    unarchive,
+    archiveAll,
+    archiveRead,
     setFilter,
   } = useNotifications<TPayload>();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const [showPreferences, setShowPreferences] = useState(false);
   const [activeTabIndex, setActiveTabIndex] = useState(0);
 
@@ -88,6 +94,21 @@ export function InboxContent<TPayload = WellKnownPayload>(
   useEffect(() => {
     ensureStyles();
   }, []);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return undefined;
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && menuRef.current?.contains(event.target) !== true) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+    };
+  }, [menuOpen]);
 
   const handleItemClick = (item: InboxItem<TPayload>) => {
     if (props.onItemClick?.(item) === false) {
@@ -140,16 +161,55 @@ export function InboxContent<TPayload = WellKnownPayload>(
               >
                 <option value="default">{strings.filterInbox}</option>
                 <option value="unread">{strings.filterUnread}</option>
+                <option value="archived">{strings.filterArchived}</option>
               </select>
-              <button
-                type="button"
-                className="chimely-header-action"
-                onClick={() => {
-                  void markAllRead();
-                }}
-              >
-                {strings.markAllRead}
-              </button>
+              <div className="chimely-header-menu" ref={menuRef}>
+                <button
+                  type="button"
+                  className="chimely-header-action"
+                  aria-label={strings.moreActions}
+                  title={strings.moreActions}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  onClick={() => setMenuOpen((open) => !open)}
+                >
+                  {'\u22ef'}
+                </button>
+                {menuOpen && (
+                  <div className="chimely-menu" role="menu">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        void markAllRead();
+                      }}
+                    >
+                      {strings.markAllRead}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        void archiveRead();
+                      }}
+                    >
+                      {strings.archiveReadAction}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        void archiveAll();
+                      }}
+                    >
+                      {strings.archiveAllAction}
+                    </button>
+                  </div>
+                )}
+              </div>
               {props.preferencesPanel !== false && (
                 <button
                   type="button"
@@ -207,6 +267,8 @@ export function InboxContent<TPayload = WellKnownPayload>(
           fetchMore={fetchMore}
           markRead={markRead}
           markUnread={markUnread}
+          archive={archive}
+          unarchive={unarchive}
           onItem={handleItemClick}
           cls={cls}
           strings={strings}

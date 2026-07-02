@@ -55,6 +55,11 @@ export interface UseNotificationsResult<TPayload = WellKnownPayload> {
   markRead: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
   markUnread: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
   markAllRead: () => Promise<void>;
+  archive: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
+  unarchive: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
+  archiveAll: () => Promise<void>;
+  /** Archive every currently read item. Asynchronous server-side. */
+  archiveRead: () => Promise<void>;
   /** Switch the server-side view. Resets pagination and refetches. */
   setFilter: (filter: InboxFilterView) => Promise<void>;
 }
@@ -80,6 +85,16 @@ export function useNotifications<TPayload = WellKnownPayload>(
     [client],
   );
   const markAllRead = useCallback(() => client.markAllRead(), [client]);
+  const archive = useCallback(
+    (item: { id: InboxItemId; source: InboxItemSource }) => client.archive(item),
+    [client],
+  );
+  const unarchive = useCallback(
+    (item: { id: InboxItemId; source: InboxItemSource }) => client.unarchive(item),
+    [client],
+  );
+  const archiveAll = useCallback(() => client.archiveAll(), [client]);
+  const archiveRead = useCallback(() => client.archiveRead(), [client]);
   const setFilter = useCallback((filter: InboxFilterView) => client.setFilter(filter), [client]);
   return {
     items: snapshot.items,
@@ -93,6 +108,10 @@ export function useNotifications<TPayload = WellKnownPayload>(
     markRead,
     markUnread,
     markAllRead,
+    archive,
+    unarchive,
+    archiveAll,
+    archiveRead,
     setFilter,
   };
 }

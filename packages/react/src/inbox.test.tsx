@@ -511,12 +511,13 @@ describe('timestamps', () => {
 });
 
 describe('header actions', () => {
-  test('mark all read uses the localized label and hits read-all', async () => {
+  test('mark all read lives in the more-actions menu and hits read-all', async () => {
     const stub = createStubServer();
     stub.addNotification();
     const { client } = await renderInbox(stub, { localization: { markAllRead: 'Tout lire' } });
     fireEvent.click(bell());
 
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     fireEvent.click(screen.getByText('Tout lire'));
     await waitFor(() => {
       expect(stub.requestsFor('/v1/inbox/read-all')).toHaveLength(1);

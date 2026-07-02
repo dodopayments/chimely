@@ -25,10 +25,22 @@ export interface InboxLocalization {
   filterInbox?: string;
   /** Unread-only view option. */
   filterUnread?: string;
+  /** Archived view option. */
+  filterArchived?: string;
   /** Per-item action tooltip. */
   markReadAction?: string;
   /** Per-item action tooltip. */
   markUnreadAction?: string;
+  /** Per-item action tooltip. */
+  archiveAction?: string;
+  /** Per-item action tooltip. */
+  unarchiveAction?: string;
+  /** Header menu trigger aria-label. */
+  moreActions?: string;
+  /** Header menu entry. */
+  archiveAllAction?: string;
+  /** Header menu entry. */
+  archiveReadAction?: string;
   /**
    * Display names for category keys in the preferences panel.
    * Merged by whole-map replacement, not per key.
@@ -50,8 +62,14 @@ export const DEFAULT_LOCALIZATION: Required<InboxLocalization> = {
   filterLabel: 'View',
   filterInbox: 'Inbox',
   filterUnread: 'Unread',
+  filterArchived: 'Archived',
   markReadAction: 'Mark as read',
   markUnreadAction: 'Mark as unread',
+  archiveAction: 'Archive',
+  unarchiveAction: 'Unarchive',
+  moreActions: 'More actions',
+  archiveAllAction: 'Archive all',
+  archiveReadAction: 'Archive read',
   categoryLabels: {},
   formatTimestamp: (iso) => formatRelativeTime(iso),
 };

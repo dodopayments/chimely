@@ -14,6 +14,8 @@ interface NotificationListProps<TPayload> extends ItemRenderProps<TPayload> {
   fetchMore: () => Promise<void>;
   markRead: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
   markUnread: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
+  archive: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
+  unarchive: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
   onItem: (item: InboxItem<TPayload>) => void;
   cls: (slot: InboxSlot) => string;
   strings: Required<InboxLocalization>;
@@ -31,8 +33,19 @@ interface NotificationListProps<TPayload> extends ItemRenderProps<TPayload> {
 
 /** Scrolling list with the infinite-scroll sentinel. Internal to the package. */
 export function NotificationList<TPayload>(props: NotificationListProps<TPayload>): ReactNode {
-  const { items, hasMore, fetchMore, markRead, markUnread, onItem, cls, strings, newItemIds } =
-    props;
+  const {
+    items,
+    hasMore,
+    fetchMore,
+    markRead,
+    markUnread,
+    archive,
+    unarchive,
+    onItem,
+    cls,
+    strings,
+    newItemIds,
+  } = props;
   const listRef = useRef<HTMLUListElement | null>(null);
   const sentinelRef = useRef<HTMLLIElement | null>(null);
   const pendingNewIds = useRef<Set<InboxItemId>>(new Set());
@@ -200,6 +213,22 @@ export function NotificationList<TPayload>(props: NotificationListProps<TPayload
                         }}
                       >
                         {item.read ? '\u25cf' : '\u2713'}
+                      </button>
+                      <button
+                        type="button"
+                        className="chimely-item-action"
+                        aria-label={
+                          item.archived === true ? strings.unarchiveAction : strings.archiveAction
+                        }
+                        title={
+                          item.archived === true ? strings.unarchiveAction : strings.archiveAction
+                        }
+                        onClick={() => {
+                          const flip = item.archived === true ? unarchive : archive;
+                          void flip({ id: item.id, source: item.source });
+                        }}
+                      >
+                        {item.archived === true ? '\u21a5' : '\u21a7'}
                       </button>
                     </span>
                   </>

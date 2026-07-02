@@ -87,6 +87,37 @@ export const INBOX_CSS = `
   gap: 4px;
   margin-left: auto;
 }
+.chimely-header-menu {
+  position: relative;
+  display: inline-flex;
+}
+.chimely-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--chimely-colorBackground, #ffffff);
+  border: 1px solid var(--chimely-colorMuted, #e5e7eb);
+  border-radius: var(--chimely-borderRadius, 8px);
+  box-shadow: var(--chimely-shadow, 0 8px 24px rgba(0, 0, 0, 0.12));
+  z-index: 2;
+}
+.chimely-menu button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: var(--chimely-borderRadius, 8px);
+  cursor: pointer;
+}
+.chimely-menu button:hover {
+  background: var(--chimely-colorMuted, #f3f4f6);
+}
 .chimely-filter {
   border: none;
   background: transparent;

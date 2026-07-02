@@ -48,6 +48,11 @@ export interface InboxItem<TPayload = WellKnownPayload> {
   /** Ordering timestamp (RFC 3339). visible_at for direct, created_at for broadcast. */
   occurredAt: string;
   read: boolean;
+  /**
+   * Per-item override OR at-or-below the archive watermark. Optional in the
+   * type for older item literals; the client always populates it.
+   */
+  archived?: boolean;
 }
 
 export interface InboxCounts {
@@ -65,7 +70,7 @@ export interface Preference {
 }
 
 /** Server-side list views. The union widens (never narrows) as views land. */
-export type InboxFilterView = 'default' | 'unread';
+export type InboxFilterView = 'default' | 'unread' | 'archived';
 
 export type ConnectionStatus =
   | 'idle' // constructed, connect() not yet called

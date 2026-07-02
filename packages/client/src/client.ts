@@ -29,6 +29,7 @@ function toItem<TPayload>(wire: WireInboxItem): InboxItem<TPayload> {
     payload: wire.payload as TPayload,
     occurredAt: wire.occurred_at,
     read: wire.read,
+    archived: wire.archived,
   };
 }
 
@@ -258,6 +259,100 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
       const rollback = changed ? { items: prev.items, counts: prev.counts } : {};
       this.store.patch({ ...rollback, error: asChimelyError(cause) });
       this.reconcileAfterFailedMutation();
+    }
+  }
+
+  /**
+   * Archive an item. It leaves the current view optimistically (except the
+   * archived view, which cannot contain it) and an unread item leaves the
+   * count. Read state is untouched.
+   */
+  async archive(item: { id: InboxItemId; source: InboxItemSource }): Promise<void> {
+    const prev = this.store.getSnapshot();
+    const target = prev.items.find((candidate) => candidate.id === item.id);
+    const changed = target !== undefined && (prev.filter ?? 'default') !== 'archived';
+    if (changed) {
+      this.store.patch({
+        items: prev.items.filter((candidate) => candidate.id !== item.id),
+        counts: {
+          ...prev.counts,
+          unread: target.read ? prev.counts.unread : Math.max(0, prev.counts.unread - 1),
+        },
+      });
+    }
+    const path =
+      item.source === 'notification'
+        ? `/v1/inbox/notifications/${encodeURIComponent(item.id)}/archive`
+        : `/v1/inbox/broadcasts/${encodeURIComponent(item.id)}/archive`;
+    try {
+      await this.http('POST', path);
+      this.clearError();
+    } catch (cause) {
+      const rollback = changed ? { items: prev.items, counts: prev.counts } : {};
+      this.store.patch({ ...rollback, error: asChimelyError(cause) });
+      this.reconcileAfterFailedMutation();
+    }
+  }
+
+  /** Return an item to the inbox. The override survives archive-all. */
+  async unarchive(item: { id: InboxItemId; source: InboxItemSource }): Promise<void> {
+    const prev = this.store.getSnapshot();
+    const target = prev.items.find((candidate) => candidate.id === item.id);
+    const changed = target !== undefined && (prev.filter ?? 'default') === 'archived';
+    if (changed) {
+      this.store.patch({
+        items: prev.items.filter((candidate) => candidate.id !== item.id),
+        counts: {
+          ...prev.counts,
+          unread: target.read ? prev.counts.unread : prev.counts.unread + 1,
+        },
+      });
+    }
+    const path =
+      item.source === 'notification'
+        ? `/v1/inbox/notifications/${encodeURIComponent(item.id)}/unarchive`
+        : `/v1/inbox/broadcasts/${encodeURIComponent(item.id)}/unarchive`;
+    try {
+      await this.http('POST', path);
+      this.clearError();
+    } catch (cause) {
+      const rollback = changed ? { items: prev.items, counts: prev.counts } : {};
+      this.store.patch({ ...rollback, error: asChimelyError(cause) });
+      this.reconcileAfterFailedMutation();
+    }
+  }
+
+  /** Watermark move server-side. Optimistically archives everything locally. */
+  async archiveAll(): Promise<void> {
+    const prev = this.store.getSnapshot();
+    this.store.patch({
+      items: (prev.filter ?? 'default') === 'archived' ? prev.items : [],
+      counts: { ...prev.counts, unread: 0 },
+    });
+    try {
+      const response = await this.http('POST', '/v1/inbox/archive-all');
+      const counts = (await response.json()) as WireCounts;
+      this.store.patch({
+        counts: { ...this.store.getSnapshot().counts, unread: counts.unread },
+        error: null,
+      });
+    } catch (cause) {
+      this.store.patch({ items: prev.items, counts: prev.counts, error: asChimelyError(cause) });
+      this.reconcileAfterFailedMutation();
+    }
+  }
+
+  /**
+   * Archive every currently read item. Runs asynchronously server-side; the
+   * snapshot converges via the completion hint, so there is no optimistic
+   * patch.
+   */
+  async archiveRead(): Promise<void> {
+    try {
+      await this.http('POST', '/v1/inbox/archive-read');
+      this.clearError();
+    } catch (cause) {
+      this.store.patch({ error: asChimelyError(cause) });
     }
   }
 

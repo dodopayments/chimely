@@ -84,10 +84,13 @@ clicking it scrolls back up. The text comes from
 
 ### Read state and views
 
-Hovering a row reveals a read/unread toggle; items marked unread stay unread
-even across "Mark all as read" (the override survives the watermark). The
-header's view select switches between the full inbox and unread-only, a
-server-side filter that paginates independently.
+Hovering a row reveals read/unread and archive/unarchive toggles; items
+marked unread stay unread even across "Mark all as read" (the override
+survives the watermark), and archiving never changes read state. The header's
+view select switches between the full inbox, unread-only, and archived, all
+server-side filters that paginate independently. A more-actions menu in the
+header carries mark-all-read, archive-read (asynchronous server-side), and
+archive-all.
 
 ### Tabs
 
@@ -129,6 +132,12 @@ omitted keys keep the `en-US` defaults.
 | `filterUnread` | `Unread` | Unread-only view option |
 | `markReadAction` | `Mark as read` | Per-item action tooltip |
 | `markUnreadAction` | `Mark as unread` | Per-item action tooltip |
+| `filterArchived` | `Archived` | Archived view option |
+| `archiveAction` | `Archive` | Per-item action tooltip |
+| `unarchiveAction` | `Unarchive` | Per-item action tooltip |
+| `moreActions` | `More actions` | Header menu trigger aria-label |
+| `archiveAllAction` | `Archive all` | Header menu entry |
+| `archiveReadAction` | `Archive read` | Header menu entry |
 | `formatTimestamp` | relative time | `(iso) => string` for item timestamps |
 | `newNotifications` | `N new notifications` | `(count) => string` |
 
@@ -184,12 +193,16 @@ useNotifications(options?: { pageSize?: number }): {
   error: ChimelyError | null;
   hasMore: boolean;
   lastRefreshNewItemIds: ReadonlyArray<InboxItemId>;
-  filter: InboxFilterView;                  // 'default' | 'unread'
+  filter: InboxFilterView;                  // 'default' | 'unread' | 'archived'
   fetchMore: () => Promise<void>;
   refresh: () => Promise<void>;
   markRead: (item: { id; source }) => Promise<void>;
   markUnread: (item: { id; source }) => Promise<void>;
   markAllRead: () => Promise<void>;
+  archive: (item: { id; source }) => Promise<void>;
+  unarchive: (item: { id; source }) => Promise<void>;
+  archiveAll: () => Promise<void>;
+  archiveRead: () => Promise<void>;         // async server-side, converges via hint
   setFilter: (filter: InboxFilterView) => Promise<void>;
 }
 
