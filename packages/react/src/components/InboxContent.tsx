@@ -1,6 +1,6 @@
 import type { InboxItem, WellKnownPayload } from '@chimely/client';
-import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import type { InboxAppearance, InboxSlot } from '../appearance';
 import { slotClass, variablesToStyle } from '../appearance';
 import { useNotifications } from '../hooks';
@@ -14,12 +14,25 @@ import { NotificationList } from './NotificationList';
 import { Preferences } from './Preferences';
 
 /**
+ * One tab of the inbox list. The filter runs client-side over loaded items.
+ * Omitting it shows everything. Unread counts per tab cover loaded pages
+ * only.
+ */
+export interface InboxTab<TPayload = WellKnownPayload> {
+  label: string;
+  icon?: ReactNode;
+  filter?: (item: InboxItem<TPayload>) => boolean;
+}
+
+/**
  * The popover interior without the bell or the popover shell: header,
  * notification list, preferences view, and footer. For custom popovers,
  * drawers, and full-page inboxes inside a ChimelyProvider. Custom containers
  * own the open state and call client.markAllSeen() when they open.
  */
 export interface InboxContentProps<TPayload = WellKnownPayload> extends ItemRenderProps<TPayload> {
+  /** Tab strip between header and list. Omit for the untabbed inbox. */
+  tabs?: ReadonlyArray<InboxTab<TPayload>>;
   appearance?: InboxAppearance;
   localization?: Partial<InboxLocalization>;
   /**
@@ -48,9 +61,20 @@ export interface InboxContentProps<TPayload = WellKnownPayload> extends ItemRend
 export function InboxContent<TPayload = WellKnownPayload>(
   props: InboxContentProps<TPayload>,
 ): ReactNode {
-  const { items, isLoading, hasMore, fetchMore, markRead, markAllRead } =
+  const { items, isLoading, error, hasMore, fetchMore, markRead, markAllRead } =
     useNotifications<TPayload>();
   const [showPreferences, setShowPreferences] = useState(false);
+  const [activeTabIndex, setActiveTabIndex] = useState(0);
+
+  const tabs = props.tabs;
+  const hasTabs = tabs !== undefined && tabs.length > 0;
+  const activeIndex = hasTabs ? Math.min(activeTabIndex, tabs.length - 1) : 0;
+  const activeFilter = hasTabs ? tabs[activeIndex]?.filter : undefined;
+  const visibleItems = activeFilter ? items.filter(activeFilter) : items;
+
+  const idBase = useId();
+  const panelId = `${idBase}-panel`;
+  const tabId = (index: number): string => `${idBase}-tab-${index}`;
 
   const strings = mergeLocalization(props.localization);
   const classNames = props.appearance?.classNames;
@@ -60,6 +84,34 @@ export function InboxContent<TPayload = WellKnownPayload>(
   useEffect(() => {
     ensureStyles();
   }, []);
+
+  // Roving tabindex with automatic activation per the ARIA tabs pattern.
+  // Arrows wrap, Home and End jump, and the moved-to tab is selected.
+  const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (!hasTabs) {
+      return;
+    }
+    let next: number;
+    switch (event.key) {
+      case 'ArrowRight':
+        next = (index + 1) % tabs.length;
+        break;
+      case 'ArrowLeft':
+        next = (index - 1 + tabs.length) % tabs.length;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = tabs.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    setActiveTabIndex(next);
+    document.getElementById(tabId(next))?.focus();
+  };
 
   const handleItemClick = (item: InboxItem<TPayload>) => {
     if (props.onItemClick?.(item) === false) {
@@ -129,17 +181,52 @@ export function InboxContent<TPayload = WellKnownPayload>(
           </>
         )}
       </div>
+      {hasTabs && !showPreferences && (
+        <div className={cls('tabs')} role="tablist">
+          {tabs.map((tab, index) => {
+            const unread = (tab.filter ? items.filter(tab.filter) : items).filter(
+              (item) => !item.read,
+            ).length;
+            return (
+              <button
+                // biome-ignore lint/suspicious/noArrayIndexKey: tabs are a static configuration list
+                key={`${index}-${tab.label}`}
+                type="button"
+                role="tab"
+                id={tabId(index)}
+                aria-selected={index === activeIndex}
+                aria-controls={panelId}
+                tabIndex={index === activeIndex ? 0 : -1}
+                className={index === activeIndex ? `${cls('tab')} ${cls('tabActive')}` : cls('tab')}
+                onClick={() => setActiveTabIndex(index)}
+                onKeyDown={(event) => handleTabKeyDown(event, index)}
+              >
+                {tab.icon}
+                <span>{tab.label}</span>
+                {unread > 0 && (
+                  <span className="chimely-tab-count">{unread > 99 ? '99+' : unread}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
       {showPreferences ? (
         <Preferences appearance={props.appearance} localization={props.localization} />
       ) : (
         <NotificationList
-          items={items}
+          // Remount on tab switch: resets scroll and the sentinel fill loop.
+          key={activeIndex}
+          items={visibleItems}
           hasMore={hasMore}
           fetchMore={fetchMore}
+          error={error}
+          panel={hasTabs ? { id: panelId, labelledBy: tabId(activeIndex) } : undefined}
           markRead={markRead}
           onItem={handleItemClick}
           cls={cls}
           strings={strings}
+          deferEmpty={activeFilter !== undefined && hasMore}
           renderItem={props.renderItem}
           renderEmpty={props.renderEmpty}
           renderSubject={props.renderSubject}

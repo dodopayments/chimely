@@ -208,6 +208,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
       aria-labelledby={titleId}
     >
       <InboxContent<TPayload>
+        tabs={props.tabs}
         appearance={props.appearance}
         localization={props.localization}
         titleId={titleId}

@@ -106,6 +106,46 @@ export const INBOX_CSS = `
   outline: 2px solid var(--chimely-colorPrimary, #1264FF);
   outline-offset: 2px;
 }
+.chimely-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--chimely-colorMuted, #e5e7eb);
+  overflow-x: auto;
+}
+.chimely-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--chimely-borderRadius, 8px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chimely-tab:hover {
+  background: var(--chimely-colorMuted, #f3f4f6);
+}
+.chimely-tab-active {
+  color: var(--chimely-colorPrimary, #1264FF);
+  box-shadow: inset 0 -2px 0 var(--chimely-colorPrimary, #1264FF);
+}
+.chimely-tab-count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--chimely-colorBadge, #1264FF);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
 .chimely-list {
   flex: 1;
   overflow-y: auto;

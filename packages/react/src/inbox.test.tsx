@@ -614,7 +614,7 @@ describe('appearance', () => {
 });
 
 describe('infinite scroll', () => {
-  test('the end sentinel pages in more items via fetchMore', async () => {
+  test('a visible end sentinel drains pages until the inbox is exhausted', async () => {
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
     const stub = createStubServer();
     for (let i = 0; i < 5; i += 1) {
@@ -625,16 +625,166 @@ describe('infinite scroll', () => {
     expect(client.getSnapshot().items).toHaveLength(2);
     expect(MockIntersectionObserver.instances.length).toBeGreaterThan(0);
 
-    MockIntersectionObserver.intersect();
-    await waitFor(() => {
-      expect(client.getSnapshot().items).toHaveLength(4);
-    });
-
+    // The mock never reports the sentinel leaving, so one intersection
+    // drives the fill loop through every remaining page.
     MockIntersectionObserver.intersect();
     await waitFor(() => {
       expect(client.getSnapshot().items).toHaveLength(5);
     });
     expect(client.getSnapshot().hasMore).toBe(false);
+  });
+
+  test('a failed page fetch pauses the drain until the client recovers', async () => {
+    vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
+    const stub = createStubServer();
+    for (let i = 0; i < 5; i += 1) {
+      stub.addNotification();
+    }
+    const { client } = await renderInbox(stub, {}, { pageSize: 2 });
+    fireEvent.click(bell());
+    // Let the open-gesture markAllSeen settle so its success cannot clear
+    // the injected error mid-test.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    stub.failNext('GET', '/v1/inbox/items', { status: 500, code: 'internal' });
+    MockIntersectionObserver.intersect();
+    await waitFor(() => {
+      expect(client.getSnapshot().error).not.toBeNull();
+    });
+
+    // The sentinel is still visible but the error gate holds the loop.
+    const requestsAfterFailure = stub.requestsFor('/v1/inbox/items').length;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(stub.requestsFor('/v1/inbox/items')).toHaveLength(requestsAfterFailure);
+    expect(client.getSnapshot().items).toHaveLength(2);
+
+    // A hint-driven refresh succeeds, clears the error, and the drain resumes.
+    stub.emitHint();
+    await waitFor(() => {
+      expect(client.getSnapshot().items).toHaveLength(5);
+    });
+    expect(client.getSnapshot().hasMore).toBe(false);
+  });
+});
+
+describe('tabs', () => {
+  const TABS = [
+    { label: 'All' },
+    {
+      label: 'Billing',
+      filter: (item: { category: string }) => item.category === 'billing.alerts',
+    },
+  ];
+
+  test('renders the strip, filters the list, and counts unread per tab', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.alerts', payload: { title: 'invoice' } });
+    stub.addNotification({ category: 'system', payload: { title: 'maintenance' } });
+    stub.addNotification({ category: 'system', payload: { title: 'seen one' }, read: true });
+    await renderInbox(stub, { tabs: TABS });
+    fireEvent.click(bell());
+
+    const tabButtons = screen.getAllByRole('tab');
+    expect(tabButtons.map((t) => t.textContent)).toEqual(['All2', 'Billing1']);
+    expect(tabButtons[0]?.getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByText('maintenance')).toBeDefined();
+
+    // Tabs control the list panel and the panel is labelled by the active tab.
+    const panel = screen.getByRole('tabpanel');
+    expect(tabButtons[0]?.getAttribute('aria-controls')).toBe(panel.id);
+    expect(tabButtons[1]?.getAttribute('aria-controls')).toBe(panel.id);
+    expect(panel.getAttribute('aria-labelledby')).toBe(tabButtons[0]?.id);
+
+    fireEvent.click(screen.getByRole('tab', { name: /Billing/ }));
+    expect(screen.getByText('invoice')).toBeDefined();
+    expect(screen.queryByText('maintenance')).toBeNull();
+    expect(screen.getByRole('tab', { name: /Billing/ }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(tabButtons[1]?.id);
+  });
+
+  test('arrow keys move focus and selection with a roving tabindex', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.alerts', payload: { title: 'invoice' } });
+    stub.addNotification({ category: 'system', payload: { title: 'maintenance' } });
+    await renderInbox(stub, { tabs: TABS });
+    fireEvent.click(bell());
+
+    const [all, billing] = screen.getAllByRole('tab');
+    expect(all?.tabIndex).toBe(0);
+    expect(billing?.tabIndex).toBe(-1);
+
+    all?.focus();
+    fireEvent.keyDown(all as HTMLElement, { key: 'ArrowRight' });
+    expect(billing?.getAttribute('aria-selected')).toBe('true');
+    expect(billing?.tabIndex).toBe(0);
+    expect(all?.tabIndex).toBe(-1);
+    expect(document.activeElement).toBe(billing);
+    expect(screen.getByText('invoice')).toBeDefined();
+    expect(screen.queryByText('maintenance')).toBeNull();
+
+    // Wraps from the last tab back to the first.
+    fireEvent.keyDown(billing as HTMLElement, { key: 'ArrowRight' });
+    expect(all?.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(all);
+
+    fireEvent.keyDown(all as HTMLElement, { key: 'End' });
+    expect(billing?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(billing as HTMLElement, { key: 'Home' });
+    expect(all?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  test('a sparse tab keeps fetching until its item appears', async () => {
+    vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
+    const stub = createStubServer();
+    // Newest first: five non-matching items, then the single billing item.
+    stub.addNotification({ category: 'billing.alerts', payload: { title: 'deep invoice' } });
+    for (let i = 0; i < 5; i += 1) {
+      stub.addNotification({ category: 'system' });
+    }
+    await renderInbox(stub, { tabs: TABS }, { pageSize: 2 });
+    fireEvent.click(bell());
+
+    fireEvent.click(screen.getByRole('tab', { name: /Billing/ }));
+    MockIntersectionObserver.intersect();
+    await waitFor(() => {
+      expect(screen.getByText('deep invoice')).toBeDefined();
+    });
+  });
+
+  test('a tab matching nothing drains the inbox then shows the empty state', async () => {
+    vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
+    const stub = createStubServer();
+    for (let i = 0; i < 5; i += 1) {
+      stub.addNotification({ category: 'system' });
+    }
+    const { client } = await renderInbox(
+      stub,
+      { tabs: [{ label: 'None', filter: () => false }] },
+      { pageSize: 2 },
+    );
+    fireEvent.click(bell());
+
+    // While pages remain the empty state stays hidden.
+    expect(screen.queryByText('No notifications')).toBeNull();
+    MockIntersectionObserver.intersect();
+    await waitFor(() => {
+      expect(client.getSnapshot().hasMore).toBe(false);
+    });
+    const requests = stub.requestsFor('/v1/inbox/items').length;
+    expect(screen.getByText('No notifications')).toBeDefined();
+
+    // Exhausted: no further requests are issued.
+    MockIntersectionObserver.intersect();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(stub.requestsFor('/v1/inbox/items')).toHaveLength(requests);
+  });
+
+  test('without tabs there is no tablist', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    await renderInbox(stub);
+    fireEvent.click(bell());
+    expect(screen.queryByRole('tablist')).toBeNull();
   });
 });
 
