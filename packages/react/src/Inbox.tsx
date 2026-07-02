@@ -11,7 +11,6 @@ import { Bell } from './components/Bell';
 import type { InboxContentProps } from './components/InboxContent';
 import { InboxContent } from './components/InboxContent';
 import { ChimelyContext, useChimelyClient } from './context';
-import { mergeLocalization } from './localization';
 import { ensureStyles } from './styles';
 
 export type { InboxAppearance, InboxSlot } from './appearance';
@@ -102,8 +101,8 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
   const bellRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const popoverId = useId();
+  const titleId = useId();
 
-  const strings = mergeLocalization(props.localization);
   const placement = props.placement ?? 'bottom-end';
   const placementOffset = props.placementOffset ?? 8;
   const portal = props.portal === true;
@@ -116,6 +115,12 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
     }
     props.onOpenChange?.(next);
   };
+  // Kept in a ref so the dismissal effect registers its document listeners
+  // once per open transition yet calls the latest onOpenChange closure.
+  const setOpenStateRef = useRef(setOpenState);
+  useEffect(() => {
+    setOpenStateRef.current = setOpenState;
+  });
 
   const cls = (slot: InboxSlot): string => slotClass(classNames, slot);
 
@@ -176,12 +181,12 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
       const inRoot = rootRef.current?.contains(event.target) === true;
       const inPopover = popoverRef.current?.contains(event.target) === true;
       if (!inRoot && !inPopover) {
-        setOpenState(false);
+        setOpenStateRef.current(false);
       }
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setOpenState(false);
+        setOpenStateRef.current(false);
         bellRef.current?.focus();
       }
     };
@@ -191,7 +196,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
       document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);
     };
-  });
+  }, [isOpen]);
 
   const popover = isOpen && (
     <div
@@ -200,12 +205,13 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
       className={portal ? `${cls('popover')} chimely-popover-portal` : cls('popover')}
       style={slotStyle(props.appearance, 'popover', rootStyle)}
       role="dialog"
-      aria-label={strings.inboxTitle}
+      aria-labelledby={titleId}
     >
       <InboxContent<TPayload>
         tabs={props.tabs}
         appearance={props.appearance}
         localization={props.localization}
+        titleId={titleId}
         preferencesPanel={props.preferencesPanel}
         onItemClick={props.onItemClick}
         routerPush={props.routerPush}

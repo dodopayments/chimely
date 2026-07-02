@@ -1,6 +1,6 @@
 import type { InboxFilterView, InboxItem, WellKnownPayload } from '@chimely/client';
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import type { InboxAppearance, InboxSlot } from '../appearance';
 import { slotClass, slotStyle, variablesToStyle } from '../appearance';
 import { useNotifications } from '../hooks';
@@ -14,8 +14,8 @@ import { NotificationList } from './NotificationList';
 import { Preferences } from './Preferences';
 
 /**
- * One tab of the inbox list. The filter runs client-side over loaded items;
- * omitting it shows everything. Unread counts per tab cover loaded pages
+ * One tab of the inbox list. The filter runs client-side over loaded items.
+ * Omitting it shows everything. Unread counts per tab cover loaded pages
  * only.
  */
 export interface InboxTab<TPayload = WellKnownPayload> {
@@ -35,6 +35,11 @@ export interface InboxContentProps<TPayload = WellKnownPayload> extends ItemRend
   tabs?: ReadonlyArray<InboxTab<TPayload>>;
   appearance?: InboxAppearance;
   localization?: Partial<InboxLocalization>;
+  /**
+   * Id placed on the header title element so a wrapping dialog can reference
+   * it via aria-labelledby. The title text tracks the visible view.
+   */
+  titleId?: string;
   /** Show the per-category preferences panel. Default: true. */
   preferencesPanel?: boolean;
   /**
@@ -59,6 +64,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
   const {
     items,
     isLoading,
+    error,
     hasMore,
     lastRefreshNewItemIds,
     filter,
@@ -76,6 +82,26 @@ export function InboxContent<TPayload = WellKnownPayload>(
   const activeIndex = hasTabs ? Math.min(activeTabIndex, tabs.length - 1) : 0;
   const activeFilter = hasTabs ? tabs[activeIndex]?.filter : undefined;
   const visibleItems = activeFilter ? items.filter(activeFilter) : items;
+
+  // Arrival ids restricted to the active tab so items in other tabs never
+  // bump the pill. Keyed on the merge, not on items, so later renders
+  // cannot re-emit ids the list already dismissed. Items and the filter
+  // are read from the render that carried the merge.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: recompute only per merge
+  const visibleNewItemIds = useMemo(() => {
+    if (!activeFilter || lastRefreshNewItemIds === undefined) {
+      return lastRefreshNewItemIds;
+    }
+    const byId = new Map(items.map((item) => [item.id, item]));
+    return lastRefreshNewItemIds.filter((id) => {
+      const item = byId.get(id);
+      return item !== undefined && activeFilter(item);
+    });
+  }, [lastRefreshNewItemIds]);
+
+  const idBase = useId();
+  const panelId = `${idBase}-panel`;
+  const tabId = (index: number): string => `${idBase}-tab-${index}`;
 
   const strings = mergeLocalization(props.localization);
   const classNames = props.appearance?.classNames;
@@ -123,11 +149,15 @@ export function InboxContent<TPayload = WellKnownPayload>(
             >
               ←
             </button>
-            <span className="chimely-header-title">{strings.preferencesTitle}</span>
+            <span id={props.titleId} className="chimely-header-title">
+              {strings.preferencesTitle}
+            </span>
           </>
         ) : (
           <>
-            <span className="chimely-header-title">{strings.inboxTitle}</span>
+            <span id={props.titleId} className="chimely-header-title">
+              {strings.inboxTitle}
+            </span>
             <div className="chimely-header-actions">
               <select
                 className={cls('filter')}
@@ -177,7 +207,9 @@ export function InboxContent<TPayload = WellKnownPayload>(
                 key={`${index}-${tab.label}`}
                 type="button"
                 role="tab"
+                id={tabId(index)}
                 aria-selected={index === activeIndex}
+                aria-controls={panelId}
                 className={index === activeIndex ? `${cls('tab')} ${cls('tabActive')}` : cls('tab')}
                 style={
                   index === activeIndex
@@ -205,13 +237,15 @@ export function InboxContent<TPayload = WellKnownPayload>(
           items={visibleItems}
           hasMore={hasMore}
           fetchMore={fetchMore}
+          error={error}
+          panel={hasTabs ? { id: panelId, labelledBy: tabId(activeIndex) } : undefined}
           markRead={markRead}
           markUnread={markUnread}
           onItem={handleItemClick}
           cls={cls}
           strings={strings}
           appearance={props.appearance}
-          newItemIds={lastRefreshNewItemIds}
+          newItemIds={visibleNewItemIds}
           deferEmpty={activeFilter !== undefined && hasMore}
           renderItem={props.renderItem}
           renderEmpty={props.renderEmpty}
