@@ -1137,10 +1137,12 @@ pub async fn get_subscriber(
         env,
         identity.id,
         identity.created_at,
-        DateTime::<Utc>::MAX_UTC,
-        Uuid::max(),
-        ADMIN_INBOX_PREVIEW,
-        inbox::InboxFilter::Default,
+        inbox::ListWindow {
+            cursor_ts: DateTime::<Utc>::MAX_UTC,
+            cursor_id: Uuid::max(),
+            limit: ADMIN_INBOX_PREVIEW,
+            filter: inbox::InboxFilter::Default,
+        },
     )
     .await
     .map_err(ApiError::from)?;
