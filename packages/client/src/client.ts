@@ -332,6 +332,10 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
     try {
       const response = await this.http('POST', '/v1/inbox/archive-all');
       const counts = (await response.json()) as WireCounts;
+      // Only the owned field is applied. Archive state never changes unseen
+      // server side, and the response was computed before a concurrent
+      // markAllSeen may have landed, so its unseen value would clobber that
+      // mutation's optimistic zero.
       this.store.patch({
         counts: { ...this.store.getSnapshot().counts, unread: counts.unread },
         error: null,

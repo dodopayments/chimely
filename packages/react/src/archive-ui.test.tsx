@@ -97,4 +97,22 @@ describe('more-actions menu', () => {
     fireEvent.pointerDown(document.body);
     expect(screen.queryByRole('menu')).toBeNull();
   });
+
+  test('escape closes only the menu and restores trigger focus', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    await renderInbox(stub);
+
+    const trigger = screen.getByRole('button', { name: 'More actions' });
+    fireEvent.click(trigger);
+    expect(screen.getByRole('menu')).toBeDefined();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.getByRole('dialog')).toBeDefined();
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
 });

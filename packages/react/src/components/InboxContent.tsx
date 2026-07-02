@@ -74,6 +74,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
   } = useNotifications<TPayload>();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [showPreferences, setShowPreferences] = useState(false);
   const [activeTabIndex, setActiveTabIndex] = useState(0);
 
@@ -104,9 +105,22 @@ export function InboxContent<TPayload = WellKnownPayload>(
         setMenuOpen(false);
       }
     };
+    // Capture phase plus stopPropagation runs before the popover's
+    // bubble phase Escape listener in Inbox.tsx and suppresses it, so
+    // one Escape closes only the menu and the next one the popover.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+      event.stopPropagation();
+      setMenuOpen(false);
+      menuTriggerRef.current?.focus();
+    };
     document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown, true);
     return () => {
       document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown, true);
     };
   }, [menuOpen]);
 
@@ -165,6 +179,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
               </select>
               <div className="chimely-header-menu" ref={menuRef}>
                 <button
+                  ref={menuTriggerRef}
                   type="button"
                   className="chimely-header-action"
                   aria-label={strings.moreActions}
