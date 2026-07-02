@@ -42,6 +42,11 @@ uses the context client).
 | `appearance` | `InboxAppearance` | — | CSS-variable theming + per-slot classNames |
 | `localization` | `Partial<InboxLocalization>` | — | UI text overrides |
 | `placement` | `'bottom-start' \| 'bottom-end' \| 'top-start' \| 'top-end'` | `'bottom-end'` | Popover position |
+| `placementOffset` | `number` | `8` | Distance in px between bell and popover |
+| `portal` | `boolean` | `false` | Render the popover in a `document.body` portal (fixed positioning); escapes `overflow` and `transform` ancestors |
+| `open` | `boolean` | — | Controlled open state; omit for self-managed |
+| `onOpenChange` | `(open: boolean) => void` | — | Fires on every open/close intent, controlled or not |
+| `routerPush` | `(url: string) => void` | — | SPA navigation for same-origin action URLs (called with pathname + search + hash); cross-origin still full-navigates |
 | `preferencesPanel` | `boolean` | `true` | Show per-category toggles |
 | `onItemClick` | `(item) => boolean \| void` | — | Return `false` to skip default mark-read + navigate |
 | `renderItem` | `(ctx) => ReactNode` | — | Custom item renderer |

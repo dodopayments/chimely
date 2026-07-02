@@ -248,6 +248,180 @@ describe('item click behavior', () => {
   });
 });
 
+describe('portal', () => {
+  test('portal renders the popover under document.body with theme variables', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    await renderInbox(stub, {
+      portal: true,
+      appearance: { variables: { colorPrimary: '#ff0000' } },
+    });
+    fireEvent.click(bell());
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.parentElement).toBe(document.body);
+    expect(dialog.classList.contains('chimely-popover-portal')).toBe(true);
+    expect((dialog as HTMLElement).style.getPropertyValue('--chimely-colorPrimary')).toBe(
+      '#ff0000',
+    );
+  });
+
+  test('outside click closes a portaled popover, inside click does not', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    await renderInbox(stub, { portal: true });
+    fireEvent.click(bell());
+
+    fireEvent.pointerDown(screen.getByRole('dialog'));
+    expect(screen.getByRole('dialog')).toBeDefined();
+
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  test('escape closes and refocuses the bell', async () => {
+    const stub = createStubServer();
+    await renderInbox(stub);
+    fireEvent.click(bell());
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(bell());
+  });
+});
+
+describe('controlled open', () => {
+  function controlledView(
+    client: ChimelyClient,
+    open: boolean,
+    onOpenChange: (o: boolean) => void,
+  ) {
+    return (
+      <ChimelyProvider client={client}>
+        <Inbox open={open} onOpenChange={onOpenChange} />
+      </ChimelyProvider>
+    );
+  }
+
+  test('open intents surface via onOpenChange, state stays with the parent', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    const client = makeClient(stub);
+    await loadClient(client, stub);
+    const onOpenChange = vi.fn();
+    const { rerender } = render(controlledView(client, false, onOpenChange));
+
+    fireEvent.click(bell());
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    rerender(controlledView(client, true, onOpenChange));
+    expect(screen.getByRole('dialog')).toBeDefined();
+    await waitFor(() => {
+      expect(stub.requestsFor('/v1/inbox/seen-all')).toHaveLength(1);
+    });
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(screen.getByRole('dialog')).toBeDefined();
+
+    rerender(controlledView(client, false, onOpenChange));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  test('mounting with open already true fires markAllSeen once', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    const client = makeClient(stub);
+    await loadClient(client, stub);
+    render(controlledView(client, true, () => {}));
+
+    expect(screen.getByRole('dialog')).toBeDefined();
+    await waitFor(() => {
+      expect(stub.requestsFor('/v1/inbox/seen-all')).toHaveLength(1);
+    });
+  });
+
+  test('uncontrolled mode still reports transitions through onOpenChange', async () => {
+    const stub = createStubServer();
+    const onOpenChange = vi.fn();
+    await renderInbox(stub, { onOpenChange });
+    fireEvent.click(bell());
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+    expect(screen.getByRole('dialog')).toBeDefined();
+  });
+});
+
+describe('routerPush', () => {
+  test('same-origin action URLs go through routerPush in path form', async () => {
+    const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {});
+    const routerPush = vi.fn();
+    const stub = createStubServer();
+    const item = stub.addNotification({
+      payload: { title: 'spa', action_url: '/invoices/42?x=1#y' },
+    });
+    await renderInbox(stub, { routerPush });
+    fireEvent.click(bell());
+
+    fireEvent.click(screen.getByText('spa'));
+    await waitFor(() => {
+      expect(stub.requestsFor(`/v1/inbox/notifications/${item.id}/read`)).toHaveLength(1);
+    });
+    expect(routerPush).toHaveBeenCalledWith('/invoices/42?x=1#y');
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  test('absolute same-origin URLs are normalized before routerPush', async () => {
+    vi.spyOn(navigation, 'assign').mockImplementation(() => {});
+    const routerPush = vi.fn();
+    const stub = createStubServer();
+    stub.addNotification({
+      payload: { title: 'absolute', action_url: `${window.location.origin}/invoices/9` },
+    });
+    await renderInbox(stub, { routerPush });
+    fireEvent.click(bell());
+
+    fireEvent.click(screen.getByText('absolute'));
+    await waitFor(() => {
+      expect(routerPush).toHaveBeenCalledWith('/invoices/9');
+    });
+  });
+
+  test('cross-origin URLs bypass routerPush and use full navigation', async () => {
+    const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {});
+    const routerPush = vi.fn();
+    const stub = createStubServer();
+    stub.addNotification({
+      payload: { title: 'external', action_url: 'https://elsewhere.test/x' },
+    });
+    await renderInbox(stub, { routerPush });
+    fireEvent.click(bell());
+
+    fireEvent.click(screen.getByText('external'));
+    await waitFor(() => {
+      expect(assign).toHaveBeenCalledWith('https://elsewhere.test/x');
+    });
+    expect(routerPush).not.toHaveBeenCalled();
+  });
+
+  test('unsafe URLs navigate through neither path', async () => {
+    const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {});
+    const routerPush = vi.fn();
+    const stub = createStubServer();
+    const item = stub.addNotification({
+      payload: { title: 'hostile', action_url: 'javascript:alert(1)' },
+    });
+    await renderInbox(stub, { routerPush });
+    fireEvent.click(bell());
+
+    fireEvent.click(screen.getByText('hostile'));
+    await waitFor(() => {
+      expect(stub.requestsFor(`/v1/inbox/notifications/${item.id}/read`)).toHaveLength(1);
+    });
+    expect(assign).not.toHaveBeenCalled();
+    expect(routerPush).not.toHaveBeenCalled();
+  });
+});
+
 describe('header title and footer', () => {
   test('renders the default header title and renderFooter content', async () => {
     const stub = createStubServer();
