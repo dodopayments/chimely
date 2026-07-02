@@ -203,6 +203,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
       aria-label={strings.inboxTitle}
     >
       <InboxContent<TPayload>
+        tabs={props.tabs}
         appearance={props.appearance}
         localization={props.localization}
         preferencesPanel={props.preferencesPanel}

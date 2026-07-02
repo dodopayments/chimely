@@ -41,6 +41,7 @@ uses the context client).
 | `backoff` | `BackoffConfig` | — | SSE reconnect backoff |
 | `appearance` | `InboxAppearance` | — | CSS-variable theming + per-slot classNames |
 | `localization` | `Partial<InboxLocalization>` | — | UI text overrides |
+| `tabs` | `InboxTab[]` | — | Tab strip between header and list; see below |
 | `placement` | `'bottom-start' \| 'bottom-end' \| 'top-start' \| 'top-end'` | `'bottom-end'` | Popover position |
 | `placementOffset` | `number` | `8` | Distance in px between bell and popover |
 | `portal` | `boolean` | `false` | Render the popover in a `document.body` portal (fixed positioning); escapes `overflow` and `transform` ancestors |
@@ -62,6 +63,26 @@ properties (`colorPrimary`, `colorBackground`, `colorBadge`, `borderRadius`,
 `fontFamily`, …). `appearance.classNames` overrides slots: `root`, `bell`,
 `badge`, `popover`, `header`, `list`, `item`, `itemUnread`, `empty`, `footer`,
 `preferences`.
+
+### Tabs
+
+```tsx
+<Inbox
+  tabs={[
+    { label: 'All' },
+    { label: 'Transactions', icon: <MoneyWavy />, filter: (item) => item.payload.tags?.includes('transactions') },
+    { label: 'Business', filter: (item) => item.category.startsWith('business.') },
+  ]}
+/>
+```
+
+`InboxTab.filter` is a client-side predicate over loaded items: it can match
+tag arrays, category prefixes, or anything else in the payload. A tab without
+a filter shows everything. When the active tab's filtered view runs short, the
+list keeps fetching pages until the tab fills or the inbox is exhausted.
+
+Per-tab unread counts cover loaded pages only, so they are approximate for
+deep inboxes. Server-side filtered counts are tracked in issue #39.
 
 ### Localization
 

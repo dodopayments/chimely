@@ -11,7 +11,7 @@
 export type { InboxAppearance, InboxSlot } from './appearance';
 export type { BellProps } from './components/Bell';
 export { Bell } from './components/Bell';
-export type { InboxContentProps } from './components/InboxContent';
+export type { InboxContentProps, InboxTab } from './components/InboxContent';
 export { InboxContent } from './components/InboxContent';
 export type { PreferencesProps } from './components/Preferences';
 export { Preferences } from './components/Preferences';
