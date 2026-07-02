@@ -1,5 +1,5 @@
 import type { InboxFilterView, InboxItem, WellKnownPayload } from '@chimely/client';
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { useEffect, useId, useMemo, useState } from 'react';
 import type { InboxAppearance, InboxSlot } from '../appearance';
 import { slotClass, slotStyle, variablesToStyle } from '../appearance';
@@ -115,6 +115,34 @@ export function InboxContent<TPayload = WellKnownPayload>(
     ensureStyles();
   }, []);
 
+  // Roving tabindex with automatic activation per the ARIA tabs pattern.
+  // Arrows wrap, Home and End jump, and the moved-to tab is selected.
+  const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (!hasTabs) {
+      return;
+    }
+    let next: number;
+    switch (event.key) {
+      case 'ArrowRight':
+        next = (index + 1) % tabs.length;
+        break;
+      case 'ArrowLeft':
+        next = (index - 1 + tabs.length) % tabs.length;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = tabs.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    setActiveTabIndex(next);
+    document.getElementById(tabId(next))?.focus();
+  };
+
   const handleItemClick = (item: InboxItem<TPayload>) => {
     if (props.onItemClick?.(item) === false) {
       return;
@@ -210,6 +238,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
                 id={tabId(index)}
                 aria-selected={index === activeIndex}
                 aria-controls={panelId}
+                tabIndex={index === activeIndex ? 0 : -1}
                 className={index === activeIndex ? `${cls('tab')} ${cls('tabActive')}` : cls('tab')}
                 style={
                   index === activeIndex
@@ -217,6 +246,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
                     : slotStyle(props.appearance, 'tab')
                 }
                 onClick={() => setActiveTabIndex(index)}
+                onKeyDown={(event) => handleTabKeyDown(event, index)}
               >
                 {tab.icon}
                 <span>{tab.label}</span>

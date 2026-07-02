@@ -702,6 +702,37 @@ describe('tabs', () => {
     expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(tabButtons[1]?.id);
   });
 
+  test('arrow keys move focus and selection with a roving tabindex', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.alerts', payload: { title: 'invoice' } });
+    stub.addNotification({ category: 'system', payload: { title: 'maintenance' } });
+    await renderInbox(stub, { tabs: TABS });
+    fireEvent.click(bell());
+
+    const [all, billing] = screen.getAllByRole('tab');
+    expect(all?.tabIndex).toBe(0);
+    expect(billing?.tabIndex).toBe(-1);
+
+    all?.focus();
+    fireEvent.keyDown(all as HTMLElement, { key: 'ArrowRight' });
+    expect(billing?.getAttribute('aria-selected')).toBe('true');
+    expect(billing?.tabIndex).toBe(0);
+    expect(all?.tabIndex).toBe(-1);
+    expect(document.activeElement).toBe(billing);
+    expect(screen.getByText('invoice')).toBeDefined();
+    expect(screen.queryByText('maintenance')).toBeNull();
+
+    // Wraps from the last tab back to the first.
+    fireEvent.keyDown(billing as HTMLElement, { key: 'ArrowRight' });
+    expect(all?.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(all);
+
+    fireEvent.keyDown(all as HTMLElement, { key: 'End' });
+    expect(billing?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(billing as HTMLElement, { key: 'Home' });
+    expect(all?.getAttribute('aria-selected')).toBe('true');
+  });
+
   test('a sparse tab keeps fetching until its item appears', async () => {
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
     const stub = createStubServer();
