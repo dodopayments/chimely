@@ -177,6 +177,12 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
     }
     props.onOpenChange?.(next);
   };
+  // Kept in a ref so the dismissal effect registers its document listeners
+  // once per open transition yet calls the latest onOpenChange closure.
+  const setOpenStateRef = useRef(setOpenState);
+  useEffect(() => {
+    setOpenStateRef.current = setOpenState;
+  });
 
   const cls = (slot: InboxSlot): string => {
     const base = `chimely-${slot.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)}`;
@@ -255,12 +261,12 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
       const inRoot = rootRef.current?.contains(event.target) === true;
       const inPopover = popoverRef.current?.contains(event.target) === true;
       if (!inRoot && !inPopover) {
-        setOpenState(false);
+        setOpenStateRef.current(false);
       }
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setOpenState(false);
+        setOpenStateRef.current(false);
         bellRef.current?.focus();
       }
     };
@@ -270,7 +276,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
       document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);
     };
-  });
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || showPreferences) {
