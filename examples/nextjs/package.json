@@ -1,6 +1,6 @@
 {
   "name": "chimely-example-nextjs",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "description": "Chimely 30-second quickstart: the drop-in <Inbox /> in a Next.js app.",
   "license": "MIT",

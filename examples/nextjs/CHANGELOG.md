@@ -1,5 +1,18 @@
 # chimely-example-nextjs
 
+## 0.0.2
+
+### Patch Changes
+
+- Updated dependencies [4488eb4]
+- Updated dependencies [4488eb4]
+- Updated dependencies [4488eb4]
+- Updated dependencies [4488eb4]
+- Updated dependencies [4488eb4]
+- Updated dependencies [4488eb4]
+- Updated dependencies [4488eb4]
+  - @chimely/react@0.2.0
+
 ## 0.0.1
 
 ### Patch Changes
