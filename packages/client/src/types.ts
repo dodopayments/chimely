@@ -150,4 +150,11 @@ export interface InboxSnapshot<TPayload = WellKnownPayload> {
   isLoading: boolean;
   /** Last unrecovered error. Cleared by the next successful operation. */
   error: ChimelyError | null;
+  /**
+   * Ids the last first-page merge added that were not already loaded.
+   * Fresh array identity per merge. Untouched by 304 refreshes and by
+   * fetchMore. Optional in the type for older snapshot literals. The
+   * client always populates it.
+   */
+  lastRefreshNewItemIds?: ReadonlyArray<InboxItemId>;
 }

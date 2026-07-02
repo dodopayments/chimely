@@ -9,6 +9,7 @@
  */
 
 export type { InboxAppearance, InboxSlot } from './appearance';
+export { darkTheme } from './appearance';
 export type { BellProps } from './components/Bell';
 export { Bell } from './components/Bell';
 export type { InboxContentProps, InboxTab } from './components/InboxContent';

@@ -2,7 +2,7 @@ import type { InboxItem, WellKnownPayload } from '@chimely/client';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { useEffect, useId, useMemo, useState } from 'react';
 import type { InboxAppearance, InboxSlot } from '../appearance';
-import { slotClass, variablesToStyle } from '../appearance';
+import { slotClass, slotStyle, variablesToStyle } from '../appearance';
 import { useNotifications } from '../hooks';
 import type { InboxLocalization } from '../localization';
 import { mergeLocalization } from '../localization';
@@ -61,8 +61,16 @@ export interface InboxContentProps<TPayload = WellKnownPayload> extends ItemRend
 export function InboxContent<TPayload = WellKnownPayload>(
   props: InboxContentProps<TPayload>,
 ): ReactNode {
-  const { items, isLoading, error, hasMore, fetchMore, markRead, markAllRead } =
-    useNotifications<TPayload>();
+  const {
+    items,
+    isLoading,
+    error,
+    hasMore,
+    lastRefreshNewItemIds,
+    fetchMore,
+    markRead,
+    markAllRead,
+  } = useNotifications<TPayload>();
   const [showPreferences, setShowPreferences] = useState(false);
   const [activeTabIndex, setActiveTabIndex] = useState(0);
 
@@ -72,6 +80,22 @@ export function InboxContent<TPayload = WellKnownPayload>(
   const activeFilter = hasTabs ? tabs[activeIndex]?.filter : undefined;
   const visibleItems = activeFilter ? items.filter(activeFilter) : items;
 
+  // Arrival ids restricted to the active tab so items in other tabs never
+  // bump the pill. Keyed on the merge, not on items, so later renders
+  // cannot re-emit ids the list already dismissed. Items and the filter
+  // are read from the render that carried the merge.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: recompute only per merge
+  const visibleNewItemIds = useMemo(() => {
+    if (!activeFilter || lastRefreshNewItemIds === undefined) {
+      return lastRefreshNewItemIds;
+    }
+    const byId = new Map(items.map((item) => [item.id, item]));
+    return lastRefreshNewItemIds.filter((id) => {
+      const item = byId.get(id);
+      return item !== undefined && activeFilter(item);
+    });
+  }, [lastRefreshNewItemIds]);
+
   const idBase = useId();
   const panelId = `${idBase}-panel`;
   const tabId = (index: number): string => `${idBase}-tab-${index}`;
@@ -79,7 +103,10 @@ export function InboxContent<TPayload = WellKnownPayload>(
   const strings = mergeLocalization(props.localization);
   const classNames = props.appearance?.classNames;
   const cls = (slot: InboxSlot): string => slotClass(classNames, slot);
-  const style = useMemo(() => variablesToStyle(props.appearance?.variables), [props.appearance]);
+  const style = useMemo(
+    () => slotStyle(props.appearance, 'content', variablesToStyle(props.appearance?.variables)),
+    [props.appearance],
+  );
 
   useEffect(() => {
     ensureStyles();
@@ -136,7 +163,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
 
   return (
     <div className={cls('content')} style={style}>
-      <div className={cls('header')}>
+      <div className={cls('header')} style={slotStyle(props.appearance, 'header')}>
         {showPreferences ? (
           <>
             <button
@@ -174,7 +201,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
                   title={strings.preferencesTitle}
                   onClick={() => setShowPreferences(true)}
                 >
-                  <GearIcon />
+                  {props.appearance?.icons?.gear ? props.appearance.icons.gear() : <GearIcon />}
                 </button>
               )}
             </div>
@@ -182,7 +209,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
         )}
       </div>
       {hasTabs && !showPreferences && (
-        <div className={cls('tabs')} role="tablist">
+        <div className={cls('tabs')} role="tablist" style={slotStyle(props.appearance, 'tabs')}>
           {tabs.map((tab, index) => {
             const unread = (tab.filter ? items.filter(tab.filter) : items).filter(
               (item) => !item.read,
@@ -198,6 +225,11 @@ export function InboxContent<TPayload = WellKnownPayload>(
                 aria-controls={panelId}
                 tabIndex={index === activeIndex ? 0 : -1}
                 className={index === activeIndex ? `${cls('tab')} ${cls('tabActive')}` : cls('tab')}
+                style={
+                  index === activeIndex
+                    ? slotStyle(props.appearance, 'tabActive', slotStyle(props.appearance, 'tab'))
+                    : slotStyle(props.appearance, 'tab')
+                }
                 onClick={() => setActiveTabIndex(index)}
                 onKeyDown={(event) => handleTabKeyDown(event, index)}
               >
@@ -226,6 +258,8 @@ export function InboxContent<TPayload = WellKnownPayload>(
           onItem={handleItemClick}
           cls={cls}
           strings={strings}
+          appearance={props.appearance}
+          newItemIds={visibleNewItemIds}
           deferEmpty={activeFilter !== undefined && hasMore}
           renderItem={props.renderItem}
           renderEmpty={props.renderEmpty}
@@ -234,7 +268,11 @@ export function InboxContent<TPayload = WellKnownPayload>(
           renderAvatar={props.renderAvatar}
         />
       )}
-      <div className={cls('footer')} aria-busy={isLoading}>
+      <div
+        className={cls('footer')}
+        aria-busy={isLoading}
+        style={slotStyle(props.appearance, 'footer')}
+      >
         {props.renderFooter?.()}
       </div>
     </div>

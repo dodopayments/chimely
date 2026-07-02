@@ -335,13 +335,18 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
    */
   private mergeFirstPage(page: WireInboxPage): Partial<InboxSnapshot<TPayload>> {
     const pageItems = page.items.map((item) => toItem<TPayload>(item));
+    const existing = this.store.getSnapshot();
+    const existingIds = new Set(existing.items.map((item) => item.id));
+    // Fresh array per merge so consumers can detect arrivals by identity.
+    const lastRefreshNewItemIds = pageItems
+      .filter((item) => !existingIds.has(item.id))
+      .map((item) => item.id);
     const boundary = pageItems[pageItems.length - 1];
     if (page.next_cursor === null || boundary === undefined) {
       // A cursor-less page with no next page is the entire inbox.
       this.cursor = null;
-      return { items: pageItems, hasMore: false };
+      return { items: pageItems, hasMore: false, lastRefreshNewItemIds };
     }
-    const existing = this.store.getSnapshot();
     const pageIds = new Set(pageItems.map((item) => item.id));
     const tail = existing.items.filter(
       (item) => !pageIds.has(item.id) && isOlderThan(item, boundary),
@@ -349,9 +354,13 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
     const contiguous = existing.items.some((item) => pageIds.has(item.id));
     if (tail.length === 0 || !contiguous) {
       this.cursor = page.next_cursor;
-      return { items: pageItems, hasMore: true };
+      return { items: pageItems, hasMore: true, lastRefreshNewItemIds };
     }
-    return { items: [...pageItems, ...tail], hasMore: existing.hasMore };
+    return {
+      items: [...pageItems, ...tail],
+      hasMore: existing.hasMore,
+      lastRefreshNewItemIds,
+    };
   }
 
   private async doFetchMore(limit?: number): Promise<void> {

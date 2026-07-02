@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { forwardRef, useEffect, useMemo } from 'react';
 import type { InboxAppearance } from '../appearance';
-import { slotClass, variablesToStyle } from '../appearance';
+import { slotClass, slotStyle, variablesToStyle } from '../appearance';
 import { useUnseenCount } from '../hooks';
 import type { InboxLocalization } from '../localization';
 import { mergeLocalization } from '../localization';
@@ -31,7 +31,10 @@ export const Bell = forwardRef<HTMLButtonElement, BellProps>(function Bell(props
   const open = props.open === true;
   // Bell re-renders on every unseen tick, a fresh style object per render
   // would defeat React's shallow style comparison.
-  const style = useMemo(() => variablesToStyle(props.appearance?.variables), [props.appearance]);
+  const style = useMemo(
+    () => slotStyle(props.appearance, 'bell', variablesToStyle(props.appearance?.variables)),
+    [props.appearance],
+  );
 
   useEffect(() => {
     ensureStyles();
@@ -53,9 +56,12 @@ export const Bell = forwardRef<HTMLButtonElement, BellProps>(function Bell(props
         props.renderBell({ unseenCount, open })
       ) : (
         <>
-          <BellIcon />
+          {props.appearance?.icons?.bell ? props.appearance.icons.bell() : <BellIcon />}
           {unseenCount > 0 && (
-            <span className={slotClass(props.appearance?.classNames, 'badge')}>
+            <span
+              className={slotClass(props.appearance?.classNames, 'badge')}
+              style={slotStyle(props.appearance, 'badge')}
+            >
               {unseenCount > 99 ? '99+' : unseenCount}
             </span>
           )}

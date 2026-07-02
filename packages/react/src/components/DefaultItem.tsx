@@ -1,5 +1,5 @@
 import type { InboxItem, WellKnownPayload } from '@chimely/client';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 /**
  * Granular overrides for parts of the default item row. The content renders
@@ -18,14 +18,15 @@ export function DefaultItem<TPayload>(
   props: {
     item: InboxItem<TPayload>;
     className: string;
+    style?: CSSProperties;
     formatTimestamp: (iso: string) => string;
     onClick: () => void;
   } & ItemRenderProps<TPayload>,
 ): ReactNode {
-  const { item, className, formatTimestamp, onClick } = props;
+  const { item, className, style, formatTimestamp, onClick } = props;
   const payload = item.payload as Partial<WellKnownPayload>;
   return (
-    <button type="button" className={className} onClick={onClick}>
+    <button type="button" className={className} style={style} onClick={onClick}>
       {props.renderAvatar
         ? props.renderAvatar({ item })
         : typeof payload.icon_url === 'string' &&
