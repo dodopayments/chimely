@@ -58,11 +58,29 @@ uses the context client).
 | `renderEmpty` | `() => ReactNode` | — | Custom empty state |
 | `renderFooter` | `() => ReactNode` | — | Content for the popover footer (branding, links) |
 
+### Appearance
+
 `appearance.variables` forwards keys as `--chimely-<key>` CSS custom
-properties (`colorPrimary`, `colorBackground`, `colorBadge`, `borderRadius`,
-`fontFamily`, …). `appearance.classNames` overrides slots: `root`, `bell`,
-`badge`, `popover`, `header`, `list`, `item`, `itemUnread`, `empty`, `footer`,
-`preferences`.
+properties (`colorPrimary`, `colorBackground`, `colorBadge`,
+`colorBadgeForeground`, `shadow`, `borderRadius`, `fontFamily`, …).
+`appearance.classNames` adds classes per slot and `appearance.styles` adds
+inline styles per slot: `root`, `bell`, `badge`, `popover`, `content`,
+`header`, `tabs`, `tab`, `tabActive`, `list`, `item`, `itemUnread`, `empty`,
+`footer`, `pill`, `preferences`. `appearance.icons` replaces the built-in
+SVGs (`bell`, `gear`); `renderBell` wins over `icons.bell`.
+
+A dark preset ships with the package. Spread it and override freely:
+
+```tsx
+import { darkTheme } from '@chimely/react';
+
+<Inbox appearance={{ variables: { ...darkTheme, colorPrimary: '#8b5cf6' } }} />
+```
+
+When notifications arrive while the list is scrolled down, a "N new
+notifications" pill overlays the list top instead of yanking the viewport;
+clicking it scrolls back up. The text comes from
+`localization.newNotifications`.
 
 ### Tabs
 

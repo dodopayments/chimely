@@ -45,6 +45,8 @@ export interface UseNotificationsResult<TPayload = WellKnownPayload> {
   isLoading: boolean;
   error: ChimelyError | null;
   hasMore: boolean;
+  /** Ids the last refresh merged in that were not already loaded. */
+  lastRefreshNewItemIds: ReadonlyArray<InboxItemId>;
   fetchMore: () => Promise<void>;
   refresh: () => Promise<void>;
   markRead: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
@@ -73,6 +75,7 @@ export function useNotifications<TPayload = WellKnownPayload>(
     isLoading: snapshot.isLoading,
     error: snapshot.error,
     hasMore: snapshot.hasMore,
+    lastRefreshNewItemIds: snapshot.lastRefreshNewItemIds ?? [],
     fetchMore,
     refresh,
     markRead,

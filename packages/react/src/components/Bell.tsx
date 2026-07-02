@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { forwardRef, useEffect } from 'react';
 import type { InboxAppearance } from '../appearance';
-import { slotClass, variablesToStyle } from '../appearance';
+import { slotClass, slotStyle, variablesToStyle } from '../appearance';
 import { useUnseenCount } from '../hooks';
 import type { InboxLocalization } from '../localization';
 import { mergeLocalization } from '../localization';
@@ -39,7 +39,7 @@ export const Bell = forwardRef<HTMLButtonElement, BellProps>(function Bell(props
       ref={ref}
       type="button"
       className={slotClass(props.appearance?.classNames, 'bell')}
-      style={variablesToStyle(props.appearance?.variables)}
+      style={slotStyle(props.appearance, 'bell', variablesToStyle(props.appearance?.variables))}
       aria-label={strings.bellLabel}
       aria-expanded={props.open === undefined ? undefined : open}
       aria-haspopup={props.popupId === undefined ? undefined : 'dialog'}
@@ -50,9 +50,12 @@ export const Bell = forwardRef<HTMLButtonElement, BellProps>(function Bell(props
         props.renderBell({ unseenCount, open })
       ) : (
         <>
-          <BellIcon />
+          {props.appearance?.icons?.bell ? props.appearance.icons.bell() : <BellIcon />}
           {unseenCount > 0 && (
-            <span className={slotClass(props.appearance?.classNames, 'badge')}>
+            <span
+              className={slotClass(props.appearance?.classNames, 'badge')}
+              style={slotStyle(props.appearance, 'badge')}
+            >
               {unseenCount > 99 ? '99+' : unseenCount}
             </span>
           )}

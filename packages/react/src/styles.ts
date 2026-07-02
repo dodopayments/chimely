@@ -37,7 +37,7 @@ export const INBOX_CSS = `
   padding: 0 4px;
   border-radius: 999px;
   background: var(--chimely-colorBadge, #1264FF);
-  color: #ffffff;
+  color: var(--chimely-colorBadgeForeground, #ffffff);
   font-size: 11px;
   font-weight: 600;
   line-height: 16px;
@@ -55,7 +55,7 @@ export const INBOX_CSS = `
   background: var(--chimely-colorBackground, #ffffff);
   border: 1px solid var(--chimely-colorMuted, #e5e7eb);
   border-radius: var(--chimely-borderRadius, 8px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--chimely-shadow, 0 8px 24px rgba(0, 0, 0, 0.12));
   z-index: 1000;
 }
 .chimely-popover-portal {
@@ -140,11 +140,35 @@ export const INBOX_CSS = `
   padding: 0 4px;
   border-radius: 999px;
   background: var(--chimely-colorBadge, #1264FF);
-  color: #ffffff;
+  color: var(--chimely-colorBadgeForeground, #ffffff);
   font-size: 11px;
   font-weight: 600;
   line-height: 16px;
   text-align: center;
+}
+.chimely-list-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.chimely-pill {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border: none;
+  border-radius: 999px;
+  background: var(--chimely-colorPrimary, #1264FF);
+  color: var(--chimely-colorBadgeForeground, #ffffff);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--chimely-shadow, 0 8px 24px rgba(0, 0, 0, 0.12));
+  z-index: 1;
 }
 .chimely-list {
   flex: 1;

@@ -2,7 +2,7 @@ import type { InboxItem, WellKnownPayload } from '@chimely/client';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import type { InboxAppearance, InboxSlot } from '../appearance';
-import { slotClass, variablesToStyle } from '../appearance';
+import { slotClass, slotStyle, variablesToStyle } from '../appearance';
 import { useNotifications } from '../hooks';
 import type { InboxLocalization } from '../localization';
 import { mergeLocalization } from '../localization';
@@ -56,7 +56,7 @@ export interface InboxContentProps<TPayload = WellKnownPayload> extends ItemRend
 export function InboxContent<TPayload = WellKnownPayload>(
   props: InboxContentProps<TPayload>,
 ): ReactNode {
-  const { items, isLoading, hasMore, fetchMore, markRead, markAllRead } =
+  const { items, isLoading, hasMore, lastRefreshNewItemIds, fetchMore, markRead, markAllRead } =
     useNotifications<TPayload>();
   const [showPreferences, setShowPreferences] = useState(false);
   const [activeTabIndex, setActiveTabIndex] = useState(0);
@@ -70,7 +70,10 @@ export function InboxContent<TPayload = WellKnownPayload>(
   const strings = mergeLocalization(props.localization);
   const classNames = props.appearance?.classNames;
   const cls = (slot: InboxSlot): string => slotClass(classNames, slot);
-  const style = useMemo(() => variablesToStyle(props.appearance?.variables), [props.appearance]);
+  const style = useMemo(
+    () => slotStyle(props.appearance, 'content', variablesToStyle(props.appearance?.variables)),
+    [props.appearance],
+  );
 
   useEffect(() => {
     ensureStyles();
@@ -99,7 +102,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
 
   return (
     <div className={cls('content')} style={style}>
-      <div className={cls('header')}>
+      <div className={cls('header')} style={slotStyle(props.appearance, 'header')}>
         {showPreferences ? (
           <>
             <button
@@ -133,7 +136,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
                   title={strings.preferencesTitle}
                   onClick={() => setShowPreferences(true)}
                 >
-                  <GearIcon />
+                  {props.appearance?.icons?.gear ? props.appearance.icons.gear() : <GearIcon />}
                 </button>
               )}
             </div>
@@ -141,7 +144,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
         )}
       </div>
       {hasTabs && !showPreferences && (
-        <div className={cls('tabs')} role="tablist">
+        <div className={cls('tabs')} role="tablist" style={slotStyle(props.appearance, 'tabs')}>
           {tabs.map((tab, index) => {
             const unread = (tab.filter ? items.filter(tab.filter) : items).filter(
               (item) => !item.read,
@@ -154,6 +157,11 @@ export function InboxContent<TPayload = WellKnownPayload>(
                 role="tab"
                 aria-selected={index === activeIndex}
                 className={index === activeIndex ? `${cls('tab')} ${cls('tabActive')}` : cls('tab')}
+                style={
+                  index === activeIndex
+                    ? slotStyle(props.appearance, 'tabActive', slotStyle(props.appearance, 'tab'))
+                    : slotStyle(props.appearance, 'tab')
+                }
                 onClick={() => setActiveTabIndex(index)}
               >
                 {tab.icon}
@@ -179,6 +187,8 @@ export function InboxContent<TPayload = WellKnownPayload>(
           onItem={handleItemClick}
           cls={cls}
           strings={strings}
+          appearance={props.appearance}
+          newItemIds={lastRefreshNewItemIds}
           deferEmpty={activeFilter !== undefined && hasMore}
           renderItem={props.renderItem}
           renderEmpty={props.renderEmpty}
@@ -187,7 +197,11 @@ export function InboxContent<TPayload = WellKnownPayload>(
           renderAvatar={props.renderAvatar}
         />
       )}
-      <div className={cls('footer')} aria-busy={isLoading}>
+      <div
+        className={cls('footer')}
+        aria-busy={isLoading}
+        style={slotStyle(props.appearance, 'footer')}
+      >
         {props.renderFooter?.()}
       </div>
     </div>

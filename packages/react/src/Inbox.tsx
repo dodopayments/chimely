@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import { useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { InboxSlot } from './appearance';
-import { slotClass, variablesToStyle } from './appearance';
+import { slotClass, slotStyle, variablesToStyle } from './appearance';
 import type { BellProps } from './components/Bell';
 import { Bell } from './components/Bell';
 import type { InboxContentProps } from './components/InboxContent';
@@ -198,7 +198,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
       ref={popoverRef}
       id={popoverId}
       className={portal ? `${cls('popover')} chimely-popover-portal` : cls('popover')}
-      style={rootStyle}
+      style={slotStyle(props.appearance, 'popover', rootStyle)}
       role="dialog"
       aria-label={strings.inboxTitle}
     >
@@ -220,7 +220,11 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
   );
 
   return (
-    <div ref={rootRef} className={cls('root')} style={rootStyle}>
+    <div
+      ref={rootRef}
+      className={cls('root')}
+      style={slotStyle(props.appearance, 'root', rootStyle)}
+    >
       <Bell
         ref={bellRef}
         appearance={props.appearance}
