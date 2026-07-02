@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM broadcast_archives\n                WHERE environment_id = $1 AND subscriber_id = $2\n                  AND broadcast_id = $3 AND archived = false",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "727f4055e8fc050d87ed436f7d52078f6a4897f4e78aacf82fb1bd1a4d1945a6"
+}

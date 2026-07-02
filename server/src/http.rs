@@ -56,8 +56,26 @@ pub fn router(state: AppState) -> Router {
             "/v1/inbox/broadcasts/{id}/unread",
             post(inbox::mark_broadcast_unread),
         )
+        .route(
+            "/v1/inbox/notifications/{id}/archive",
+            post(inbox::archive_notification),
+        )
+        .route(
+            "/v1/inbox/notifications/{id}/unarchive",
+            post(inbox::unarchive_notification),
+        )
+        .route(
+            "/v1/inbox/broadcasts/{id}/archive",
+            post(inbox::archive_broadcast),
+        )
+        .route(
+            "/v1/inbox/broadcasts/{id}/unarchive",
+            post(inbox::unarchive_broadcast),
+        )
         .route("/v1/inbox/read-all", post(inbox::mark_all_read))
         .route("/v1/inbox/seen-all", post(inbox::mark_all_seen))
+        .route("/v1/inbox/archive-all", post(inbox::archive_all))
+        .route("/v1/inbox/archive-read", post(inbox::archive_read))
         .route(
             "/v1/inbox/preferences",
             get(preferences::get_inbox_preferences).put(preferences::set_inbox_preferences),

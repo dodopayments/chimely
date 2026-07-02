@@ -46,8 +46,22 @@ enum Op {
     MarkBroadcastUnread {
         pick: usize,
     },
+    ArchiveDirect {
+        pick: usize,
+    },
+    UnarchiveDirect {
+        pick: usize,
+    },
+    ArchiveBroadcast {
+        pick: usize,
+    },
+    UnarchiveBroadcast {
+        pick: usize,
+    },
     ReadAll,
     SeenAll,
+    ArchiveAll,
+    ArchiveRead,
     SetPreference {
         category: usize,
         enabled: bool,
@@ -63,8 +77,14 @@ fn op_strategy(with_preferences: bool) -> impl Strategy<Value = Op> {
         any::<usize>().prop_map(|pick| Op::MarkDirectUnread { pick }),
         any::<usize>().prop_map(|pick| Op::MarkBroadcastRead { pick }),
         any::<usize>().prop_map(|pick| Op::MarkBroadcastUnread { pick }),
+        any::<usize>().prop_map(|pick| Op::ArchiveDirect { pick }),
+        any::<usize>().prop_map(|pick| Op::UnarchiveDirect { pick }),
+        any::<usize>().prop_map(|pick| Op::ArchiveBroadcast { pick }),
+        any::<usize>().prop_map(|pick| Op::UnarchiveBroadcast { pick }),
         Just(Op::ReadAll),
         Just(Op::SeenAll),
+        Just(Op::ArchiveAll),
+        Just(Op::ArchiveRead),
     ];
     if with_preferences {
         prop_oneof![
@@ -87,6 +107,8 @@ struct ModelItem {
     broadcast: bool,
     /// Explicit per-item override. None means the watermark decides.
     explicit_read: Option<bool>,
+    /// Explicit per-item archive override. None means the watermark decides.
+    explicit_archived: Option<bool>,
 }
 
 #[derive(Default)]
@@ -95,6 +117,7 @@ struct Model {
     /// Ops with order <= these are covered by the corresponding watermark.
     read_watermark: Option<usize>,
     seen_watermark: Option<usize>,
+    archive_watermark: Option<usize>,
     /// Maintained direct counters. Mute-blind increments, mute-aware recount
     /// on preference flips.
     unread_direct: i64,
@@ -112,15 +135,36 @@ impl Model {
         self.read_watermark.is_some_and(|w| item.order <= w)
     }
 
+    fn archived(&self, item: &ModelItem) -> bool {
+        item.explicit_archived
+            .unwrap_or_else(|| self.archive_watermark.is_some_and(|w| item.order <= w))
+    }
+
+    fn archive_watermark_covers(&self, item: &ModelItem) -> bool {
+        self.archive_watermark.is_some_and(|w| item.order <= w)
+    }
+
     fn seen(&self, item: &ModelItem) -> bool {
         self.seen_watermark.is_some_and(|w| item.order <= w)
     }
 
+    /// The default view: unmuted, not archived, newest first.
     fn visible_unmuted(&self) -> Vec<&ModelItem> {
         let mut v: Vec<&ModelItem> = self
             .items
             .iter()
-            .filter(|i| !self.muted.contains(&i.category))
+            .filter(|i| !self.muted.contains(&i.category) && !self.archived(i))
+            .collect();
+        v.sort_by_key(|i| std::cmp::Reverse(i.order));
+        v
+    }
+
+    /// The archived view: unmuted, archived, newest first.
+    fn visible_archived(&self) -> Vec<&ModelItem> {
+        let mut v: Vec<&ModelItem> = self
+            .items
+            .iter()
+            .filter(|i| !self.muted.contains(&i.category) && self.archived(i))
             .collect();
         v.sort_by_key(|i| std::cmp::Reverse(i.order));
         v
@@ -133,7 +177,12 @@ impl Model {
         let broadcast_unread = self
             .items
             .iter()
-            .filter(|i| i.broadcast && !self.muted.contains(&i.category) && !self.read(i))
+            .filter(|i| {
+                i.broadcast
+                    && !self.muted.contains(&i.category)
+                    && !self.read(i)
+                    && !self.archived(i)
+            })
             .count() as i64;
         self.unread_direct + broadcast_unread
     }
@@ -156,7 +205,12 @@ impl Model {
         self.unread_direct = self
             .items
             .iter()
-            .filter(|i| !i.broadcast && !self.muted.contains(&i.category) && !self.read(i))
+            .filter(|i| {
+                !i.broadcast
+                    && !self.muted.contains(&i.category)
+                    && !self.read(i)
+                    && !self.archived(i)
+            })
             .count() as i64;
         self.unseen_direct = self
             .items
@@ -210,6 +264,11 @@ async fn run_case(app: &TestApp, ops: Vec<Op>, check_list_equality: bool) {
             want.api_id,
             want.order,
         );
+        assert!(
+            !got["archived"].as_bool().unwrap(),
+            "default view leaked an archived item: {}",
+            want.api_id,
+        );
     }
 
     // ---- unread view ↔ model agreement -------------------------------------
@@ -231,6 +290,25 @@ async fn run_case(app: &TestApp, ops: Vec<Op>, check_list_equality: bool) {
         "unread view returned a read item"
     );
 
+    // ---- archived view ↔ model agreement -----------------------------------
+    let archived_items = list_all_filtered(app, &env, "archived").await;
+    let expected_archived: Vec<&str> = model
+        .visible_archived()
+        .iter()
+        .map(|i| i.api_id.as_str())
+        .collect();
+    let archived_ids: Vec<&str> = archived_items
+        .iter()
+        .map(|i| i["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(archived_ids, expected_archived, "archived view");
+    assert!(
+        archived_items
+            .iter()
+            .all(|i| i["archived"].as_bool().unwrap()),
+        "archived view returned an unarchived item"
+    );
+
     // ---- counts ↔ model agreement ------------------------------------------
     let (unread, unseen) = counts(app, &env).await;
     assert_eq!(unread, model.expected_unread(), "unread count");
@@ -249,10 +327,17 @@ async fn run_case(app: &TestApp, ops: Vec<Op>, check_list_equality: bool) {
             unread, visible_unread,
             "unread count vs visible unread items"
         );
-        let visible_unseen = expected.iter().filter(|i| !model.seen(i)).count() as i64;
+        // Unseen is archive-blind (seen state is watermark-only): an
+        // archived item keeps its unseen-ness even though the default view
+        // hides it, so the comparison spans both views.
+        let unmuted_unseen = model
+            .items
+            .iter()
+            .filter(|i| !model.muted.contains(&i.category) && !model.seen(i))
+            .count() as i64;
         assert_eq!(
-            unseen, visible_unseen,
-            "unseen count vs visible unseen items"
+            unseen, unmuted_unseen,
+            "unseen count vs unmuted unseen items"
         );
     }
 }
@@ -274,6 +359,7 @@ async fn apply_op(app: &TestApp, env: &TestEnvironment, model: &mut Model, order
                 category,
                 broadcast: false,
                 explicit_read: None,
+                explicit_archived: None,
             });
             // A create into an already-muted category is not counted,
             // matching the list arm.
@@ -308,6 +394,7 @@ async fn apply_op(app: &TestApp, env: &TestEnvironment, model: &mut Model, order
                 category,
                 broadcast: true,
                 explicit_read: None,
+                explicit_archived: None,
             });
         }
         Op::MarkDirectRead { pick } => {
@@ -328,10 +415,10 @@ async fn apply_op(app: &TestApp, env: &TestEnvironment, model: &mut Model, order
             let id = model.items[idx].api_id.clone();
             let res = inbox_post(app, env, &format!("/v1/inbox/notifications/{id}/read")).await;
             assert_eq!(res, 204);
-            // A muted row was never counted, so marking it read must not
-            // decrement, else it steals a count from an unmuted item.
+            // A muted or archived row was never counted, so marking it read
+            // must not decrement.
             let muted = model.muted.contains(&model.items[idx].category);
-            if !muted && !model.read(&model.items[idx]) {
+            if !muted && !model.read(&model.items[idx]) && !model.archived(&model.items[idx]) {
                 model.unread_direct -= 1;
             }
             model.items[idx].explicit_read = Some(true);
@@ -352,9 +439,12 @@ async fn apply_op(app: &TestApp, env: &TestEnvironment, model: &mut Model, order
             let res = inbox_post(app, env, &format!("/v1/inbox/notifications/{id}/unread")).await;
             assert_eq!(res, 204);
             // Server no-op on an already-unread item. On a read item the
-            // increment mirrors the mark-read decrement's mute guard.
+            // increment mirrors the mark-read decrement's mute and archive
+            // guards.
             if model.read(&model.items[idx]) {
-                if !model.muted.contains(&model.items[idx].category) {
+                if !model.muted.contains(&model.items[idx].category)
+                    && !model.archived(&model.items[idx])
+                {
                     model.unread_direct += 1;
                 }
                 // Above the watermark, clearing read_at alone means unread
@@ -411,6 +501,141 @@ async fn apply_op(app: &TestApp, env: &TestEnvironment, model: &mut Model, order
                 model.items[idx].explicit_read = Some(false);
             } else if model.items[idx].explicit_read == Some(true) {
                 model.items[idx].explicit_read = None;
+            }
+        }
+        Op::ArchiveDirect { pick } => {
+            let candidates: Vec<usize> = model
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, i)| !i.broadcast)
+                .map(|(idx, _)| idx)
+                .collect();
+            if candidates.is_empty() {
+                return;
+            }
+            let idx = candidates[pick % candidates.len()];
+            let id = model.items[idx].api_id.clone();
+            let res = inbox_post(app, env, &format!("/v1/inbox/notifications/{id}/archive")).await;
+            assert_eq!(res, 204);
+            if !model.archived(&model.items[idx]) {
+                // An unread unmuted item leaves the count when archived.
+                if !model.muted.contains(&model.items[idx].category)
+                    && !model.read(&model.items[idx])
+                {
+                    model.unread_direct -= 1;
+                }
+                model.items[idx].explicit_archived = Some(true);
+            }
+        }
+        Op::UnarchiveDirect { pick } => {
+            let candidates: Vec<usize> = model
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, i)| !i.broadcast)
+                .map(|(idx, _)| idx)
+                .collect();
+            if candidates.is_empty() {
+                return;
+            }
+            let idx = candidates[pick % candidates.len()];
+            let id = model.items[idx].api_id.clone();
+            let res =
+                inbox_post(app, env, &format!("/v1/inbox/notifications/{id}/unarchive")).await;
+            assert_eq!(res, 204);
+            if model.archived(&model.items[idx]) {
+                if !model.muted.contains(&model.items[idx].category)
+                    && !model.read(&model.items[idx])
+                {
+                    model.unread_direct += 1;
+                }
+                // Below the archive watermark the override survives it.
+                model.items[idx].explicit_archived =
+                    if model.archive_watermark_covers(&model.items[idx]) {
+                        Some(false)
+                    } else {
+                        None
+                    };
+            }
+        }
+        Op::ArchiveBroadcast { pick } => {
+            let candidates: Vec<usize> = model
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, i)| i.broadcast)
+                .map(|(idx, _)| idx)
+                .collect();
+            if candidates.is_empty() {
+                return;
+            }
+            let idx = candidates[pick % candidates.len()];
+            let id = model.items[idx].api_id.clone();
+            let res = inbox_post(app, env, &format!("/v1/inbox/broadcasts/{id}/archive")).await;
+            assert_eq!(res, 204);
+            if model.archive_watermark_covers(&model.items[idx]) {
+                if model.items[idx].explicit_archived == Some(false) {
+                    model.items[idx].explicit_archived = None;
+                }
+            } else {
+                model.items[idx].explicit_archived = Some(true);
+            }
+        }
+        Op::UnarchiveBroadcast { pick } => {
+            let candidates: Vec<usize> = model
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, i)| i.broadcast)
+                .map(|(idx, _)| idx)
+                .collect();
+            if candidates.is_empty() {
+                return;
+            }
+            let idx = candidates[pick % candidates.len()];
+            let id = model.items[idx].api_id.clone();
+            let res = inbox_post(app, env, &format!("/v1/inbox/broadcasts/{id}/unarchive")).await;
+            assert_eq!(res, 204);
+            if model.archive_watermark_covers(&model.items[idx]) {
+                model.items[idx].explicit_archived = Some(false);
+            } else if model.items[idx].explicit_archived == Some(true) {
+                model.items[idx].explicit_archived = None;
+            }
+        }
+        Op::ArchiveAll => {
+            let res = inbox_post(app, env, "/v1/inbox/archive-all").await;
+            assert_eq!(res, 200);
+            model.archive_watermark = Some(order);
+            model.unread_direct = 0;
+            for item in &mut model.items {
+                item.explicit_archived = None;
+            }
+        }
+        Op::ArchiveRead => {
+            let res = inbox_post(app, env, "/v1/inbox/archive-read").await;
+            assert_eq!(res, 202);
+            // The chunked job runs asynchronously; drain it at this sequence
+            // position. Read, unarchived items gain an explicit override. No
+            // counter change: read items were never counted.
+            drain(app).await;
+            let flips: Vec<usize> = model
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, i)| {
+                    let read = i
+                        .explicit_read
+                        .unwrap_or_else(|| model.read_watermark.is_some_and(|w| i.order <= w));
+                    let archived = i
+                        .explicit_archived
+                        .unwrap_or_else(|| model.archive_watermark.is_some_and(|w| i.order <= w));
+                    read && !archived
+                })
+                .map(|(idx, _)| idx)
+                .collect();
+            for idx in flips {
+                model.items[idx].explicit_archived = Some(true);
             }
         }
         Op::ReadAll => {

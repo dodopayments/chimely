@@ -12,6 +12,7 @@ pub const TYPE_HINT: &str = "hint";
 pub const TYPE_DELIVER: &str = "deliver";
 pub const TYPE_COUNTER_REBUILD: &str = "counter_rebuild";
 pub const TYPE_TIMELINE: &str = "timeline";
+pub const TYPE_ARCHIVE_READ: &str = "archive_read";
 
 /// `run_at = None` ⇒ now().
 pub async fn enqueue(
@@ -74,6 +75,25 @@ pub async fn enqueue_hint(
             "subscriber_ids": subscribers,
             "notification_ids": notifications,
         }),
+        None,
+    )
+    .await
+}
+
+/// Chunked archive-read job (see the worker): archives the read, unarchived
+/// items that existed at `as_of`, one keyset chunk per claim across both
+/// sources. `as_of` freezes the horizon so later arrivals are untouched.
+pub async fn enqueue_archive_read(
+    tx: &mut sqlx::PgConnection,
+    environment_id: Uuid,
+    subscriber_id: Uuid,
+    as_of: DateTime<Utc>,
+) -> sqlx::Result<Uuid> {
+    enqueue(
+        tx,
+        environment_id,
+        TYPE_ARCHIVE_READ,
+        json!({ "subscriber_id": subscriber_id, "as_of": as_of }),
         None,
     )
     .await

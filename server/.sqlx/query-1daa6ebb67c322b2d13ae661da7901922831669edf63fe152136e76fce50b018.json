@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT visible_at, read_at, unread_at, category FROM notifications\n            WHERE environment_id = $1 AND id = $2 AND subscriber_id = $3\n              AND visible_at <= now()\n            FOR UPDATE",
+  "query": "SELECT visible_at, read_at, unread_at, archived_at, unarchived_at, category\n            FROM notifications\n            WHERE environment_id = $1 AND id = $2 AND subscriber_id = $3\n              AND visible_at <= now()\n            FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -38,6 +38,28 @@
       },
       {
         "ordinal": 3,
+        "name": "archived_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "archived_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "unarchived_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "notifications",
+            "name": "unarchived_at"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
         "name": "category",
         "type_info": "Text",
         "origin": {
@@ -59,8 +81,10 @@
       false,
       true,
       true,
+      true,
+      true,
       false
     ]
   },
-  "hash": "f0575a07ebd1d9eba926e04a950f130a9ae3a5f984b7046680e3505979579080"
+  "hash": "1daa6ebb67c322b2d13ae661da7901922831669edf63fe152136e76fce50b018"
 }

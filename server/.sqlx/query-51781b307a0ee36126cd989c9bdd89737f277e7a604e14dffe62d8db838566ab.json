@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE notifications n\n                      SET archived_at = now(), unarchived_at = NULL\n                     FROM subscriber_counters c\n                    WHERE c.environment_id = n.environment_id\n                      AND c.subscriber_id  = n.subscriber_id\n                      AND n.environment_id = $1 AND n.subscriber_id = $2\n                      AND (n.visible_at, n.id) > ($3, $4)\n                      AND (n.visible_at, n.id) <= ($5, $6)\n                      AND (n.read_at IS NOT NULL\n                           OR (n.unread_at IS NULL AND n.visible_at <= c.read_watermark))\n                      AND NOT (n.archived_at IS NOT NULL\n                           OR (n.unarchived_at IS NULL\n                               AND n.visible_at <= c.archive_watermark))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Uuid",
+        "Timestamptz",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "51781b307a0ee36126cd989c9bdd89737f277e7a604e14dffe62d8db838566ab"
+}

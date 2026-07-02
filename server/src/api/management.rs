@@ -206,6 +206,7 @@ async fn create_notifications_txn(
         sqlx::query!(
             r#"UPDATE subscriber_counters c SET
                    unread_direct_count = c.unread_direct_count + (now() > c.read_watermark
+                       AND now() > c.archive_watermark
                        AND NOT EXISTS (SELECT 1 FROM preferences p
                              WHERE p.environment_id = c.environment_id
                                AND p.subscriber_id  = c.subscriber_id

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE subscriber_counters c SET\n                   unread_direct_count = c.unread_direct_count + (\n                       SELECT count(*) FROM notifications n\n                        WHERE n.environment_id = c.environment_id\n                          AND n.subscriber_id  = c.subscriber_id\n                          AND n.id = ANY($2)\n                          AND n.read_at IS NULL\n                          AND (n.unread_at IS NOT NULL OR n.visible_at > c.read_watermark)\n                          AND n.archived_at IS NULL\n                          AND (n.unarchived_at IS NOT NULL\n                               OR n.visible_at > c.archive_watermark)\n                          AND NOT EXISTS (SELECT 1 FROM preferences p\n                                WHERE p.environment_id = n.environment_id\n                                  AND p.subscriber_id  = n.subscriber_id\n                                  AND p.category = n.category AND p.channel = 'in_app'\n                                  AND p.enabled = false))::int,\n                   unseen_direct_count = c.unseen_direct_count + (\n                       SELECT count(*) FROM notifications n\n                        WHERE n.environment_id = c.environment_id\n                          AND n.subscriber_id  = c.subscriber_id\n                          AND n.id = ANY($2)\n                          AND n.visible_at > c.seen_watermark\n                          AND NOT EXISTS (SELECT 1 FROM preferences p\n                                WHERE p.environment_id = n.environment_id\n                                  AND p.subscriber_id  = n.subscriber_id\n                                  AND p.category = n.category AND p.channel = 'in_app'\n                                  AND p.enabled = false))::int,\n                   updated_at = now()\n             WHERE c.environment_id = $1\n               AND c.subscriber_id IN (\n                   SELECT n.subscriber_id FROM notifications n\n                    WHERE n.environment_id = $1 AND n.id = ANY($2))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "507ec4e8138fe832e3037fa11df0361b7af9e51a64fdefb3eeb76cd035738cc7"
+}

@@ -80,6 +80,12 @@ change). Status codes are conventional and 429 carries `Retry-After`.
         crate::api::inbox::mark_notification_unread,
         crate::api::inbox::mark_broadcast_read,
         crate::api::inbox::mark_broadcast_unread,
+        crate::api::inbox::archive_notification,
+        crate::api::inbox::unarchive_notification,
+        crate::api::inbox::archive_broadcast,
+        crate::api::inbox::unarchive_broadcast,
+        crate::api::inbox::archive_all,
+        crate::api::inbox::archive_read,
         crate::api::inbox::mark_all_read,
         crate::api::inbox::mark_all_seen,
         crate::api::preferences::get_inbox_preferences,
@@ -267,7 +273,7 @@ fn fixups(doc: &mut utoipa::openapi::OpenApi) {
                     param.schema = Some(
                         ObjectBuilder::new()
                             .schema_type(Type::String)
-                            .enum_values(Some(["unread"]))
+                            .enum_values(Some(["unread", "archived"]))
                             .build()
                             .into(),
                     );
