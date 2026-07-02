@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE notifications SET archived_at = now(), unarchived_at = NULL\n                WHERE environment_id = $1 AND id = $2 AND visible_at = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e1f1ced4c04f3a450dcf2a813fe16218dead86e4906443b9d4400177554db253"
+}

@@ -41,6 +41,8 @@ pub struct InboxItem {
     pub occurred_at: String,
     /// Per-item exception OR at-or-below the read watermark.
     pub read: bool,
+    /// Per-item override OR at-or-below the archive watermark.
+    pub archived: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -70,6 +72,7 @@ pub struct ListParams {
 pub enum InboxFilter {
     Default,
     Unread,
+    Archived,
 }
 
 impl InboxFilter {
@@ -77,6 +80,7 @@ impl InboxFilter {
         match raw {
             None => Some(Self::Default),
             Some("unread") => Some(Self::Unread),
+            Some("archived") => Some(Self::Archived),
             Some(_) => None,
         }
     }
@@ -85,6 +89,7 @@ impl InboxFilter {
         match self {
             Self::Default => "default",
             Self::Unread => "unread",
+            Self::Archived => "archived",
         }
     }
 }
@@ -205,6 +210,7 @@ pub struct MergedRow {
     pub payload: Value,
     pub occurred_at: DateTime<Utc>,
     pub read: bool,
+    pub archived: bool,
 }
 
 impl From<MergedRow> for InboxItem {
@@ -220,6 +226,7 @@ impl From<MergedRow> for InboxItem {
             payload: row.payload,
             occurred_at: format_ts(row.occurred_at),
             read: row.read,
+            archived: row.archived,
         }
     }
 }
@@ -241,12 +248,16 @@ pub async fn list_items_for<'e, E: sqlx::PgExecutor<'e>>(
     let rows = sqlx::query!(
         r#"SELECT merged.source AS "source!", merged.id AS "id!",
                   merged.category AS "category!", merged.payload AS "payload!",
-                  merged.occurred_at AS "occurred_at!", merged.read AS "read!"
+                  merged.occurred_at AS "occurred_at!", merged.read AS "read!",
+                  merged.archived AS "archived!"
            FROM (
              (SELECT 'notification' AS source, n.id, n.category, n.payload,
                      n.visible_at AS occurred_at,
                      (n.read_at IS NOT NULL
-                        OR (n.unread_at IS NULL AND n.visible_at <= c.read_watermark)) AS read
+                        OR (n.unread_at IS NULL AND n.visible_at <= c.read_watermark)) AS read,
+                     (n.archived_at IS NOT NULL
+                        OR (n.unarchived_at IS NULL
+                            AND n.visible_at <= c.archive_watermark)) AS archived
                 FROM notifications n
                 JOIN subscriber_counters c
                   ON c.environment_id = n.environment_id
@@ -256,6 +267,14 @@ pub async fn list_items_for<'e, E: sqlx::PgExecutor<'e>>(
                  AND (n.visible_at, n.id) < ($3, $4)
                  AND ($7 <> 'unread' OR (n.read_at IS NULL
                         AND (n.unread_at IS NOT NULL OR n.visible_at > c.read_watermark)))
+                 AND CASE WHEN $7 = 'archived'
+                          THEN (n.archived_at IS NOT NULL
+                                OR (n.unarchived_at IS NULL
+                                    AND n.visible_at <= c.archive_watermark))
+                          ELSE NOT (n.archived_at IS NOT NULL
+                                OR (n.unarchived_at IS NULL
+                                    AND n.visible_at <= c.archive_watermark))
+                     END
                  AND NOT EXISTS (SELECT 1 FROM preferences p
                        WHERE p.environment_id = n.environment_id
                          AND p.subscriber_id  = n.subscriber_id
@@ -264,7 +283,8 @@ pub async fn list_items_for<'e, E: sqlx::PgExecutor<'e>>(
                ORDER BY n.visible_at DESC, n.id DESC LIMIT $5)
              UNION ALL
              (SELECT 'broadcast', b.id, b.category, b.payload, b.created_at,
-                     COALESCE(br.read, b.created_at <= c.read_watermark)
+                     COALESCE(br.read, b.created_at <= c.read_watermark),
+                     COALESCE(ba.archived, b.created_at <= c.archive_watermark)
                 FROM broadcasts b
                 JOIN subscriber_counters c
                   ON c.environment_id = b.environment_id AND c.subscriber_id = $2
@@ -272,11 +292,19 @@ pub async fn list_items_for<'e, E: sqlx::PgExecutor<'e>>(
                   ON br.environment_id = b.environment_id
                  AND br.subscriber_id  = $2
                  AND br.broadcast_id   = b.id
+                LEFT JOIN broadcast_archives ba
+                  ON ba.environment_id = b.environment_id
+                 AND ba.subscriber_id  = $2
+                 AND ba.broadcast_id   = b.id
                WHERE b.environment_id = $1
                  AND b.created_at >= $6
                  AND (b.created_at, b.id) < ($3, $4)
                  AND ($7 <> 'unread'
                         OR NOT COALESCE(br.read, b.created_at <= c.read_watermark))
+                 AND CASE WHEN $7 = 'archived'
+                          THEN COALESCE(ba.archived, b.created_at <= c.archive_watermark)
+                          ELSE NOT COALESCE(ba.archived, b.created_at <= c.archive_watermark)
+                     END
                  AND NOT EXISTS (SELECT 1 FROM preferences p
                        WHERE p.environment_id = b.environment_id
                          AND p.subscriber_id  = $2
@@ -310,6 +338,7 @@ pub async fn list_items_for<'e, E: sqlx::PgExecutor<'e>>(
             payload: r.payload,
             occurred_at: r.occurred_at,
             read: r.read,
+            archived: r.archived,
         })
         .collect())
 }
@@ -387,6 +416,11 @@ pub async fn fetch_counts_for(
                                AND br.subscriber_id  = $2
                                AND br.broadcast_id   = b.id
                                AND br.read)
+                       AND NOT COALESCE((SELECT ba.archived FROM broadcast_archives ba
+                             WHERE ba.environment_id = b.environment_id
+                               AND ba.subscriber_id  = $2
+                               AND ba.broadcast_id   = b.id),
+                             b.created_at <= c.archive_watermark)
                        AND NOT EXISTS (SELECT 1 FROM preferences p
                              WHERE p.environment_id = b.environment_id
                                AND p.subscriber_id  = $2
@@ -400,6 +434,11 @@ pub async fn fetch_counts_for(
                        AND NOT br.read
                        AND br.broadcast_created_at <= c.read_watermark
                        AND b.created_at >= $3
+                       AND NOT COALESCE((SELECT ba.archived FROM broadcast_archives ba
+                             WHERE ba.environment_id = b.environment_id
+                               AND ba.subscriber_id  = $2
+                               AND ba.broadcast_id   = b.id),
+                             b.created_at <= c.archive_watermark)
                        AND NOT EXISTS (SELECT 1 FROM preferences p
                              WHERE p.environment_id = b.environment_id
                                AND p.subscriber_id  = $2
@@ -481,7 +520,8 @@ pub async fn mark_notification_read(
     // Scheduled rows (visible_at > now()) are excluded from all subscriber
     // queries. An invisible item cannot be marked read.
     let row = sqlx::query!(
-        r#"SELECT visible_at, read_at, unread_at, category FROM notifications
+        r#"SELECT visible_at, read_at, unread_at, archived_at, unarchived_at, category
+            FROM notifications
             WHERE environment_id = $1 AND id = $2 AND subscriber_id = $3
               AND visible_at <= now()
             FOR UPDATE"#,
@@ -538,6 +578,7 @@ pub async fn mark_notification_read(
             r#"UPDATE subscriber_counters c SET
                    unread_direct_count = greatest(0,
                        c.unread_direct_count - (($3 > c.read_watermark OR $6) AND NOT $4
+                           AND NOT ($7 OR (NOT $8 AND $3 <= c.archive_watermark))
                            AND NOT EXISTS (SELECT 1 FROM preferences p
                                  WHERE p.environment_id = c.environment_id
                                    AND p.subscriber_id  = c.subscriber_id
@@ -551,6 +592,8 @@ pub async fn mark_notification_read(
             pending,
             row.category,
             row.unread_at.is_some(),
+            row.archived_at.is_some(),
+            row.unarchived_at.is_some(),
         )
         .execute(&mut *tx)
         .await
@@ -621,7 +664,8 @@ pub async fn mark_notification_unread(
     .await
     .map_err(ApiError::from)?;
     let row = sqlx::query!(
-        r#"SELECT visible_at, read_at, unread_at, category FROM notifications
+        r#"SELECT visible_at, read_at, unread_at, archived_at, unarchived_at, category
+            FROM notifications
             WHERE environment_id = $1 AND id = $2 AND subscriber_id = $3
               AND visible_at <= now()
             FOR UPDATE"#,
@@ -680,6 +724,7 @@ pub async fn mark_notification_unread(
         sqlx::query!(
             r#"UPDATE subscriber_counters c SET
                    unread_direct_count = c.unread_direct_count + (NOT $3
+                       AND NOT ($5 OR (NOT $6 AND $7 <= c.archive_watermark))
                        AND NOT EXISTS (SELECT 1 FROM preferences p
                              WHERE p.environment_id = c.environment_id
                                AND p.subscriber_id  = c.subscriber_id
@@ -691,6 +736,9 @@ pub async fn mark_notification_unread(
             auth.subscriber_id,
             pending,
             row.category,
+            row.archived_at.is_some(),
+            row.unarchived_at.is_some(),
+            row.visible_at,
         )
         .execute(&mut *tx)
         .await
@@ -942,6 +990,613 @@ pub async fn mark_broadcast_unread(
     }
     tx.commit().await.map_err(ApiError::from)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/inbox/notifications/{id}/archive",
+    tag = "subscriber",
+    operation_id = "archiveNotification",
+    summary = "Archive notification",
+    description = "Archive one direct notification. Archiving never changes read state. Idempotent.",
+    params(("id" = crate::api::contract::NotificationId, Path)),
+    responses(
+        (status = 204, description = "Archived (now or already)."),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid subscriber hash"}}),
+        ),
+        (
+            status = 404,
+            description = "Resource not found in this environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such notification"}}),
+        ),
+    ),
+    security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
+)]
+pub async fn archive_notification(
+    State(state): State<AppState>,
+    auth: SubscriberAuth,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let id = ids::parse_typeid(ids::NOTIFICATION, &id)
+        .ok_or_else(|| ApiError::not_found("no such notification"))?;
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    let watermark = sqlx::query_scalar!(
+        r#"SELECT archive_watermark FROM subscriber_counters
+            WHERE environment_id = $1 AND subscriber_id = $2 FOR UPDATE"#,
+        auth.environment_id,
+        auth.subscriber_id,
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(ApiError::from)?;
+    let row = sqlx::query!(
+        r#"SELECT visible_at, read_at, unread_at, archived_at, unarchived_at, category
+            FROM notifications
+            WHERE environment_id = $1 AND id = $2 AND subscriber_id = $3
+              AND visible_at <= now()
+            FOR UPDATE"#,
+        auth.environment_id,
+        id,
+        auth.subscriber_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(ApiError::from)?
+    .ok_or_else(|| ApiError::not_found("no such notification"))?;
+
+    let effectively_archived =
+        row.archived_at.is_some() || (row.unarchived_at.is_none() && row.visible_at <= watermark);
+    if !effectively_archived {
+        sqlx::query!(
+            r#"UPDATE notifications SET archived_at = now(), unarchived_at = NULL
+                WHERE environment_id = $1 AND id = $2 AND visible_at = $3"#,
+            auth.environment_id,
+            id,
+            row.visible_at,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
+        let pending = pending_deliver(&mut tx, auth.environment_id, id).await?;
+        // Archiving an unread item removes it from the count (unread means
+        // unread AND not archived). Read, pending, and muted items were not
+        // counted, so they must not decrement.
+        sqlx::query!(
+            r#"UPDATE subscriber_counters c SET
+                   unread_direct_count = greatest(0,
+                       c.unread_direct_count - ($3 AND ($4 OR $5 > c.read_watermark) AND NOT $6
+                           AND NOT EXISTS (SELECT 1 FROM preferences p
+                                 WHERE p.environment_id = c.environment_id
+                                   AND p.subscriber_id  = c.subscriber_id
+                                   AND p.category = $7 AND p.channel = 'in_app'
+                                   AND p.enabled = false))::int),
+                   updated_at = now()
+             WHERE c.environment_id = $1 AND c.subscriber_id = $2"#,
+            auth.environment_id,
+            auth.subscriber_id,
+            row.read_at.is_none(),
+            row.unread_at.is_some(),
+            row.visible_at,
+            pending,
+            row.category,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
+        jobs::enqueue_hint(
+            &mut tx,
+            auth.environment_id,
+            &[auth.subscriber_id],
+            "archive_state",
+            &[],
+        )
+        .await
+        .map_err(ApiError::from)?;
+    }
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/inbox/notifications/{id}/unarchive",
+    tag = "subscriber",
+    operation_id = "unarchiveNotification",
+    summary = "Unarchive notification",
+    description = "Return one direct notification to the inbox. Read state is untouched. Idempotent.",
+    params(("id" = crate::api::contract::NotificationId, Path)),
+    responses(
+        (status = 204, description = "Unarchived (now or already)."),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid subscriber hash"}}),
+        ),
+        (
+            status = 404,
+            description = "Resource not found in this environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such notification"}}),
+        ),
+    ),
+    security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
+)]
+pub async fn unarchive_notification(
+    State(state): State<AppState>,
+    auth: SubscriberAuth,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let id = ids::parse_typeid(ids::NOTIFICATION, &id)
+        .ok_or_else(|| ApiError::not_found("no such notification"))?;
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    let watermark = sqlx::query_scalar!(
+        r#"SELECT archive_watermark FROM subscriber_counters
+            WHERE environment_id = $1 AND subscriber_id = $2 FOR UPDATE"#,
+        auth.environment_id,
+        auth.subscriber_id,
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(ApiError::from)?;
+    let row = sqlx::query!(
+        r#"SELECT visible_at, read_at, unread_at, archived_at, unarchived_at, category
+            FROM notifications
+            WHERE environment_id = $1 AND id = $2 AND subscriber_id = $3
+              AND visible_at <= now()
+            FOR UPDATE"#,
+        auth.environment_id,
+        id,
+        auth.subscriber_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(ApiError::from)?
+    .ok_or_else(|| ApiError::not_found("no such notification"))?;
+
+    let effectively_archived =
+        row.archived_at.is_some() || (row.unarchived_at.is_none() && row.visible_at <= watermark);
+    if effectively_archived {
+        // At or below the archive watermark the override column keeps the
+        // item unarchived despite the watermark.
+        let needs_override = row.visible_at <= watermark;
+        sqlx::query!(
+            r#"UPDATE notifications
+                  SET archived_at = NULL,
+                      unarchived_at = CASE WHEN $4 THEN now() ELSE NULL END
+                WHERE environment_id = $1 AND id = $2 AND visible_at = $3"#,
+            auth.environment_id,
+            id,
+            row.visible_at,
+            needs_override,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
+        let pending = pending_deliver(&mut tx, auth.environment_id, id).await?;
+        // An unread item re-enters the count. Read state never changed while
+        // archived, so unarchiving below the read watermark comes back read.
+        sqlx::query!(
+            r#"UPDATE subscriber_counters c SET
+                   unread_direct_count = c.unread_direct_count + ($3
+                       AND ($4 OR $5 > c.read_watermark) AND NOT $6
+                       AND NOT EXISTS (SELECT 1 FROM preferences p
+                             WHERE p.environment_id = c.environment_id
+                               AND p.subscriber_id  = c.subscriber_id
+                               AND p.category = $7 AND p.channel = 'in_app'
+                               AND p.enabled = false))::int,
+                   updated_at = now()
+             WHERE c.environment_id = $1 AND c.subscriber_id = $2"#,
+            auth.environment_id,
+            auth.subscriber_id,
+            row.read_at.is_none(),
+            row.unread_at.is_some(),
+            row.visible_at,
+            pending,
+            row.category,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
+        jobs::enqueue_hint(
+            &mut tx,
+            auth.environment_id,
+            &[auth.subscriber_id],
+            "archive_state",
+            &[],
+        )
+        .await
+        .map_err(ApiError::from)?;
+    }
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/inbox/broadcasts/{id}/archive",
+    tag = "subscriber",
+    operation_id = "archiveBroadcast",
+    summary = "Archive broadcast",
+    description = "Archive one broadcast for this subscriber. Idempotent.",
+    params(("id" = crate::api::contract::BroadcastId, Path)),
+    responses(
+        (status = 204, description = "Archived (now or already)."),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid subscriber hash"}}),
+        ),
+        (
+            status = 404,
+            description = "Resource not found in this environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such broadcast"}}),
+        ),
+    ),
+    security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
+)]
+pub async fn archive_broadcast(
+    State(state): State<AppState>,
+    auth: SubscriberAuth,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let id = ids::parse_typeid(ids::BROADCAST, &id)
+        .ok_or_else(|| ApiError::not_found("no such broadcast"))?;
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    let watermark = sqlx::query_scalar!(
+        r#"SELECT archive_watermark FROM subscriber_counters
+            WHERE environment_id = $1 AND subscriber_id = $2 FOR UPDATE"#,
+        auth.environment_id,
+        auth.subscriber_id,
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(ApiError::from)?;
+    let broadcast_created_at = sqlx::query_scalar!(
+        r#"SELECT created_at FROM broadcasts WHERE environment_id = $1 AND id = $2"#,
+        auth.environment_id,
+        id,
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(ApiError::from)?
+    .filter(|created_at| *created_at >= auth.subscriber_created_at)
+    .ok_or_else(|| ApiError::not_found("no such broadcast"))?;
+
+    let changed = if broadcast_created_at > watermark {
+        sqlx::query!(
+            r#"INSERT INTO broadcast_archives
+                   (environment_id, subscriber_id, broadcast_id, broadcast_created_at, archived)
+               VALUES ($1, $2, $3, $4, true)
+               ON CONFLICT (environment_id, subscriber_id, broadcast_id)
+               DO UPDATE SET archived = true, updated_at = now()
+               WHERE broadcast_archives.archived = false"#,
+            auth.environment_id,
+            auth.subscriber_id,
+            id,
+            broadcast_created_at,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?
+        .rows_affected()
+    } else {
+        sqlx::query!(
+            r#"DELETE FROM broadcast_archives
+                WHERE environment_id = $1 AND subscriber_id = $2
+                  AND broadcast_id = $3 AND archived = false"#,
+            auth.environment_id,
+            auth.subscriber_id,
+            id,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?
+        .rows_affected()
+    };
+    if changed > 0 {
+        sqlx::query!(
+            r#"UPDATE subscriber_counters SET updated_at = now()
+                WHERE environment_id = $1 AND subscriber_id = $2"#,
+            auth.environment_id,
+            auth.subscriber_id,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
+        jobs::enqueue_hint(
+            &mut tx,
+            auth.environment_id,
+            &[auth.subscriber_id],
+            "archive_state",
+            &[],
+        )
+        .await
+        .map_err(ApiError::from)?;
+    }
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/inbox/broadcasts/{id}/unarchive",
+    tag = "subscriber",
+    operation_id = "unarchiveBroadcast",
+    summary = "Unarchive broadcast",
+    description = "Return one broadcast to this subscriber's inbox. The override survives the archive watermark. Idempotent.",
+    params(("id" = crate::api::contract::BroadcastId, Path)),
+    responses(
+        (status = 204, description = "Unarchived (now or already)."),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid subscriber hash"}}),
+        ),
+        (
+            status = 404,
+            description = "Resource not found in this environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such broadcast"}}),
+        ),
+    ),
+    security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
+)]
+pub async fn unarchive_broadcast(
+    State(state): State<AppState>,
+    auth: SubscriberAuth,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let id = ids::parse_typeid(ids::BROADCAST, &id)
+        .ok_or_else(|| ApiError::not_found("no such broadcast"))?;
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    let watermark = sqlx::query_scalar!(
+        r#"SELECT archive_watermark FROM subscriber_counters
+            WHERE environment_id = $1 AND subscriber_id = $2 FOR UPDATE"#,
+        auth.environment_id,
+        auth.subscriber_id,
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(ApiError::from)?;
+    let broadcast_created_at = sqlx::query_scalar!(
+        r#"SELECT created_at FROM broadcasts WHERE environment_id = $1 AND id = $2"#,
+        auth.environment_id,
+        id,
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(ApiError::from)?
+    .filter(|created_at| *created_at >= auth.subscriber_created_at)
+    .ok_or_else(|| ApiError::not_found("no such broadcast"))?;
+
+    let changed = if broadcast_created_at > watermark {
+        sqlx::query!(
+            r#"DELETE FROM broadcast_archives
+                WHERE environment_id = $1 AND subscriber_id = $2
+                  AND broadcast_id = $3 AND archived = true"#,
+            auth.environment_id,
+            auth.subscriber_id,
+            id,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?
+        .rows_affected()
+    } else {
+        sqlx::query!(
+            r#"INSERT INTO broadcast_archives
+                   (environment_id, subscriber_id, broadcast_id, broadcast_created_at, archived)
+               VALUES ($1, $2, $3, $4, false)
+               ON CONFLICT (environment_id, subscriber_id, broadcast_id)
+               DO UPDATE SET archived = false, updated_at = now()
+               WHERE broadcast_archives.archived = true"#,
+            auth.environment_id,
+            auth.subscriber_id,
+            id,
+            broadcast_created_at,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?
+        .rows_affected()
+    };
+    if changed > 0 {
+        sqlx::query!(
+            r#"UPDATE subscriber_counters SET updated_at = now()
+                WHERE environment_id = $1 AND subscriber_id = $2"#,
+            auth.environment_id,
+            auth.subscriber_id,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
+        jobs::enqueue_hint(
+            &mut tx,
+            auth.environment_id,
+            &[auth.subscriber_id],
+            "archive_state",
+            &[],
+        )
+        .await
+        .map_err(ApiError::from)?;
+    }
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/inbox/archive-all",
+    tag = "subscriber",
+    operation_id = "archiveAll",
+    summary = "Archive all",
+    description = r#"Archive every item, direct and broadcast, for this subscriber. Read state is untouched."#,
+    responses(
+        (status = 200, description = "Watermark moved.", body = crate::api::contract::InboxCounts),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid subscriber hash"}}),
+        ),
+    ),
+    security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
+)]
+pub async fn archive_all(
+    State(state): State<AppState>,
+    auth: SubscriberAuth,
+) -> Result<Json<InboxCounts>, ApiError> {
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    sqlx::query!(
+        r#"SELECT 1 AS one FROM subscriber_counters
+            WHERE environment_id = $1 AND subscriber_id = $2 FOR UPDATE"#,
+        auth.environment_id,
+        auth.subscriber_id,
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(ApiError::from)?;
+    // Archive-all is a one-row watermark upsert, never a bulk UPDATE over
+    // inbox rows. clock_timestamp() under the lock for the same reason as
+    // mark_all_read: an insert committing in the BEGIN->FOR UPDATE gap must
+    // land at or below the watermark (archived and uncounted), never above a
+    // stale one while the counter zeroes.
+    let new_watermark = sqlx::query_scalar!(
+        r#"UPDATE subscriber_counters SET
+               archive_watermark = clock_timestamp(),
+               unread_direct_count = 0,
+               updated_at = clock_timestamp()
+         WHERE environment_id = $1 AND subscriber_id = $2
+         RETURNING archive_watermark"#,
+        auth.environment_id,
+        auth.subscriber_id,
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(ApiError::from)?;
+    // Override GCs, both bounded by explicit-exception cardinality (partial
+    // index for direct). Bind the installed watermark, never a fresh clock,
+    // or an override above the watermark could be destroyed.
+    sqlx::query!(
+        r#"UPDATE notifications SET archived_at = NULL, unarchived_at = NULL
+            WHERE environment_id = $1 AND subscriber_id = $2
+              AND (archived_at IS NOT NULL OR unarchived_at IS NOT NULL)
+              AND visible_at <= $3"#,
+        auth.environment_id,
+        auth.subscriber_id,
+        new_watermark,
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(ApiError::from)?;
+    sqlx::query!(
+        r#"DELETE FROM broadcast_archives
+            WHERE environment_id = $1 AND subscriber_id = $2
+              AND broadcast_created_at <= $3"#,
+        auth.environment_id,
+        auth.subscriber_id,
+        new_watermark,
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(ApiError::from)?;
+    jobs::enqueue_hint(
+        &mut tx,
+        auth.environment_id,
+        &[auth.subscriber_id],
+        "archive_state",
+        &[],
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let counts = fetch_counts(&mut tx, &auth).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(counts))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/inbox/archive-read",
+    tag = "subscriber",
+    operation_id = "archiveRead",
+    summary = "Archive read items",
+    description = r#"Archive every currently read item, direct and broadcast. Runs asynchronously as a resumable job; completion is signaled by an SSE hint and ETag movement."#,
+    responses(
+        (status = 202, description = "Accepted. The job runs asynchronously."),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid subscriber hash"}}),
+        ),
+    ),
+    security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
+)]
+pub async fn archive_read(
+    State(state): State<AppState>,
+    auth: SubscriberAuth,
+) -> Result<StatusCode, ApiError> {
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    // The lock orders as_of against concurrent watermark moves. as_of
+    // freezes the item horizon: items arriving later are untouched.
+    sqlx::query!(
+        r#"SELECT 1 AS one FROM subscriber_counters
+            WHERE environment_id = $1 AND subscriber_id = $2 FOR UPDATE"#,
+        auth.environment_id,
+        auth.subscriber_id,
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(ApiError::from)?;
+    let as_of = sqlx::query_scalar!(r#"SELECT clock_timestamp() AS "now!""#)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
+    // Transactional outbox: the job commits with this transaction.
+    jobs::enqueue_archive_read(&mut tx, auth.environment_id, auth.subscriber_id, as_of)
+        .await
+        .map_err(ApiError::from)?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// Whether a deliver job still owns this notification (its counter bump has
+/// not run). Shared guard for every per-item counter mutation.
+async fn pending_deliver(
+    tx: &mut sqlx::PgConnection,
+    environment_id: Uuid,
+    id: Uuid,
+) -> Result<bool, ApiError> {
+    sqlx::query_scalar!(
+        r#"SELECT EXISTS (
+               SELECT 1 FROM jobs j
+               CROSS JOIN LATERAL jsonb_array_elements_text(
+                   CASE WHEN jsonb_typeof(j.payload->'notification_ids') = 'array'
+                        THEN j.payload->'notification_ids' END)
+                   WITH ORDINALITY AS t(nid, idx)
+               WHERE j.environment_id = $1 AND j.job_type = 'deliver'
+                 AND t.nid = ($2::uuid)::text
+                 AND (t.idx - 1) >= COALESCE((j.progress_cursor->>'offset')::bigint, 0)
+           ) AS "pending!""#,
+        environment_id,
+        id,
+    )
+    .fetch_one(tx)
+    .await
+    .map_err(ApiError::from)
 }
 
 #[utoipa::path(

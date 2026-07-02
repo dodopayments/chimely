@@ -658,17 +658,26 @@ impl TestApp {
                               WHERE environment_id = $1 AND subscriber_id = $2)
                  SELECT kind, id FROM (
                      SELECT 'notification' AS kind, n.id, n.visible_at AS occurred_at
-                       FROM notifications n, me
-                      WHERE n.environment_id = $1 AND n.subscriber_id = me.id
+                       FROM notifications n, me, subscriber_counters c
+                      WHERE c.environment_id = $1 AND c.subscriber_id = me.id
+                        AND n.environment_id = $1 AND n.subscriber_id = me.id
                         AND n.visible_at <= now()
+                        AND NOT (n.archived_at IS NOT NULL
+                              OR (n.unarchived_at IS NULL
+                                  AND n.visible_at <= c.archive_watermark))
                         AND NOT EXISTS (SELECT 1 FROM preferences p
                               WHERE p.environment_id = $1 AND p.subscriber_id = me.id
                                 AND p.category = n.category AND p.channel = 'in_app'
                                 AND p.enabled = false)
                      UNION ALL
                      SELECT 'broadcast', b.id, b.created_at
-                       FROM broadcasts b, me
-                      WHERE b.environment_id = $1 AND b.created_at >= me.created_at
+                       FROM broadcasts b, me, subscriber_counters c
+                      WHERE c.environment_id = $1 AND c.subscriber_id = me.id
+                        AND b.environment_id = $1 AND b.created_at >= me.created_at
+                        AND NOT COALESCE((SELECT ba.archived FROM broadcast_archives ba
+                              WHERE ba.environment_id = $1 AND ba.subscriber_id = me.id
+                                AND ba.broadcast_id = b.id),
+                              b.created_at <= c.archive_watermark)
                         AND NOT EXISTS (SELECT 1 FROM preferences p
                               WHERE p.environment_id = $1 AND p.subscriber_id = me.id
                                 AND p.category = b.category AND p.channel = 'in_app'

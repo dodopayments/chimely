@@ -363,6 +363,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/inbox/archive-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive all
+         * @description Archive every item, direct and broadcast, for this subscriber. Read state is untouched.
+         */
+        post: operations["archiveAll"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbox/archive-read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive read items
+         * @description Archive every currently read item, direct and broadcast. Runs asynchronously as a resumable job; completion is signaled by an SSE hint and ETag movement.
+         */
+        post: operations["archiveRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbox/broadcasts/{id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive broadcast
+         * @description Archive one broadcast for this subscriber. Idempotent.
+         */
+        post: operations["archiveBroadcast"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/inbox/broadcasts/{id}/read": {
         parameters: {
             query?: never;
@@ -377,6 +437,26 @@ export interface paths {
          * @description Mark one broadcast as read for this subscriber. Idempotent.
          */
         post: operations["markBroadcastRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbox/broadcasts/{id}/unarchive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unarchive broadcast
+         * @description Return one broadcast to this subscriber's inbox. The override survives the archive watermark. Idempotent.
+         */
+        post: operations["unarchiveBroadcast"];
         delete?: never;
         options?: never;
         head?: never;
@@ -443,6 +523,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/inbox/notifications/{id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive notification
+         * @description Archive one direct notification. Archiving never changes read state. Idempotent.
+         */
+        post: operations["archiveNotification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/inbox/notifications/{id}/read": {
         parameters: {
             query?: never;
@@ -457,6 +557,26 @@ export interface paths {
          * @description Mark one direct notification as read. Idempotent.
          */
         post: operations["markNotificationRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbox/notifications/{id}/unarchive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unarchive notification
+         * @description Return one direct notification to the inbox. Read state is untouched. Idempotent.
+         */
+        post: operations["unarchiveNotification"];
         delete?: never;
         options?: never;
         head?: never;
@@ -888,6 +1008,8 @@ export interface components {
             unseen: number;
         };
         InboxItem: {
+            /** @description Computed — per-item override OR at-or-below the archive watermark. */
+            archived: boolean;
             category: string;
             /** @description The TypeID prefix already encodes the source; `source` is kept as the explicit discriminator. */
             id: components["schemas"]["NotificationId"] | components["schemas"]["BroadcastId"];
@@ -2846,6 +2968,132 @@ export interface operations {
             429: components["responses"]["RateLimited"];
         };
     };
+    archiveAll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Watermark moved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxCounts"];
+                };
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid subscriber hash"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    archiveRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted. The job runs asynchronously. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid subscriber hash"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    archiveBroadcast: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["BroadcastId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived (now or already). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid subscriber hash"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Resource not found in this environment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such broadcast"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     markBroadcastRead: {
         parameters: {
             query?: never;
@@ -2858,6 +3106,60 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Read (now or already). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid subscriber hash"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Resource not found in this environment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such broadcast"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    unarchiveBroadcast: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["BroadcastId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unarchived (now or already). */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -2998,7 +3300,7 @@ export interface operations {
                 cursor?: string;
                 limit?: number;
                 /** @description View filter. Omit for the default view, or `unread` for unread items only. */
-                filter?: "unread";
+                filter?: "unread" | "archived";
             };
             header?: {
                 "If-None-Match"?: string;
@@ -3065,6 +3367,60 @@ export interface operations {
             429: components["responses"]["RateLimited"];
         };
     };
+    archiveNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["NotificationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived (now or already). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid subscriber hash"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Resource not found in this environment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such notification"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     markNotificationRead: {
         parameters: {
             query?: never;
@@ -3077,6 +3433,60 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Read (now or already). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid subscriber hash"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Resource not found in this environment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such notification"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    unarchiveNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["NotificationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unarchived (now or already). */
             204: {
                 headers: {
                     [name: string]: unknown;

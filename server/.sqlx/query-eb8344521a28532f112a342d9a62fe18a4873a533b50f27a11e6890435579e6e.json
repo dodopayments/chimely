@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO broadcast_archives\n                   (environment_id, subscriber_id, broadcast_id, broadcast_created_at, archived)\n               SELECT b.environment_id, $2, b.id, b.created_at, true\n                 FROM broadcasts b\n                 JOIN subscriber_counters c\n                   ON c.environment_id = b.environment_id AND c.subscriber_id = $2\n                 LEFT JOIN broadcast_reads br\n                   ON br.environment_id = b.environment_id\n                  AND br.subscriber_id  = $2\n                  AND br.broadcast_id   = b.id\n                 LEFT JOIN broadcast_archives ba\n                   ON ba.environment_id = b.environment_id\n                  AND ba.subscriber_id  = $2\n                  AND ba.broadcast_id   = b.id\n                WHERE b.environment_id = $1\n                  AND (b.created_at, b.id) > ($3, $4)\n                  AND (b.created_at, b.id) <= ($5, $6)\n                  AND COALESCE(br.read, b.created_at <= c.read_watermark)\n                  AND NOT COALESCE(ba.archived, b.created_at <= c.archive_watermark)\n               ON CONFLICT (environment_id, subscriber_id, broadcast_id)\n               DO UPDATE SET archived = true, updated_at = now()\n               WHERE broadcast_archives.archived = false",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Uuid",
+        "Timestamptz",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eb8344521a28532f112a342d9a62fe18a4873a533b50f27a11e6890435579e6e"
+}
