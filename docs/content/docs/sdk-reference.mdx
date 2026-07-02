@@ -58,6 +58,12 @@ uses the context client).
 | `renderEmpty` | `() => ReactNode` | — | Custom empty state |
 | `renderFooter` | `() => ReactNode` | — | Content for the popover footer (branding, links) |
 
+`renderSubject`, `renderBody`, and `renderAvatar` render inside the row's
+`<button>` (the whole row is the click target), so they must return
+non-interactive content: no links, no buttons. Nested interactive elements
+are invalid HTML. To put interactive elements in a row, use `renderItem` and
+own the whole row including its click wiring.
+
 ### Appearance
 
 `appearance.variables` forwards keys as `--chimely-<key>` CSS custom
@@ -91,6 +97,12 @@ view select switches between the full inbox, unread-only, and archived, all
 server-side filters that paginate independently. A more-actions menu in the
 header carries mark-all-read, archive-read (asynchronous server-side), and
 archive-all.
+
+The toggle buttons draw their glyph in `colorPrimary` on `colorBackground`
+with a `colorMuted` border, and each carries a `title` and `aria-label`. Both
+built-in presets keep the glyph above the WCAG contrast thresholds. Custom
+themes should keep `colorPrimary` legible against `colorBackground` (3:1 or
+better).
 
 ### Tabs
 

@@ -1,3 +1,4 @@
+import type { ChimelyClient } from '@chimely/client';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { darkTheme } from './appearance';
@@ -7,14 +8,19 @@ import { Inbox } from './Inbox';
 import type { StubServer } from './test-support/setup';
 import { createStubServer, loadClient, makeClient } from './test-support/setup';
 
-async function renderInbox(stub: StubServer, props: InboxProps = {}): Promise<void> {
-  const client = makeClient(stub);
+async function renderInbox(
+  stub: StubServer,
+  props: InboxProps = {},
+  clientConfig: { pageSize?: number } = {},
+): Promise<ChimelyClient> {
+  const client = makeClient(stub, clientConfig);
   await loadClient(client, stub);
   render(
     <ChimelyProvider client={client}>
       <Inbox {...props} />
     </ChimelyProvider>,
   );
+  return client;
 }
 
 function bell(): HTMLElement {
@@ -152,5 +158,64 @@ describe('new-notification pill', () => {
     stub.emitHint();
     await screen.findByText('visible immediately');
     expect(document.querySelector('.chimely-pill')).toBeNull();
+  });
+
+  test('prunes ids evicted by a non-contiguous reset', async () => {
+    const stub = createStubServer();
+    for (let i = 0; i < 3; i += 1) {
+      stub.addNotification();
+    }
+    await renderInbox(
+      stub,
+      { localization: { newNotifications: (count) => `${count} fresh` } },
+      { pageSize: 3 },
+    );
+    fireEvent.click(bell());
+
+    const list = document.querySelector('.chimely-list') as HTMLElement;
+    list.scrollTop = 200;
+
+    stub.addNotification({ payload: { title: 'kept behind the pill' } });
+    stub.emitHint();
+    await screen.findByRole('button', { name: '1 fresh' });
+
+    // More than a page of arrivals with zero overlap resets the list
+    // wholesale, evicting the earlier arrival. The pill counts only the
+    // ids still present.
+    for (let i = 0; i < 4; i += 1) {
+      stub.addNotification();
+    }
+    stub.emitHint();
+    await screen.findByRole('button', { name: '3 fresh' });
+  });
+
+  test('arrivals outside the active tab do not bump the pill', async () => {
+    const stub = createStubServer();
+    for (let i = 0; i < 5; i += 1) {
+      stub.addNotification({ category: 'billing.alerts' });
+    }
+    const client = await renderInbox(stub, {
+      tabs: [
+        { label: 'All' },
+        { label: 'Billing', filter: (item) => item.category === 'billing.alerts' },
+      ],
+      localization: { newNotifications: (count) => `${count} fresh` },
+    });
+    fireEvent.click(bell());
+    fireEvent.click(screen.getByRole('tab', { name: /Billing/ }));
+
+    const list = document.querySelector('.chimely-list') as HTMLElement;
+    list.scrollTop = 200;
+
+    stub.addNotification({ category: 'system' });
+    stub.emitHint();
+    await waitFor(() => {
+      expect(client.getSnapshot().items).toHaveLength(6);
+    });
+    expect(document.querySelector('.chimely-pill')).toBeNull();
+
+    stub.addNotification({ category: 'billing.alerts' });
+    stub.emitHint();
+    await screen.findByRole('button', { name: '1 fresh' });
   });
 });

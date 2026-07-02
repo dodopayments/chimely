@@ -96,6 +96,12 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
   private etag: string | null = null;
   /** Keyset cursor of the deepest fetched page. */
   private cursor: string | null = null;
+  /**
+   * Bumped by setFilter. A list response that started under the old view
+   * carries that view's items and cursor, so applying it after the switch
+   * would corrupt the store. Stale responses are discarded instead.
+   */
+  private viewGeneration = 0;
 
   private refreshing: Promise<void> | null = null;
   private refreshAgain = false;
@@ -186,12 +192,14 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
 
   /**
    * Switch the server-side list view. Resets pagination and the ETag (the
-   * server keys validators per view) and refetches. No-op when unchanged.
+   * server keys validators per view) and refetches. In-flight list responses
+   * for the old view are discarded. No-op when unchanged.
    */
   setFilter(filter: InboxFilterView): Promise<void> {
     if ((this.store.getSnapshot().filter ?? 'default') === filter) {
       return Promise.resolve();
     }
+    this.viewGeneration += 1;
     this.cursor = null;
     this.etag = null;
     this.store.patch({
@@ -452,6 +460,7 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
   }
 
   private async doRefresh(): Promise<void> {
+    const generation = this.viewGeneration;
     this.store.patch({ isLoading: true });
     try {
       const listPath = `/v1/inbox/items?limit=${this.pageSize}${this.filterParam()}`;
@@ -459,18 +468,28 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
         this.http('GET', listPath, { ifNoneMatch: this.etag }),
         this.http('GET', '/v1/inbox/counts'),
       ]);
+      const counts = (await countsResponse.json()) as WireCounts;
+      const page =
+        pageResponse.status === 200 ? ((await pageResponse.json()) as WireInboxPage) : null;
+      if (generation !== this.viewGeneration) {
+        // The rerun queued by setFilter's refresh() call reloads the new
+        // view and clears isLoading.
+        return;
+      }
       const patch: Partial<InboxSnapshot<TPayload>> = {
-        counts: (await countsResponse.json()) as WireCounts,
+        counts,
         isLoading: false,
         error: null,
       };
-      if (pageResponse.status === 200) {
+      if (page !== null) {
         this.etag = pageResponse.headers.get('ETag');
-        const page = (await pageResponse.json()) as WireInboxPage;
         Object.assign(patch, this.mergeFirstPage(page));
       }
       this.store.patch(patch);
     } catch (cause) {
+      if (generation !== this.viewGeneration) {
+        return;
+      }
       this.store.patch({ isLoading: false, error: asChimelyError(cause) });
     }
   }
@@ -516,6 +535,7 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
   }
 
   private async doFetchMore(limit?: number): Promise<void> {
+    const generation = this.viewGeneration;
     try {
       const params = new URLSearchParams({
         limit: String(Math.min(100, Math.max(1, limit ?? this.pageSize))),
@@ -529,6 +549,9 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
       }
       const response = await this.http('GET', `/v1/inbox/items?${params.toString()}`);
       const page = (await response.json()) as WireInboxPage;
+      if (generation !== this.viewGeneration) {
+        return;
+      }
       const snapshot = this.store.getSnapshot();
       const loaded = new Set(snapshot.items.map((item) => item.id));
       const appended = page.items
@@ -541,6 +564,9 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
         error: null,
       });
     } catch (cause) {
+      if (generation !== this.viewGeneration) {
+        return;
+      }
       this.store.patch({ error: asChimelyError(cause) });
     }
   }
