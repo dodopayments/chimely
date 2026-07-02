@@ -441,6 +441,17 @@ describe('header title and footer', () => {
     expect(screen.getByRole('dialog', { name: 'Meldungen' })).toBeDefined();
     expect(document.querySelector('.chimely-header-title')?.textContent).toBe('Meldungen');
   });
+
+  test('dialog label follows the preferences panel', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.alerts' });
+    await renderInbox(stub);
+    fireEvent.click(bell());
+    fireEvent.click(screen.getByRole('button', { name: 'Notification preferences' }));
+    expect(screen.getByRole('dialog', { name: 'Notification preferences' })).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByRole('dialog', { name: 'Notifications' })).toBeDefined();
+  });
 });
 
 describe('localized labels', () => {
