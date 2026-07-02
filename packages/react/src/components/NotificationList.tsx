@@ -34,7 +34,10 @@ export function NotificationList<TPayload>(props: NotificationListProps<TPayload
   const listRef = useRef<HTMLUListElement | null>(null);
   const sentinelRef = useRef<HTMLLIElement | null>(null);
 
-  // Minute tick keeps relative timestamps current while the list is visible.
+  // Called for the re-render only, formatTimestamp reads the clock itself.
+  // The tick is mount scoped: under <Inbox /> the list exists only while the
+  // popover is open, an always mounted <InboxContent /> ticks once a minute
+  // for its lifetime so relative timestamps stay current.
   useNow(60_000);
 
   // Visibility is state, not a one-shot trigger: while the sentinel stays in
