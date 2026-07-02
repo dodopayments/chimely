@@ -328,7 +328,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
           ref={popoverRef}
           className={cls('popover')}
           role="dialog"
-          aria-label={strings.inboxTitle}
+          aria-label={showPreferences ? strings.preferencesTitle : strings.inboxTitle}
         >
           <div className={cls('header')}>
             {showPreferences ? (
