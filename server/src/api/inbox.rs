@@ -183,10 +183,12 @@ pub async fn list_items(
         auth.environment_id,
         auth.subscriber_id,
         auth.subscriber_created_at,
-        cursor_ts,
-        cursor_id,
-        limit,
-        filter,
+        ListWindow {
+            cursor_ts,
+            cursor_id,
+            limit,
+            filter,
+        },
     )
     .await
     .map_err(ApiError::from)?;
@@ -231,19 +233,25 @@ impl From<MergedRow> for InboxItem {
     }
 }
 
+/// Keyset window and view filter for one page of the merged list.
+/// `(cursor_ts, cursor_id)` is the last item of the previous page, or
+/// `(MAX_UTC, Uuid::max())` for the first page.
+pub struct ListWindow {
+    pub cursor_ts: DateTime<Utc>,
+    pub cursor_id: Uuid,
+    pub limit: i64,
+    pub filter: InboxFilter,
+}
+
 /// The canonical merged list query. Both arms are keyset range scans over
 /// notifications_inbox_idx and broadcasts_window_idx. Category mutes are
-/// read-time NOT EXISTS probes. `(cursor_ts, cursor_id)` is the last item of
-/// the previous page, or `(MAX_UTC, Uuid::max())` for the first page.
+/// read-time NOT EXISTS probes.
 pub async fn list_items_for<'e, E: sqlx::PgExecutor<'e>>(
     executor: E,
     environment_id: Uuid,
     subscriber_id: Uuid,
     subscriber_created_at: DateTime<Utc>,
-    cursor_ts: DateTime<Utc>,
-    cursor_id: Uuid,
-    limit: i64,
-    filter: InboxFilter,
+    window: ListWindow,
 ) -> sqlx::Result<Vec<MergedRow>> {
     let rows = sqlx::query!(
         r#"SELECT merged.source AS "source!", merged.id AS "id!",
@@ -316,11 +324,11 @@ pub async fn list_items_for<'e, E: sqlx::PgExecutor<'e>>(
            LIMIT $5"#,
         environment_id,
         subscriber_id,
-        cursor_ts,
-        cursor_id,
-        limit,
+        window.cursor_ts,
+        window.cursor_id,
+        window.limit,
         subscriber_created_at,
-        filter.as_str(),
+        window.filter.as_str(),
     )
     .fetch_all(executor)
     .await?;
@@ -1687,10 +1695,11 @@ pub async fn mark_all_read(
     .execute(&mut *tx)
     .await
     .map_err(ApiError::from)?;
-    // Direct unread overrides die too: the user just read everything. The
-    // scan is bounded by explicit exceptions (partial index), the same
-    // cardinality class as the broadcast GC above, so this is not a bulk
-    // UPDATE over the inbox.
+    // Direct unread overrides at or below the new watermark are redundant the
+    // same way. The scan touches only explicit exception rows via the partial
+    // index notifications_unread_exception_idx, the same cardinality class as
+    // the broadcast_reads GC above, never O(inbox). Read state for everything
+    // else still moves through the watermark alone.
     sqlx::query!(
         r#"UPDATE notifications SET unread_at = NULL
             WHERE environment_id = $1 AND subscriber_id = $2
