@@ -1,6 +1,6 @@
 ---
 title: Overview
-description: Fair-source, self-hostable in-app notification inbox infrastructure.
+description: Open-source, self-hostable in-app notification inbox infrastructure.
 ---
 
 import { Card, Cards } from 'fumadocs-ui/components/card';
@@ -50,7 +50,16 @@ These are deliberate. Chimely does the inbox and nothing else:
 
 ## License
 
-The server is [fair source](https://fair.io) (FSL-1.1-MIT): free to use,
-self-host, and modify, with each release converting to MIT two years after it
-ships. The SDKs and examples are MIT. Chimely is source-available, not OSI open
-source.
+The server is open source under
+[AGPL-3.0](https://github.com/dodopayments/chimely/blob/main/LICENSE), an
+OSI-approved license. You can use, self-host, modify, and redistribute it
+freely, at any scale, commercially or not. AGPL's one obligation is
+reciprocity: if you modify the server and offer it to others over a network,
+you must publish that modified source. Running it unmodified carries no such
+obligation.
+
+The SDKs (`@chimely/client`, `@chimely/react`) and the examples are MIT. Your
+application talks to Chimely over HTTP through the MIT SDKs, so the server's
+copyleft never reaches your code. The full
+[License FAQ](https://github.com/dodopayments/chimely#license-faq) covers the
+common questions.

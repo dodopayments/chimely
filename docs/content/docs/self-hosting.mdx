@@ -126,11 +126,12 @@ path. Postgres stays authoritative and no data is lost, but:
 - Hint debounce is per-replica, so multiple replicas can emit more hints than
   strictly needed (never fewer).
 
-<Callout type="warn" title="Transaction-mode PgBouncer breaks LISTEN">
-In Redis-less mode `DATABASE_URL` must point at Postgres directly or a
-**session-mode** pooler. Transaction-mode PgBouncer multiplexes connections
-and silently drops `LISTEN/NOTIFY`, so hints never arrive. With Redis, the
-pooler mode does not matter.
+<Callout type="warn" title="Transaction-mode PgBouncer is not supported">
+`DATABASE_URL` must point at Postgres directly or a **session-mode** pooler.
+Transaction-mode PgBouncer multiplexes server connections, which silently
+drops `LISTEN/NOTIFY` (hints never arrive in Redis-less mode) and breaks the
+session advisory locks used by boot migrations and partition maintenance.
+This applies with or without Redis.
 </Callout>
 
 ## Partitioning & retention

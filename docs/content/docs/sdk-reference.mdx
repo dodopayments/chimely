@@ -70,8 +70,9 @@ properties (`colorPrimary`, `colorBackground`, `colorBadge`,
 `colorBadgeForeground`, `shadow`, `borderRadius`, `fontFamily`, …).
 `appearance.classNames` adds classes per slot and `appearance.styles` adds
 inline styles per slot: `root`, `bell`, `badge`, `popover`, `content`,
-`header`, `tabs`, `tab`, `tabActive`, `list`, `item`, `itemUnread`, `empty`,
-`footer`, `pill`, `preferences`. `appearance.icons` replaces the built-in
+`header`, `filter`, `tabs`, `tab`, `tabActive`, `list`, `item`, `itemUnread`,
+`empty`, `footer`, `pill`, `preferences`. `appearance.icons` replaces the
+built-in
 SVGs (`bell`, `gear`); `renderBell` wins over `icons.bell`.
 
 A dark preset ships with the package. Spread it and override freely:
@@ -109,15 +110,21 @@ better).
 <Inbox
   tabs={[
     { label: 'All' },
-    { label: 'Transactions', icon: <MoneyWavy />, filter: (item) => item.payload.tags?.includes('transactions') },
+    {
+      label: 'Transactions',
+      icon: <MoneyWavy />,
+      filter: (item) =>
+        Array.isArray(item.payload.tags) && item.payload.tags.includes('transactions'),
+    },
     { label: 'Business', filter: (item) => item.category.startsWith('business.') },
   ]}
 />
 ```
 
 `InboxTab.filter` is a client-side predicate over loaded items: it can match
-tag arrays, category prefixes, or anything else in the payload. A tab without
-a filter shows everything. When the active tab's filtered view runs short, the
+tag arrays, category prefixes, or anything else in the payload. Custom payload
+fields are typed `unknown`, so narrow them (as with `Array.isArray` above)
+before use. A tab without a filter shows everything. When the active tab's filtered view runs short, the
 list keeps fetching pages until the tab fills or the inbox is exhausted.
 
 Per-tab unread counts cover loaded pages only, so they are approximate for
@@ -176,6 +183,7 @@ accept `appearance` and `localization`.
 - **`<Preferences />`** is the per-category toggle list, for settings pages.
 
 ```tsx
+import { useEffect, useState } from 'react';
 import { Bell, InboxContent, useChimelyClient } from '@chimely/react';
 
 function CustomInbox() {
@@ -288,8 +296,14 @@ client.connect();
 | `refresh()` | `Promise<void>` | Conditional refetch (page 1) |
 | `fetchMore({ limit? })` | `Promise<void>` | Next page |
 | `markRead({ id, source })` | `Promise<void>` | Optimistic |
+| `markUnread({ id, source })` | `Promise<void>` | Optimistic |
+| `archive({ id, source })` | `Promise<void>` | Optimistic; drops the item from the default view |
+| `unarchive({ id, source })` | `Promise<void>` | Optimistic |
+| `archiveAll()` | `Promise<void>` | Watermark move |
+| `archiveRead()` | `Promise<void>` | Server-side job; state converges via hint refetch |
 | `markAllRead()` | `Promise<void>` | Watermark move |
 | `markAllSeen()` | `Promise<void>` | Zeroes unseen; leaves read state |
+| `setFilter(f)` | `void` | `'default' \| 'unread' \| 'archived'`; resets pagination and refetches |
 | `getPreferences()` | `Promise<Preference[]>` | — |
 | `setPreferences(p)` | `Promise<Preference[]>` | — |
 
@@ -308,6 +322,7 @@ interface InboxItem<TPayload = WellKnownPayload> {
   payload: TPayload;
   occurredAt: string;        // RFC 3339
   read: boolean;
+  archived?: boolean;
 }
 
 interface InboxCounts { unread: number; unseen: number }

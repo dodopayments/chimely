@@ -1,6 +1,6 @@
 # Chimely
 
-Fair-source, self-hostable in-app notification inbox infrastructure: one Rust
+Open-source, self-hostable in-app notification inbox infrastructure: one Rust
 binary + Postgres (source of truth) + Redis (real-time plane), a small HTTP
 API, and a drop-in `<Inbox />`.
 
