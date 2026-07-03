@@ -108,6 +108,12 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+      # Release images are multi-arch (amd64 + arm64) so `docker run` works
+      # natively on Apple Silicon and arm servers. The arm64 half builds under
+      # QEMU, which is slow, so PR and main builds stay amd64-only. Once the
+      # repo is public, native arm runners (ubuntu-24.04-arm) can replace QEMU.
+      - uses: docker/setup-qemu-action@v3
+        if: startsWith(github.ref, 'refs/tags/')
       - uses: docker/setup-buildx-action@v3
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
@@ -128,6 +134,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: ${{ startsWith(github.ref, 'refs/tags/') && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
