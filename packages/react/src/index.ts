@@ -36,3 +36,7 @@ export type { InboxProps } from './Inbox';
 export { Inbox } from './Inbox';
 export type { InboxLocalization } from './localization';
 export { DEFAULT_LOCALIZATION } from './localization';
+// The stylesheet as a string, for hosts whose CSP blocks the injected
+// style tag (nonce-based style-src). Served from the host's own pipeline,
+// the blocked injection is harmless and styling still works.
+export { INBOX_CSS } from './styles';

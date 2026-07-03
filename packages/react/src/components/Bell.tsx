@@ -29,6 +29,13 @@ export const Bell = forwardRef<HTMLButtonElement, BellProps>(function Bell(props
   const { count: unseenCount } = useUnseenCount();
   const strings = mergeLocalization(props.localization);
   const open = props.open === true;
+  // The aria-label overrides the button's text content in accessible-name
+  // computation, so the visual badge alone leaves the count imperceptible
+  // to assistive tech. The count rides the name instead.
+  const label =
+    unseenCount > 0
+      ? `${strings.bellLabel} (${unseenCount > 99 ? '99+' : unseenCount})`
+      : strings.bellLabel;
   // Bell re-renders on every unseen tick, a fresh style object per render
   // would defeat React's shallow style comparison.
   const style = useMemo(
@@ -46,7 +53,7 @@ export const Bell = forwardRef<HTMLButtonElement, BellProps>(function Bell(props
       type="button"
       className={slotClass(props.appearance?.classNames, 'bell')}
       style={style}
-      aria-label={strings.bellLabel}
+      aria-label={label}
       aria-expanded={props.open === undefined ? undefined : open}
       aria-haspopup={props.popupId === undefined ? undefined : 'dialog'}
       aria-controls={props.popupId !== undefined && open ? props.popupId : undefined}

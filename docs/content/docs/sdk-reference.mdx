@@ -25,6 +25,12 @@ version bumps until 1.0.0. Pin your versions.
 npm i @chimely/react react react-dom
 ```
 
+The components are **client-only** and the bundle carries its own
+`'use client'` directive, so importing from a React Server Component module
+graph is safe without a wrapper. Server rendering is supported and emits the
+bell with an empty, disconnected inbox; data loads and the SSE stream opens
+in effects after hydration.
+
 ## `<Inbox />`
 
 A bell + popover. Use it standalone (pass connection props; it owns a client)
@@ -135,7 +141,7 @@ omitted keys keep the `en-US` defaults.
 | `markAllRead` | `Mark all as read` | |
 | `preferencesTitle` | `Notification preferences` | Preferences header and gear label |
 | `inboxTitle` | `Notifications` | List-view header title and dialog label |
-| `bellLabel` | `Notifications` | Bell button aria-label |
+| `bellLabel` | `Notifications` | Bell button aria-label; the unseen count is appended, e.g. `Notifications (3)` |
 | `backLabel` | `Back` | Preferences back button aria-label |
 | `categoryLabels` | `{}` | Display names for category keys in the preferences panel |
 | `filterLabel` | `View` | View select aria-label |
@@ -156,6 +162,34 @@ The default timestamp rendering is relative (`5 minutes ago`, via
 `Intl.RelativeTimeFormat`), falling back to the locale date past seven days.
 The absolute time stays on the `<time>` element's `dateTime` and `title`
 attributes.
+
+### Popover behavior in hostile layouts
+
+The default popover renders next to the bell in the DOM, so it clips under
+`overflow: hidden` ancestors and misplaces inside CSS-transformed ones; set
+`portal` to escape both. With `portal`, the popover lives under
+`document.body`, so Tab order walks the page between the bell and the dialog;
+focus stays on the bell when the popover opens, and Escape closes it from
+anywhere and returns focus to the bell. The popover ships with `z-index:
+1000`; override per-slot via `appearance.styles.popover` when your stacking
+contexts demand it.
+
+### Content Security Policy
+
+The widget injects one `<style data-chimely>` tag. Under a strict CSP a host
+needs:
+
+```
+style-src 'self' 'unsafe-inline';                  # the injected style tag
+connect-src 'self' https://your-chimely-server;    # REST + the SSE stream
+```
+
+Without `'unsafe-inline'` (or a hash) the widget stays fully functional but
+unstyled. Nonce-based hosts can skip the injection entirely: the full
+stylesheet is exported as `INBOX_CSS`, so serve it from your own pipeline
+(the blocked injected tag is then harmless). There is no `eval`, no inline
+event handler, and no `script-src` implication. `action_url` navigation is
+restricted to `http(s)` schemes.
 
 ## Composable components
 
