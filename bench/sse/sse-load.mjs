@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 // SSE concurrency load harness for Chimely.
 //
 // Opens N concurrent SSE connections to GET /v1/inbox/stream spread across M
@@ -34,21 +35,21 @@
 // Exit code 0 even when connections fail: failures are data, not errors. The
 // summary is the product.
 
-import http from "node:http";
-import https from "node:https";
-import { execFileSync } from "node:child_process";
+import { execFileSync } from 'node:child_process';
+import http from 'node:http';
+import https from 'node:https';
 
 const cfg = {
-  url: new URL(process.env.CHIMELY_URL || "http://127.0.0.1:8299"),
-  env: process.env.CHIMELY_ENV || "demo",
-  apiKey: process.env.CHIMELY_API_KEY || "dev-secret-key",
-  n: parseInt(process.env.N || "500", 10),
-  cap: parseInt(process.env.CAP || "8", 10),
-  t: parseInt(process.env.T || "90", 10),
-  probeIntervalMs: parseInt(process.env.PROBE_INTERVAL_MS || "2000", 10),
-  rampConcurrency: parseInt(process.env.RAMP_CONCURRENCY || "100", 10),
+  url: new URL(process.env.CHIMELY_URL || 'http://127.0.0.1:8299'),
+  env: process.env.CHIMELY_ENV || 'demo',
+  apiKey: process.env.CHIMELY_API_KEY || 'dev-secret-key',
+  n: parseInt(process.env.N || '500', 10),
+  cap: parseInt(process.env.CAP || '8', 10),
+  t: parseInt(process.env.T || '90', 10),
+  probeIntervalMs: parseInt(process.env.PROBE_INTERVAL_MS || '2000', 10),
+  rampConcurrency: parseInt(process.env.RAMP_CONCURRENCY || '100', 10),
   serverPid: process.env.SERVER_PID ? parseInt(process.env.SERVER_PID, 10) : null,
-  subPrefix: process.env.SUB_PREFIX || "bench-sub",
+  subPrefix: process.env.SUB_PREFIX || 'bench-sub',
   outJson: process.env.OUT_JSON || null,
 };
 cfg.m = parseInt(process.env.M || String(Math.ceil(cfg.n / cfg.cap)), 10);
@@ -60,7 +61,7 @@ if (cfg.n / cfg.m > cfg.cap) {
   process.exit(2);
 }
 
-const transport = cfg.url.protocol === "https:" ? https : http;
+const transport = cfg.url.protocol === 'https:' ? https : http;
 
 // ---------------------------------------------------------------------------
 // State
@@ -109,22 +110,22 @@ function openSse(connIdx) {
     const req = transport.request(
       {
         host: cfg.url.hostname,
-        port: cfg.url.port || (cfg.url.protocol === "https:" ? 443 : 80),
-        path: "/v1/inbox/stream",
-        method: "GET",
+        port: cfg.url.port || (cfg.url.protocol === 'https:' ? 443 : 80),
+        path: '/v1/inbox/stream',
+        method: 'GET',
         agent: false, // dedicated socket per stream
         headers: {
-          accept: "text/event-stream",
-          "x-chimely-environment": cfg.env,
-          "x-chimely-subscriber": sub,
+          accept: 'text/event-stream',
+          'x-chimely-environment': cfg.env,
+          'x-chimely-subscriber': sub,
         },
       },
       (res) => {
         if (res.statusCode !== 200) {
           fail(`http_${res.statusCode}`);
           res.resume();
-          res.on("end", () => resolve(false));
-          res.on("error", () => resolve(false));
+          res.on('end', () => resolve(false));
+          res.on('error', () => resolve(false));
           return;
         }
         state.established += 1;
@@ -133,18 +134,18 @@ function openSse(connIdx) {
         state.connectLatenciesMs.push(performance.now() - started);
         resolve(true);
 
-        let buf = "";
-        res.setEncoding("utf8");
-        res.on("data", (chunk) => {
+        let buf = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
           buf += chunk;
           let idx;
-          while ((idx = buf.indexOf("\n\n")) !== -1) {
+          while ((idx = buf.indexOf('\n\n')) !== -1) {
             const frame = buf.slice(0, idx);
             buf = buf.slice(idx + 2);
             handleFrame(frame, connIdx, isProbeConn);
           }
           // Comment keep-alives (`: ping`) parse as frames too; harmless.
-          if (buf.length > 65536) buf = ""; // never happens per contract; guard anyway
+          if (buf.length > 65536) buf = ''; // never happens per contract; guard anyway
         });
         const gone = (cause) => () => {
           state.open -= 1;
@@ -153,11 +154,11 @@ function openSse(connIdx) {
             fail(cause);
           }
         };
-        res.on("end", gone("server_closed_stream"));
-        res.on("error", gone("stream_error"));
+        res.on('end', gone('server_closed_stream'));
+        res.on('error', gone('stream_error'));
       },
     );
-    req.on("error", (err) => {
+    req.on('error', (err) => {
       fail(`connect_${err.code || err.message}`);
       resolve(false);
     });
@@ -166,19 +167,17 @@ function openSse(connIdx) {
 }
 
 function handleFrame(frame, connIdx, isProbeConn) {
-  let event = "message";
-  for (const line of frame.split("\n")) {
-    if (line.startsWith("event:")) event = line.slice(6).trim();
+  let event = 'message';
+  for (const line of frame.split('\n')) {
+    if (line.startsWith('event:')) event = line.slice(6).trim();
   }
-  if (event === "hint") {
+  if (event === 'hint') {
     state.eventsSeen += 1;
     if (isProbeConn && currentProbe && !currentProbe.seenOn.has(connIdx)) {
       currentProbe.seenOn.add(connIdx);
       // Clamp at 0: the outbox worker can publish between the server's txn
       // commit and the POST response flushing back to us.
-      state.hintLatenciesMs.push(
-        Math.max(0, performance.now() - currentProbe.acceptedAt),
-      );
+      state.hintLatenciesMs.push(Math.max(0, performance.now() - currentProbe.acceptedAt));
     }
   }
 }
@@ -191,25 +190,25 @@ function postNotification() {
   return new Promise((resolve) => {
     const body = JSON.stringify({
       subscriber_id: PROBE_SUB,
-      category: "bench.probe",
+      category: 'bench.probe',
       payload: { sent_at_ms: Date.now() },
     });
     const req = transport.request(
       {
         host: cfg.url.hostname,
-        port: cfg.url.port || (cfg.url.protocol === "https:" ? 443 : 80),
-        path: "/v1/notifications",
-        method: "POST",
+        port: cfg.url.port || (cfg.url.protocol === 'https:' ? 443 : 80),
+        path: '/v1/notifications',
+        method: 'POST',
         agent: false,
         headers: {
           authorization: `Bearer ${cfg.apiKey}`,
-          "content-type": "application/json",
-          "content-length": Buffer.byteLength(body),
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(body),
         },
       },
       (res) => {
         res.resume();
-        res.on("end", () => {
+        res.on('end', () => {
           if (res.statusCode === 201 || res.statusCode === 200) {
             state.probesAccepted += 1;
             currentProbe = { acceptedAt: performance.now(), seenOn: new Set() };
@@ -221,9 +220,9 @@ function postNotification() {
         });
       },
     );
-    req.on("error", () => {
+    req.on('error', () => {
       state.probeErrors += 1;
-      fail("probe_connect_error");
+      fail('probe_connect_error');
       resolve();
     });
     req.end(body);
@@ -237,8 +236,8 @@ function postNotification() {
 function sampleRss() {
   if (!cfg.serverPid) return;
   try {
-    const out = execFileSync("ps", ["-o", "rss=", "-p", String(cfg.serverPid)], {
-      encoding: "utf8",
+    const out = execFileSync('ps', ['-o', 'rss=', '-p', String(cfg.serverPid)], {
+      encoding: 'utf8',
     });
     const kb = parseInt(out.trim(), 10);
     if (Number.isFinite(kb)) state.rssSamplesKb.push({ t: Date.now(), kb });
@@ -288,9 +287,7 @@ async function main() {
       await openSse(idx);
     }
   }
-  await Promise.all(
-    Array.from({ length: Math.min(cfg.rampConcurrency, cfg.n) }, opener),
-  );
+  await Promise.all(Array.from({ length: Math.min(cfg.rampConcurrency, cfg.n) }, opener));
   const rampSecs = (performance.now() - rampStart) / 1000;
   console.error(
     `ramp done in ${rampSecs.toFixed(1)}s: established=${state.established}/${cfg.n} open=${state.open}`,
@@ -307,7 +304,7 @@ async function main() {
   const statusTimer = setInterval(() => {
     const rss = state.rssSamplesKb.at(-1);
     console.error(
-      `t+${Math.round((Date.now() - holdStart) / 1000)}s open=${state.open} hints=${state.hintLatenciesMs.length} probes=${state.probesAccepted}/${state.probesSent} rss=${rss ? (rss.kb / 1024).toFixed(1) + "MB" : "n/a"}`,
+      `t+${Math.round((Date.now() - holdStart) / 1000)}s open=${state.open} hints=${state.hintLatenciesMs.length} probes=${state.probesAccepted}/${state.probesSent} rss=${rss ? `${(rss.kb / 1024).toFixed(1)}MB` : 'n/a'}`,
     );
   }, 10000);
 
@@ -358,8 +355,8 @@ async function main() {
 
   console.log(JSON.stringify(summary, null, 2));
   if (cfg.outJson) {
-    const { writeFileSync } = await import("node:fs");
-    writeFileSync(cfg.outJson, JSON.stringify(summary, null, 2) + "\n");
+    const { writeFileSync } = await import('node:fs');
+    writeFileSync(cfg.outJson, `${JSON.stringify(summary, null, 2)}\n`);
   }
   // Sockets are still open; exit hard rather than waiting for them to drain.
   process.exit(0);
