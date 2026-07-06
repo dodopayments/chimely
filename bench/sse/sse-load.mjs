@@ -138,11 +138,12 @@ function openSse(connIdx) {
         res.setEncoding('utf8');
         res.on('data', (chunk) => {
           buf += chunk;
-          let idx;
-          while ((idx = buf.indexOf('\n\n')) !== -1) {
+          let idx = buf.indexOf('\n\n');
+          while (idx !== -1) {
             const frame = buf.slice(0, idx);
             buf = buf.slice(idx + 2);
             handleFrame(frame, connIdx, isProbeConn);
+            idx = buf.indexOf('\n\n');
           }
           // Comment keep-alives (`: ping`) parse as frames too; harmless.
           if (buf.length > 65536) buf = ''; // never happens per contract; guard anyway
