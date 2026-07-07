@@ -303,7 +303,7 @@ client.connect();
 | `archiveRead()` | `Promise<void>` | Server-side job; state converges via hint refetch |
 | `markAllRead()` | `Promise<void>` | Watermark move |
 | `markAllSeen()` | `Promise<void>` | Zeroes unseen; leaves read state |
-| `setFilter(f)` | `void` | `'default' \| 'unread' \| 'archived'`; resets pagination and refetches |
+| `setFilter(f)` | `Promise<void>` | `'default' \| 'unread' \| 'archived'`; resets pagination and refetches |
 | `getPreferences()` | `Promise<Preference[]>` | — |
 | `setPreferences(p)` | `Promise<Preference[]>` | — |
 

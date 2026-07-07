@@ -25,16 +25,19 @@ docker run -d --name chimely-pg --network chimely \
   -e POSTGRES_PASSWORD=chimely postgres:16-alpine
 
 docker run -d --name chimely --network chimely -p 8080:8080 \
+  --restart unless-stopped \
   -e DATABASE_URL=postgres://postgres:chimely@chimely-pg:5432/postgres \
   -e CHIMELY_DEV_ENVIRONMENT=demo \
   -e CHIMELY_DEV_API_KEY=dev-secret-key \
   ghcr.io/dodopayments/chimely:0.2.0
 ```
 
-Migrations run on boot. The two `CHIMELY_DEV_*` variables seed environment
-`demo` (subscriber hashing off) and the API key `dev-secret-key`; without
-them the image boots with production defaults and an empty instance. Verify
-it is up:
+Migrations run on boot. The restart policy covers the first seconds while
+Postgres is still initializing: the server fails fast when its database is
+unreachable, and Docker brings it back up. The two `CHIMELY_DEV_*` variables
+seed environment `demo` (subscriber hashing off) and the API key
+`dev-secret-key`; without them the image boots with production defaults and
+an empty instance. Verify it is up:
 
 ```bash
 curl http://localhost:8080/healthz
@@ -87,7 +90,7 @@ No app handy? A throwaway one takes a minute:
 ```bash
 npm create vite@latest chimely-demo -- --template react-ts
 cd chimely-demo && npm install && npm install @chimely/react
-# put the <Inbox /> snippet in src/App.tsx
+# replace the App component in src/App.tsx so it returns the <Inbox /> above
 npm run dev
 ```
 
