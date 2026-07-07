@@ -1,12 +1,12 @@
 -- EXPLAIN (ANALYZE, BUFFERS) suite for the four inbox hot paths, run for one
--- subscriber. The SQL is copied verbatim from server/src/api/inbox.rs; if a
+-- subscriber. The SQL is copied verbatim from server/src/api/inbox.rs. If a
 -- query there changes, this file must be updated to match.
 --
 --   psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -v subscriber=usr_1 -f explain.sql
 --
 -- Queries run through PREPARE/EXECUTE, matching the prepared-statement path
 -- sqlx uses. A single EXECUTE gets a custom plan, which is what the server
--- sees for the first five executions; a forced generic-plan variant of the
+-- sees for the first five executions. A forced generic-plan variant of the
 -- list query is included because after five executions the plancache may
 -- switch to it, changing partition pruning from plan time to run time.
 --
@@ -24,6 +24,16 @@
 \set ON_ERROR_STOP on
 SET timezone = 'UTC';
 DEALLOCATE ALL;
+
+-- A mistyped subscriber otherwise dies at the next \gset with a bare
+-- "no rows returned" that never names the culprit.
+SELECT EXISTS (SELECT 1 FROM subscribers s
+               WHERE s.subscriber_id = :'subscriber') AS sub_found \gset
+\if :sub_found
+\else
+\echo 'no subscriber row for' :subscriber
+DO $$ BEGIN RAISE EXCEPTION 'unknown subscriber'; END $$;
+\endif
 
 SELECT s.id AS sub, s.environment_id AS env, s.created_at AS sub_created
 FROM subscribers s
@@ -123,6 +133,7 @@ EXECUTE inbox_list(:'env', :'sub', 'infinity',
                    'default');
 
 -- Keyset cursor for page two = the (occurred_at, id) of page one's last row.
+DROP TABLE IF EXISTS bench_page1;
 CREATE TEMP TABLE bench_page1 AS
 EXECUTE inbox_list(:'env', :'sub', 'infinity',
                    'ffffffff-ffff-ffff-ffff-ffffffffffff', 20, :'sub_created',

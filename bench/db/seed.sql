@@ -12,7 +12,7 @@
 --   * usr_1 (environment 1) is the hot subscriber: 1% of all notifications.
 --     Every other notification lands on a uniformly random subscriber, so any
 --     other usr_N is a median subscriber.
---   * visible_at spreads over the last 12 months; 1% of rows are scheduled
+--   * visible_at spreads over the last 12 months. 1% of rows are scheduled
 --     in the future (deliver_at set, visible_at > now()).
 --   * ~55% of visible rows are read via read_at, ~0.5% of unread rows carry
 --     an unread_at override, ~10% are archived, ~0.3% carry unarchived_at.
