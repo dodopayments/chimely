@@ -511,9 +511,12 @@ async fn replay_all_scoped_to_env_a_leaves_env_b_identical_parked_job() {
         i32,
         String,
         Option<serde_json::Value>,
+        chrono::DateTime<chrono::Utc>,
+        chrono::DateTime<chrono::Utc>,
     );
     let parked_before: ParkedRow = sqlx::query_as(
-        "SELECT job_type, payload, attempts, max_attempts, last_error, progress_cursor
+        "SELECT job_type, payload, attempts, max_attempts, last_error, progress_cursor,
+                created_at, parked_at
            FROM dead_letters WHERE environment_id = $1",
     )
     .bind(env_b.id)
@@ -527,7 +530,8 @@ async fn replay_all_scoped_to_env_a_leaves_env_b_identical_parked_job() {
     assert_eq!(moved, 1, "only env A's parked job is replayed");
 
     let parked_after: ParkedRow = sqlx::query_as(
-        "SELECT job_type, payload, attempts, max_attempts, last_error, progress_cursor
+        "SELECT job_type, payload, attempts, max_attempts, last_error, progress_cursor,
+                created_at, parked_at
            FROM dead_letters WHERE environment_id = $1",
     )
     .bind(env_b.id)
