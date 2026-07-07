@@ -89,6 +89,15 @@ describe('bell and badge', () => {
     });
   });
 
+  test('the accessible name caps at 99+', async () => {
+    const stub = createStubServer();
+    for (let i = 0; i < 105; i += 1) {
+      stub.addNotification();
+    }
+    await renderInbox(stub);
+    expect(screen.getByRole('button', { name: 'Notifications (99+)' })).toBeDefined();
+  });
+
   test('renderBell fully replaces the bell contents', async () => {
     const stub = createStubServer();
     stub.addNotification();

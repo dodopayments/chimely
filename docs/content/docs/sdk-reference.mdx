@@ -176,20 +176,20 @@ contexts demand it.
 
 ### Content Security Policy
 
-The widget injects one `<style data-chimely>` tag. Under a strict CSP a host
-needs:
+The widget injects one `<style data-chimely>` tag, which needs
+`'unsafe-inline'` (or a hash) in `style-src`, and it talks to the server via
+fetch and `EventSource`, which need the server's origin in `connect-src`:
 
 ```
-style-src 'self' 'unsafe-inline';                  # the injected style tag
-connect-src 'self' https://your-chimely-server;    # REST + the SSE stream
+style-src 'self' 'unsafe-inline'; connect-src 'self' https://your-chimely-server
 ```
 
 Without `'unsafe-inline'` (or a hash) the widget stays fully functional but
-unstyled. Nonce-based hosts can skip the injection entirely: the full
-stylesheet is exported as `INBOX_CSS`, so serve it from your own pipeline
-(the blocked injected tag is then harmless). There is no `eval`, no inline
-event handler, and no `script-src` implication. `action_url` navigation is
-restricted to `http(s)` schemes.
+unstyled, and each page load logs one CSP violation for the blocked tag.
+Nonce-based hosts have a supported path: the full stylesheet is exported as
+`INBOX_CSS`, so serve it from your own pipeline and ignore the blocked
+injection. There is no `eval`, no inline event handler, and no `script-src`
+implication. `action_url` navigation is restricted to `http(s)` schemes.
 
 ## Composable components
 
