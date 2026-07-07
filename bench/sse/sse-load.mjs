@@ -209,6 +209,11 @@ function postNotification() {
       },
       (res) => {
         res.resume();
+        res.on('error', () => {
+          state.probeErrors += 1;
+          fail('probe_stream_error');
+          resolve();
+        });
         res.on('end', () => {
           if (res.statusCode === 201 || res.statusCode === 200) {
             state.probesAccepted += 1;
