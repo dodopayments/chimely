@@ -483,7 +483,7 @@ async fn park_dead_letter(pool: &sqlx::PgPool, env: Uuid, id: Uuid) {
              (environment_id, id, job_type, payload, attempts, max_attempts,
               last_error, progress_cursor, created_at)
          VALUES ($1, $2, 'counter_rebuild', '{\"subscriber_id\": \"x\"}'::jsonb,
-                 10, 10, 'simulated outage', NULL, now())",
+                 10, 10, 'simulated outage', '{\"offset\": 3}'::jsonb, now())",
     )
     .bind(env)
     .bind(id)
@@ -504,8 +504,16 @@ async fn replay_all_scoped_to_env_a_leaves_env_b_identical_parked_job() {
     park_dead_letter(&app.pool, app.env.id, ids::new_uuid()).await;
     park_dead_letter(&app.pool, env_b.id, ids::new_uuid()).await;
 
-    let parked_before: (String, serde_json::Value, i32, i32, String) = sqlx::query_as(
-        "SELECT job_type, payload, attempts, max_attempts, last_error
+    type ParkedRow = (
+        String,
+        serde_json::Value,
+        i32,
+        i32,
+        String,
+        Option<serde_json::Value>,
+    );
+    let parked_before: ParkedRow = sqlx::query_as(
+        "SELECT job_type, payload, attempts, max_attempts, last_error, progress_cursor
            FROM dead_letters WHERE environment_id = $1",
     )
     .bind(env_b.id)
@@ -518,8 +526,8 @@ async fn replay_all_scoped_to_env_a_leaves_env_b_identical_parked_job() {
         .expect("replay env A");
     assert_eq!(moved, 1, "only env A's parked job is replayed");
 
-    let parked_after: (String, serde_json::Value, i32, i32, String) = sqlx::query_as(
-        "SELECT job_type, payload, attempts, max_attempts, last_error
+    let parked_after: ParkedRow = sqlx::query_as(
+        "SELECT job_type, payload, attempts, max_attempts, last_error, progress_cursor
            FROM dead_letters WHERE environment_id = $1",
     )
     .bind(env_b.id)
@@ -531,6 +539,13 @@ async fn replay_all_scoped_to_env_a_leaves_env_b_identical_parked_job() {
         "env B's same-shape dead letter survives unchanged"
     );
 
+    let env_a_parked: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM dead_letters WHERE environment_id = $1")
+            .bind(app.env.id)
+            .fetch_one(&app.pool)
+            .await
+            .expect("env A parked count");
+    assert_eq!(env_a_parked, 0, "env A's dead letter row is deleted");
     assert_eq!(
         app.job_count(app.env.id).await,
         1,
