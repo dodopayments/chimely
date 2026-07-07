@@ -100,20 +100,17 @@ jobs:
           pnpm changeset status --since=origin/main
           pnpm --filter "./packages/*" exec pnpm publish --dry-run --no-git-checks
 
+  # PR and main-branch image builds: amd64 only, single job, unchanged
+  # behavior. Release tags are handled by docker-release below.
   docker:
     name: docker image
+    if: github.ref_type != 'tag'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
-      # Release images are multi-arch (amd64 + arm64) so `docker run` works
-      # natively on Apple Silicon and arm servers. The arm64 half builds under
-      # QEMU, which is slow, so PR and main builds stay amd64-only. Once the
-      # repo is public, native arm runners (ubuntu-24.04-arm) can replace QEMU.
-      - uses: docker/setup-qemu-action@v3
-        if: startsWith(github.ref, 'refs/tags/')
       - uses: docker/setup-buildx-action@v3
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
@@ -129,14 +126,101 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=semver,pattern={{version}}
             type=sha
       - uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: ${{ startsWith(github.ref, 'refs/tags/') && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Release images are multi-arch (amd64 + arm64) so `docker run` works
+  # natively on Apple Silicon and arm servers. Each arch builds NATIVELY on
+  # its own runner (no QEMU). ubuntu-24.04-arm is free for public repos
+  # only, and release tags are pushed at or after the public launch, so tag
+  # builds always have the runner. Each leg pushes by digest; the manifest
+  # job below stitches one multi-arch list under the release tags, so a
+  # single-leg failure publishes no tag at all rather than a partial one.
+  docker-release:
+    name: docker release image (${{ matrix.arch }})
+    if: github.ref_type == 'tag'
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/${{ github.repository }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=release-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.arch }}
+      - name: Export digest
+        run: |
+          mkdir -p "${RUNNER_TEMP}/digests"
+          digest='${{ steps.build.outputs.digest }}'
+          touch "${RUNNER_TEMP}/digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  docker-release-manifest:
+    name: docker release manifest
+    if: github.ref_type == 'tag'
+    needs: docker-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=sha
+      - name: Create and push the multi-arch manifest
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/${{ github.repository }}@sha256:%s ' *)
+      - name: Inspect the pushed manifest
+        run: docker buildx imagetools inspect 'ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.version }}'
