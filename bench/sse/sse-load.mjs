@@ -178,11 +178,16 @@ function openSse(connIdx) {
 
 function handleFrame(frame, connIdx, isProbeConn) {
   let event = 'message';
+  let data = '';
   for (const line of frame.split('\n')) {
     if (line.startsWith('event:')) event = line.slice(6).trim();
+    if (line.startsWith('data:')) data = line.slice(5).trim();
   }
   if (event === 'hint') {
     state.eventsSeen += 1;
+    // Lagged hints signal broadcast fan-in overflow, not a probe delivery.
+    // Binding one to an in-flight probe would inject a bogus sample.
+    if (data.includes('"lagged"')) return;
     if (isProbeConn) {
       const now = performance.now();
       expireProbes(now);

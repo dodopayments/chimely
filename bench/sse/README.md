@@ -52,15 +52,15 @@ sends no `X-Chimely-Subscriber-Hash`. Use a dev-bootstrapped environment
 
 Server-side prerequisites for a clean measurement:
 
-- `CHIMELY_SUBSCRIBER_RATE_PER_SEC=0` on the server, or the subscriber-plane
-  token bucket (default 10/s, burst 50) rejects the ramp itself.
-- The probe rate (default 0.5/s) sits far below the management-plane key
-  limit (default 50/s), so no server tuning is needed there.
+- No rate-limit tuning is needed. The stream endpoint is guarded by the
+  per-subscriber connection cap only, and the ramp respects it by
+  construction. The probe rate (default 0.5/s) sits far below the
+  management-plane key limit (default 50/s).
 
 ## What the numbers mean
 
 - `established` vs `N`: connections that got a 200 and stayed up. Failures
-  are broken down by cause (`http_429` = per-subscriber cap or rate limit,
+  are broken down by cause (`http_429` = the per-subscriber connection cap,
   `connect_*` = socket-level).
 - `hint_latency_ms`: end-to-end hint plumbing under load: management POST ->
   transactional outbox -> worker poll (`CHIMELY_WORKER_POLL_MS`, default
