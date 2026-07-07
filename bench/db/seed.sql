@@ -219,8 +219,10 @@ JOIN numbered b ON b.environment_id = s.environment_id
                AND b.rn = 1 + floor(r.rb * ce.c)::int
 ON CONFLICT DO NOTHING;
 
--- The hot subscriber read its 150 newest broadcasts individually (all above
--- its watermark), the population the mark-all-read GC exists to collapse.
+-- The hot subscriber read its 150 newest broadcasts individually. The 150
+-- newest span more days than the 45-day watermark, so roughly 60 rows sit
+-- above it (unread-filter exceptions) and the rest at or below it (real
+-- GC work for mark-all-read).
 INSERT INTO broadcast_reads
     (environment_id, subscriber_id, broadcast_id, broadcast_created_at, read, read_at)
 SELECT b.environment_id, s.id, b.id, b.created_at, true, b.created_at + interval '1 minute'

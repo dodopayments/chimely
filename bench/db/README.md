@@ -54,8 +54,9 @@ docker rm -f chimely-perf-pg
   them, so seeding a server-booted database is safe.
 - `usr_1` (environment 1) is the hot subscriber: 1% of all notifications
   (~30k rows), read watermark 45 days back, 150 explicit broadcast reads
-  above it. Every other subscriber gets a uniform share (~60 rows), so any
-  `usr_N` is a median subscriber.
+  straddling it (roughly 60 above, the rest at or below, so the GC has real
+  rows to delete). Every other subscriber gets a uniform share (~60 rows),
+  so any `usr_N` is a median subscriber.
 - Read/unread/archived mix, per-item override rows, broadcast
   read/archive exceptions, category mutes, and per-subscriber watermarks are
   seeded; maintained counters are recomputed from the rows afterwards
@@ -79,10 +80,11 @@ docker rm -f chimely-perf-pg
 ## Known scaling term
 
 The broadcast arm under the unread filter is the only query that cannot
-stop early. Every broadcast in the visibility window is fetched and then
-filtered against the subscriber's read exceptions, so cost is
-O(broadcasts-in-window x read-exceptions). Measured 11.4 ms at 500 window
-broadcasts x 152 exceptions, all cache hits. Both factors are structurally
+stop early. Every broadcast in the visibility window is fetched and joined
+against the subscriber's read exceptions, so cost grows linearly with the
+window (one exception probe per window broadcast; a plan that materializes
+the exception list instead pays the full product). Measured 11.4 ms at 500
+window broadcasts x 152 exceptions, all cache hits. Both factors are structurally
 bounded: mark-all-read GC empties the exception list, and the window only
 grows with retained broadcasts. Environments that accumulate tens of
 thousands of visible broadcasts will degrade linearly on unread-filtered

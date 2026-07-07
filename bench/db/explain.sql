@@ -229,7 +229,9 @@ EXECUTE inbox_counts(:'env', :'sub', :'sub_created');
 -- ============================================================================
 -- (c) mark-all-read: watermark upsert + exception GC  [inbox.rs mark_all_read]
 -- Runs the real writes in a transaction and rolls back, so the suite is
--- rerunnable. Statement order and locking mirror the handler.
+-- rerunnable. The three hot statements match the handler in order and
+-- locking. The handler additionally enqueues outbox rows and refetches
+-- counts in the same transaction, which this suite does not measure.
 -- ============================================================================
 
 \echo ''
