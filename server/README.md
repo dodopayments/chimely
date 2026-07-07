@@ -18,10 +18,13 @@ docker run -d --name chimely-pg --network chimely \
   -e POSTGRES_PASSWORD=chimely postgres:16-alpine
 
 docker run -d --name chimely --network chimely -p 8080:8080 \
+  --restart unless-stopped \
   -e DATABASE_URL=postgres://postgres:chimely@chimely-pg:5432/postgres \
   ghcr.io/dodopayments/chimely:0.2.0
 ```
 
+The restart policy covers the first seconds while Postgres is still
+initializing (the server fails fast when its database is unreachable).
 Migrations run on boot under an advisory lock. `DATABASE_URL` is the only
 required setting; every other knob is an environment variable with a
 production default. The image is production-ready as started above: dev

@@ -13,6 +13,7 @@ Thanks for wanting to help. Two things to know before your first PR:
 ## Prerequisites
 
 - Rust (the toolchain is pinned by `rust-toolchain.toml`; rustup picks it up)
+- cargo-nextest, the test runner (`cargo install cargo-nextest`)
 - Node 20+ with pnpm (`corepack enable`)
 - Docker (server tests run against real Postgres and Redis via
   testcontainers)
@@ -29,7 +30,8 @@ SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings
 SQLX_OFFLINE=true cargo nextest run        # needs Docker running
 ```
 
-Run the server from source against a throwaway Postgres:
+Run the server from source against a throwaway Postgres (from the repo
+root):
 
 ```bash
 docker run -d --name chimely-dev-pg \
@@ -79,7 +81,9 @@ The OpenAPI document is code-first (utoipa). `docs/openapi/` and
 pnpm generate    # regenerates both; commit the result
 ```
 
-Never hand-edit generated files. CI fails if they are stale.
+Never hand-edit generated files. A stale artifact shows up as an uncommitted
+diff after `pnpm generate`; regenerate and commit it with the change that
+moved the spec.
 
 ## Commits and PRs
 

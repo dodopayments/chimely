@@ -51,13 +51,16 @@ docker run -d --name chimely-pg --network chimely \
   -e POSTGRES_PASSWORD=chimely postgres:16-alpine
 
 docker run -d --name chimely --network chimely -p 8080:8080 \
+  --restart unless-stopped \
   -e DATABASE_URL=postgres://postgres:chimely@chimely-pg:5432/postgres \
   -e CHIMELY_DEV_ENVIRONMENT=demo \
   -e CHIMELY_DEV_API_KEY=dev-secret-key \
   ghcr.io/dodopayments/chimely:0.2.0
 ```
 
-Then follow the [quickstart](https://chimely.dev/docs/quickstart): send a
+The restart policy covers the first seconds while Postgres is still
+initializing (the server fails fast when its database is unreachable). Then
+follow the [quickstart](https://chimely.dev/docs/quickstart): send a
 notification with curl and mount `<Inbox />` in your app, about five minutes
 end to end.
 
