@@ -23,12 +23,11 @@
 //   M                  distinct subscribers     (default ceil(N / CAP))
 //   CAP                per-subscriber cap       (default 8, must match server)
 //   T                  hold seconds after ramp  (default 90)
-//   PROBE_INTERVAL_MS  probe cadence            (default 2000; keep it above
+//   PROBE_INTERVAL_MS  probe cadence            (default 2000, keep it above
 //                      CHIMELY_HINT_DEBOUNCE_MS, default 1000, or the debounce
 //                      coalesces probes and latency numbers lie)
 //   RAMP_CONCURRENCY   parallel connection opens (default 100)
-//   SERVER_PID         pid to sample RSS from via `ps` (default: ask the
-//                      target's /metrics + lsof is NOT attempted; unset = skip)
+//   SERVER_PID         pid to sample RSS from via `ps` (unset skips sampling)
 //   SUB_PREFIX         subscriber id prefix     (default bench-sub)
 //   OUT_JSON           path to write the JSON summary (default: stdout only)
 //
@@ -86,10 +85,20 @@ function fail(cause) {
   state.failures.set(cause, (state.failures.get(cause) || 0) + 1);
 }
 
-// Outstanding probe the next hint on a probe-subscriber connection attributes
-// to. Probes are spaced above the server's debounce window so exactly one
-// hint per connection per probe is expected.
-let currentProbe = null; // {acceptedAt, seenOn: Set<connId>}
+// In-flight probes in accepted order. Hint events carry no notification id,
+// so a hint on a probe-subscriber connection is attributed to the oldest
+// unexpired probe that connection has not been counted against. Probes are
+// spaced above the server's debounce window, so one hint per connection per
+// probe is expected. Entries expire after two probe intervals. Past that a
+// hint is ambiguous and is not counted.
+const inflightProbes = []; // {acceptedAt, seenOn: Set<connId>}
+
+function expireProbes(now) {
+  const cutoff = now - cfg.probeIntervalMs * 2;
+  while (inflightProbes.length > 0 && inflightProbes[0].acceptedAt < cutoff) {
+    inflightProbes.shift();
+  }
+}
 
 // ---------------------------------------------------------------------------
 // SSE connection
@@ -145,8 +154,8 @@ function openSse(connIdx) {
             handleFrame(frame, connIdx, isProbeConn);
             idx = buf.indexOf('\n\n');
           }
-          // Comment keep-alives (`: ping`) parse as frames too; harmless.
-          if (buf.length > 65536) buf = ''; // never happens per contract; guard anyway
+          // Comment keep-alives (`: ping`) parse as frames too. Harmless.
+          if (buf.length > 65536) buf = ''; // never happens per contract, guard anyway
         });
         const gone = (cause) => () => {
           state.open -= 1;
@@ -174,11 +183,16 @@ function handleFrame(frame, connIdx, isProbeConn) {
   }
   if (event === 'hint') {
     state.eventsSeen += 1;
-    if (isProbeConn && currentProbe && !currentProbe.seenOn.has(connIdx)) {
-      currentProbe.seenOn.add(connIdx);
-      // Clamp at 0: the outbox worker can publish between the server's txn
-      // commit and the POST response flushing back to us.
-      state.hintLatenciesMs.push(Math.max(0, performance.now() - currentProbe.acceptedAt));
+    if (isProbeConn) {
+      const now = performance.now();
+      expireProbes(now);
+      const probe = inflightProbes.find((p) => !p.seenOn.has(connIdx));
+      if (probe) {
+        probe.seenOn.add(connIdx);
+        // Clamp at 0: the outbox worker can publish between the server's txn
+        // commit and the POST response flushing back to us.
+        state.hintLatenciesMs.push(Math.max(0, now - probe.acceptedAt));
+      }
     }
   }
 }
@@ -217,7 +231,9 @@ function postNotification() {
         res.on('end', () => {
           if (res.statusCode === 201 || res.statusCode === 200) {
             state.probesAccepted += 1;
-            currentProbe = { acceptedAt: performance.now(), seenOn: new Set() };
+            const now = performance.now();
+            expireProbes(now);
+            inflightProbes.push({ acceptedAt: now, seenOn: new Set() });
           } else {
             state.probeErrors += 1;
             fail(`probe_http_${res.statusCode}`);
@@ -248,7 +264,7 @@ function sampleRss() {
     const kb = parseInt(out.trim(), 10);
     if (Number.isFinite(kb)) state.rssSamplesKb.push({ t: Date.now(), kb });
   } catch {
-    // server gone; the hold loop will notice via dropped streams
+    // Server gone. The hold loop notices via dropped streams.
   }
 }
 
@@ -339,6 +355,7 @@ async function main() {
     },
     ramp_secs: Number(rampSecs.toFixed(1)),
     established: state.established,
+    peak_established: state.peakEstablished,
     open_at_end: openAtEnd,
     dropped_mid_stream: state.droppedMidStream,
     failures: Object.fromEntries(state.failures),
@@ -364,7 +381,7 @@ async function main() {
     const { writeFileSync } = await import('node:fs');
     writeFileSync(cfg.outJson, `${JSON.stringify(summary, null, 2)}\n`);
   }
-  // Sockets are still open; exit hard rather than waiting for them to drain.
+  // Sockets are still open. Exit hard rather than waiting for them to drain.
   process.exit(0);
 }
 
