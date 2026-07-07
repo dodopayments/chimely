@@ -19,8 +19,8 @@ session cookie; it is not used by application code.
 
 Keys are **per environment**. The environment is implied by the key, so
 requests carry no environment id. Create and revoke keys in the admin
-dashboard (developer or admin role); the plaintext is shown once at creation
-and stored only as a hash.
+dashboard (developer or admin role); the plaintext is shown once at creation.
+The server stores only its hash plus a short display prefix.
 
 ```bash
 curl -X POST https://chimely.example.com/v1/notifications \
@@ -34,7 +34,8 @@ Live keys are prefixed `chml_live_`. Keep them server-side.
 <Callout type="warn" title="No CHIMELY_API_KEY variable">
 The server reads no `CHIMELY_API_KEY`. Keys are minted in the admin dashboard
 and stored in **your** backend's secrets. The only key-related env var is
-`CHIMELY_DEV_API_KEY`, which seeds the dev quickstart environment.
+`CHIMELY_DEV_API_KEY`, which seeds a key into the dev quickstart environment
+(it does nothing unless `CHIMELY_DEV_ENVIRONMENT` is also set).
 </Callout>
 
 ## Subscriber HMAC hash
@@ -90,7 +91,7 @@ environment real users touch.
 Rotation is two-slot, zero-downtime. The old and new secrets are both accepted
 during the overlap:
 
-1. **Rotate** in the admin dashboard (or `POST /admin/api/environments/{env_id}/hmac/rotate`). A new secret is generated; the previous one stays valid.
+1. **Rotate** in the admin dashboard (admin role only; scripting it means `POST /admin/api/environments/{env_id}/hmac/rotate` with an admin session cookie and the `X-Chimely-Admin` CSRF header). A new secret is generated; the previous one stays valid.
 2. **Update your backend** to sign with the new secret.
 3. **Complete** the rotation (`…/hmac/rotate/complete`). The previous secret is dropped and only the new one is accepted.
 

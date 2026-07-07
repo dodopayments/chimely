@@ -1,13 +1,14 @@
-# Local all-in-one Chimely: builds the binary from this checkout, with Postgres
-# and Redis. For production use deploy/docker-compose.yml (pinned image, no dev
-# bootstrap). See docs/content/docs/quickstart.mdx and self-hosting.mdx.
+# Local all-in-one Chimely for working on this checkout: builds the binary
+# from source, with Postgres and Redis. The quickstart uses the published
+# image instead (docs/content/docs/quickstart.mdx); production uses
+# deploy/docker-compose.yml (pinned image, no dev bootstrap).
+# Postgres and Redis publish no host ports so `docker compose up` cannot
+# collide with local services. Reach them via `docker compose exec`.
 services:
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_PASSWORD: chimely
-    ports:
-      - "5432:5432"
     volumes:
       - chimely-pg:/var/lib/postgresql/data
     healthcheck:
@@ -18,8 +19,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s

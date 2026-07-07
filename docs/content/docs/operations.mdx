@@ -24,7 +24,7 @@ stalls.
 | `chimely_queue_due{environment,job_type}` | gauge, sampled | Jobs past `run_at` |
 | `chimely_job_wait_seconds{job_type}` | histogram | Due-to-claim latency (the fairness signal) |
 | `chimely_jobs_processed_total{environment}` | counter | Completed claims |
-| `chimely_jobs_failed_total{environment}` | counter | Failed claims (will retry) |
+| `chimely_jobs_failed_total{environment}` | counter | Failed job runs (retried or parked) |
 | `chimely_jobs_retried_total{job_type}` | counter | Backoff reschedules |
 | `chimely_jobs_parked_total{job_type}` | counter | Moves into `dead_letters` |
 | `chimely_dead_letters{job_type}` | gauge, sampled | Parked jobs awaiting replay |
@@ -100,7 +100,7 @@ applies per replica.
 
 | Knob | Default | Applies to |
 |---|---|---|
-| `CHIMELY_API_KEY_RATE_PER_SEC` / `_BURST` | 50 / 200 | per API key: `POST /v1/notifications`, `POST /v1/broadcasts` |
+| `CHIMELY_API_KEY_RATE_PER_SEC` / `_BURST` | 50 / 200 | per API key: `POST /v1/notifications`, `POST /v1/broadcasts`, `GET /v1/notifications/{id}/timeline` |
 | `CHIMELY_SUBSCRIBER_RATE_PER_SEC` / `_BURST` | 10 / 50 | per subscriber: `GET /v1/inbox/items` |
 
 A rate of `0` disables the limit.

@@ -2,7 +2,7 @@
 #
 # Mirrors the dodo-discord-bot publish workflow: publishing a GitHub Release
 # builds the image, tags it with the release tag, and pushes it to GAR. This is
-# the internal-deploy image. The public fair-source image is built and pushed
+# the internal-deploy image. The public open-source image is built and pushed
 # to GHCR by the `docker` job in ci.yml. The two are independent and target
 # different registries.
 #
