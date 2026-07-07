@@ -1,7 +1,9 @@
 [package]
 name = "chimely"
-version = "0.1.2"
+version = "0.2.1"
 edition = "2024"
+# Distributed as a Docker image (GHCR), not on crates.io.
+publish = false
 license = "AGPL-3.0-only"
 description = "In-app notification inbox infrastructure: one binary + Postgres + Redis."
 repository = "https://github.com/dodopayments/chimely"
