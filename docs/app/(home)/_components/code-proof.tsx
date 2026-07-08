@@ -18,7 +18,7 @@ const T = ({ c, children }: { c: string; children: ReactNode }) => (
 // Each line is a block span so line breaks come from layout, not source newlines.
 const Line = ({ children }: { children?: ReactNode }) => <span className="block">{children}</span>;
 
-const CURL = `curl -X POST https://your-app.com/v1/notifications \\
+const CURL = `curl -X POST https://chimely.example.com/v1/notifications \\
   -H "Authorization: Bearer $CHIMELY_API_KEY" \\
   -d '{
     "subscriber_id": "usr_42",
@@ -39,7 +39,7 @@ export function CodeProof() {
         <CodeBlock lang="Server · bash" code={CURL} copyLabel="Copy server snippet" dot elevated>
           <Line>
             <T c={C.fn}>curl</T> <T c={C.punct}>-X</T> POST{' '}
-            <T c={C.str}>https://your-app.com/v1/notifications</T> <T c={C.punct}>\</T>
+            <T c={C.str}>https://chimely.example.com/v1/notifications</T> <T c={C.punct}>\</T>
           </Line>
           <Line>
             {'  '}
