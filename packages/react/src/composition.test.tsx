@@ -25,7 +25,7 @@ async function provided(
 
 async function renderInbox(stub: StubServer, props: InboxProps = {}): Promise<void> {
   await provided(stub, () => <Inbox {...props} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Notifications' }));
+  fireEvent.click(screen.getByRole('button', { name: /^Notifications/ }));
 }
 
 afterEach(() => {
@@ -79,7 +79,7 @@ describe('standalone Bell', () => {
     const ref = createRef<HTMLButtonElement>();
     await provided(stub, () => <Bell ref={ref} onClick={onClick} />);
 
-    const button = screen.getByRole('button', { name: 'Notifications' });
+    const button = screen.getByRole('button', { name: /^Notifications/ });
     expect(ref.current).toBe(button);
     expect(screen.getByText('2')).toBeDefined();
 

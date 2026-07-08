@@ -24,7 +24,7 @@ async function renderInbox(
 }
 
 function bell(): HTMLElement {
-  return screen.getByRole('button', { name: 'Notifications' });
+  return screen.getByRole('button', { name: /^Notifications/ });
 }
 
 afterEach(() => {

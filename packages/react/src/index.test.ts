@@ -3,6 +3,7 @@ import {
   Bell,
   ChimelyProvider,
   DEFAULT_LOCALIZATION,
+  INBOX_CSS,
   Inbox,
   InboxContent,
   Preferences,
@@ -28,4 +29,5 @@ test('public surface exports', () => {
   // forwardRef components are objects with a render function.
   expect(Bell).toBeDefined();
   expect(DEFAULT_LOCALIZATION.markAllRead.length).toBeGreaterThan(0);
+  expect(INBOX_CSS).toContain('.chimely-popover');
 });

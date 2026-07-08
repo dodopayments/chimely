@@ -14,7 +14,7 @@ async function renderInbox(stub: StubServer, props: InboxProps = {}): Promise<vo
       <Inbox {...props} />
     </ChimelyProvider>,
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Notifications' }));
+  fireEvent.click(screen.getByRole('button', { name: /^Notifications/ }));
 }
 
 afterEach(() => {

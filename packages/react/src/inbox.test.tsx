@@ -46,7 +46,7 @@ async function renderInbox(
 }
 
 function bell(): HTMLElement {
-  return screen.getByRole('button', { name: 'Notifications' });
+  return screen.getByRole('button', { name: /^Notifications/ });
 }
 
 afterEach(() => {
@@ -73,6 +73,29 @@ describe('bell and badge', () => {
     stub.addNotification({ seen: true });
     await renderInbox(stub);
     expect(document.querySelector('.chimely-badge')).toBeNull();
+  });
+
+  test('the unseen count rides the accessible name', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    stub.addNotification();
+    await renderInbox(stub);
+
+    expect(screen.getByRole('button', { name: 'Notifications (2)' })).toBeDefined();
+
+    fireEvent.click(bell());
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Notifications' })).toBeDefined();
+    });
+  });
+
+  test('the accessible name caps at 99+', async () => {
+    const stub = createStubServer();
+    for (let i = 0; i < 105; i += 1) {
+      stub.addNotification();
+    }
+    await renderInbox(stub);
+    expect(screen.getByRole('button', { name: 'Notifications (99+)' })).toBeDefined();
   });
 
   test('renderBell fully replaces the bell contents', async () => {
@@ -450,7 +473,7 @@ describe('header title and footer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Notification preferences' }));
     expect(screen.getByRole('dialog', { name: 'Notification preferences' })).toBeDefined();
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
-    expect(screen.getByRole('dialog', { name: 'Notifications' })).toBeDefined();
+    expect(screen.getByRole('dialog', { name: /^Notifications/ })).toBeDefined();
   });
 });
 
@@ -461,7 +484,7 @@ describe('localized labels', () => {
     await renderInbox(stub, {
       localization: { bellLabel: 'Meine Glocke', backLabel: 'Zurueck' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Meine Glocke' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Meine Glocke/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Notification preferences' }));
     expect(screen.getByRole('button', { name: 'Zurueck' })).toBeDefined();
   });
