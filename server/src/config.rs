@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Config {
     pub database_url: String,
     /// `None` is Redis-less mode. Hints ride Postgres LISTEN/NOTIFY instead of
@@ -78,6 +78,60 @@ pub struct Config {
     /// In-flight job drain budget after claiming stops. Past it the worker
     /// is aborted. At-least-once semantics make the rollback safe.
     pub shutdown_drain_deadline: Duration,
+}
+
+/// Manual impl so credentials can never reach logs through `{:?}`.
+/// `database_url` and `redis_url` carry DSN passwords, `dev_api_key` is a
+/// plaintext management key, `admin_bootstrap_password` is a plaintext
+/// password. Presence is kept visible for Redis-less and bootstrap
+/// diagnosis.
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn redact<T>(value: &Option<T>) -> &'static str {
+            match value {
+                Some(_) => "Some([redacted])",
+                None => "None",
+            }
+        }
+        f.debug_struct("Config")
+            .field("database_url", &"[redacted]")
+            .field("redis_url", &redact(&self.redis_url))
+            .field("listen_addr", &self.listen_addr)
+            .field("retention_months", &self.retention_months)
+            .field(
+                "idempotency_retention_days",
+                &self.idempotency_retention_days,
+            )
+            .field("hint_debounce", &self.hint_debounce)
+            .field("worker_poll_interval", &self.worker_poll_interval)
+            .field("sse_ping_interval", &self.sse_ping_interval)
+            .field("sse_retry_base", &self.sse_retry_base)
+            .field("sse_retry_jitter", &self.sse_retry_jitter)
+            .field(
+                "sse_max_connections_per_subscriber",
+                &self.sse_max_connections_per_subscriber,
+            )
+            .field("dev_environment", &self.dev_environment)
+            .field("dev_api_key", &redact(&self.dev_api_key))
+            .field("admin_bootstrap_email", &self.admin_bootstrap_email)
+            .field(
+                "admin_bootstrap_password",
+                &redact(&self.admin_bootstrap_password),
+            )
+            .field("admin_session_ttl", &self.admin_session_ttl)
+            .field("admin_tls_terminated", &self.admin_tls_terminated)
+            .field("retry_backoff_base", &self.retry_backoff_base)
+            .field("retry_backoff_cap", &self.retry_backoff_cap)
+            .field("metrics_sample_interval", &self.metrics_sample_interval)
+            .field("counter_drift_sample_size", &self.counter_drift_sample_size)
+            .field("api_key_rate_per_sec", &self.api_key_rate_per_sec)
+            .field("api_key_rate_burst", &self.api_key_rate_burst)
+            .field("subscriber_rate_per_sec", &self.subscriber_rate_per_sec)
+            .field("subscriber_rate_burst", &self.subscriber_rate_burst)
+            .field("shutdown_readiness_grace", &self.shutdown_readiness_grace)
+            .field("shutdown_drain_deadline", &self.shutdown_drain_deadline)
+            .finish()
+    }
 }
 
 impl Config {
@@ -158,5 +212,51 @@ where
     match std::env::var(name) {
         Ok(v) => v.parse().with_context(|| format!("parsing {name}={v}")),
         Err(_) => Ok(default),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_output_redacts_credentials() {
+        let cfg = Config {
+            database_url: "postgres://user:s3cret-db-pw@host/db".into(),
+            redis_url: Some("redis://:s3cret-redis-pw@host".into()),
+            listen_addr: "127.0.0.1:0".into(),
+            retention_months: 12,
+            idempotency_retention_days: 30,
+            hint_debounce: Duration::from_millis(1),
+            worker_poll_interval: Duration::from_millis(1),
+            sse_ping_interval: Duration::from_secs(1),
+            sse_retry_base: Duration::from_millis(1),
+            sse_retry_jitter: Duration::from_millis(1),
+            sse_max_connections_per_subscriber: 8,
+            dev_environment: Some("demo".into()),
+            dev_api_key: Some("s3cret-api-key".into()),
+            admin_bootstrap_email: Some("ops@example.com".into()),
+            admin_bootstrap_password: Some("s3cret-admin-pw".into()),
+            admin_session_ttl: Duration::from_secs(1),
+            admin_tls_terminated: false,
+            retry_backoff_base: Duration::from_millis(1),
+            retry_backoff_cap: Duration::from_millis(1),
+            metrics_sample_interval: Duration::from_millis(1),
+            counter_drift_sample_size: 1,
+            api_key_rate_per_sec: 0.0,
+            api_key_rate_burst: 0.0,
+            subscriber_rate_per_sec: 0.0,
+            subscriber_rate_burst: 0.0,
+            shutdown_readiness_grace: Duration::from_millis(1),
+            shutdown_drain_deadline: Duration::from_millis(1),
+        };
+        let out = format!("{cfg:?}");
+        assert!(
+            !out.contains("s3cret"),
+            "credential leaked into Debug: {out}"
+        );
+        assert!(out.contains("[redacted]"));
+        assert!(out.contains("listen_addr"));
+        assert!(out.contains("ops@example.com"));
     }
 }
