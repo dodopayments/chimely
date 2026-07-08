@@ -31,10 +31,10 @@ export function Quickstart() {
                 <span className="text-[#7EE0A6]">$</span> docker network create chimely
               </span>
               <span className="block">
-                <span className="text-[#7EE0A6]">$</span>{' '}docker run &hellip; postgres:16-alpine
+                <span className="text-[#7EE0A6]">$</span> docker run &hellip; postgres:16-alpine
               </span>
               <span className="block">
-                <span className="text-[#7EE0A6]">$</span>{' '}docker run &hellip;
+                <span className="text-[#7EE0A6]">$</span> docker run &hellip;
                 ghcr.io/dodopayments/chimely
               </span>
             </CodeBlock>
