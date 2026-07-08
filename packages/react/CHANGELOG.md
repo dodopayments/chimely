@@ -1,5 +1,18 @@
 # @chimely/react
 
+## 0.2.1
+
+### Patch Changes
+
+- Hostile-host hardening: the bundle now carries its own `'use client'`
+  directive (imports cleanly from React Server Component module graphs), the
+  bell's accessible name includes the unseen count (previously invisible to
+  assistive tech), and `INBOX_CSS` is exported so nonce-CSP hosts can serve the
+  stylesheet from their own pipeline.
+- Ship the package README on npm.
+- Updated dependencies:
+  - @chimely/client@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes

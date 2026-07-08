@@ -1,5 +1,11 @@
 # @chimely/client
 
+## 0.2.1
+
+### Patch Changes
+
+- Ship the package README on npm.
+
 ## 0.2.0
 
 ### Minor Changes
