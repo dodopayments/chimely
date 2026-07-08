@@ -20,7 +20,7 @@ docker run -d --name chimely-pg --network chimely \
 docker run -d --name chimely --network chimely -p 8080:8080 \
   --restart unless-stopped \
   -e DATABASE_URL=postgres://postgres:chimely@chimely-pg:5432/postgres \
-  ghcr.io/dodopayments/chimely:0.2.0
+  ghcr.io/dodopayments/chimely:0.2.1
 ```
 
 The restart policy covers the first seconds while Postgres is still
