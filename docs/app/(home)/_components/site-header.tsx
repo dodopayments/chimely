@@ -19,9 +19,9 @@ export function SiteHeader() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-fd-border bg-fd-background/75 backdrop-blur-md">
-      <div className="mx-auto flex h-[60px] max-w-[1200px] items-center justify-between gap-3.5 px-5">
+      <div className="mx-auto flex h-[60px] max-w-[1200px] items-center justify-between gap-3 px-4 sm:gap-3.5 sm:px-5">
         {/* Org-namespaced wordmark: Dodo Payments logo + breadcrumb */}
-        <div className="flex min-w-0 items-center gap-2 whitespace-nowrap">
+        <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
           <a
             href={links.dodo}
             target="_blank"
@@ -47,7 +47,7 @@ export function SiteHeader() {
           </a>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2 sm:gap-2.5">
           <button
             type="button"
             onClick={() => search.setOpenSearch(true)}
@@ -56,7 +56,7 @@ export function SiteHeader() {
           >
             <SearchIcon className="size-[15px]" />
             <span className="hidden sm:inline">Search docs</span>
-            <kbd className="rounded border border-fd-border px-1.5 py-px font-mono text-[11px] leading-snug text-fd-muted-foreground/70">
+            <kbd className="hidden rounded border border-fd-border px-1.5 py-px font-mono text-[11px] leading-snug text-fd-muted-foreground/70 sm:inline-block">
               ⌘K
             </kbd>
           </button>
@@ -79,7 +79,7 @@ export function SiteHeader() {
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Star Chimely on GitHub"
-            className="inline-flex h-[34px] items-center gap-1.5 rounded-lg border border-fd-border px-3 text-[13px] font-medium text-fd-foreground no-underline transition-colors hover:border-[#1264FF]"
+            className="hidden h-[34px] items-center gap-1.5 rounded-lg border border-fd-border px-3 text-[13px] font-medium text-fd-foreground no-underline transition-colors hover:border-[#1264FF] sm:inline-flex"
           >
             <GitHubIcon className="size-[15px]" />
             <span className="hidden sm:inline">Star</span>
@@ -87,10 +87,10 @@ export function SiteHeader() {
 
           <a
             href={links.docs}
-            className="inline-flex h-[34px] items-center gap-1.5 rounded-lg bg-[#1264FF] px-3.5 text-[13px] font-semibold text-white no-underline transition-colors hover:bg-[#0b53e0]"
+            className="inline-flex h-[34px] items-center gap-1.5 whitespace-nowrap rounded-lg bg-[#1264FF] px-3 text-[13px] font-semibold text-white no-underline transition-colors hover:bg-[#0b53e0] sm:px-3.5"
           >
             Get Started
-            <ArrowRight className="size-3.5" />
+            <ArrowRight className="hidden size-3.5 sm:block" />
           </a>
         </div>
       </div>

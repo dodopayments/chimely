@@ -20,16 +20,22 @@ const Line = ({ children }: { children?: ReactNode }) => <span className="block"
 
 const CURL = `curl -X POST https://chimely.example.com/v1/notifications \\
   -H "Authorization: Bearer $CHIMELY_API_KEY" \\
+  -H "Content-Type: application/json" \\
   -d '{
     "subscriber_id": "usr_42",
     "category": "payment.failed",
-    "payload": { "amount": 4200, "currency": "USD" },
+    "payload": { "title": "Payment failed", "amount": 4200 },
     "idempotency_key": "evt_9f8a"
   }'`;
 
 const INBOX = `import { Inbox } from "@chimely/react";
 
-<Inbox subscriberId={user.id} subscriberHash={hash} />`;
+<Inbox
+  serverUrl="https://chimely.example.com"
+  environment="production"
+  subscriberId={user.id}
+  subscriberHash={hash}
+/>`;
 
 /** The hero's two code snippets (curl + JSX) side by side, with a caption. */
 export function CodeProof() {
@@ -45,6 +51,11 @@ export function CodeProof() {
             {'  '}
             <T c={C.punct}>-H</T>{' '}
             <T c={C.str}>&quot;Authorization: Bearer $CHIMELY_API_KEY&quot;</T> <T c={C.punct}>\</T>
+          </Line>
+          <Line>
+            {'  '}
+            <T c={C.punct}>-H</T> <T c={C.str}>&quot;Content-Type: application/json&quot;</T>{' '}
+            <T c={C.punct}>\</T>
           </Line>
           <Line>
             {'  '}
@@ -65,10 +76,10 @@ export function CodeProof() {
           <Line>
             {'    '}
             <T c={C.key}>&quot;payload&quot;</T>
-            <T c={C.punct}>:</T> <T c={C.punct}>{'{'}</T> <T c={C.key}>&quot;amount&quot;</T>
-            <T c={C.punct}>:</T> <T c={C.num}>4200</T>
-            <T c={C.punct}>,</T> <T c={C.key}>&quot;currency&quot;</T>
-            <T c={C.punct}>:</T> <T c={C.str}>&quot;USD&quot;</T> <T c={C.punct}>{'},'}</T>
+            <T c={C.punct}>:</T> <T c={C.punct}>{'{'}</T> <T c={C.key}>&quot;title&quot;</T>
+            <T c={C.punct}>:</T> <T c={C.str}>&quot;Payment failed&quot;</T>
+            <T c={C.punct}>,</T> <T c={C.key}>&quot;amount&quot;</T>
+            <T c={C.punct}>:</T> <T c={C.num}>4200</T> <T c={C.punct}>{'},'}</T>
           </Line>
           <Line>
             {'    '}
@@ -90,9 +101,32 @@ export function CodeProof() {
           <Line>{'\u00A0'}</Line>
           <Line>
             <T c={C.punct}>{'<'}</T>
-            <T c={C.fn}>Inbox</T> <T c={C.key}>subscriberId</T>
-            <T c={C.punct}>{'={'}</T>user.id<T c={C.punct}>{'}'}</T> <T c={C.key}>subscriberHash</T>
-            <T c={C.punct}>{'={'}</T>hash<T c={C.punct}>{'}'}</T> <T c={C.punct}>{'/>'}</T>
+            <T c={C.fn}>Inbox</T>
+          </Line>
+          <Line>
+            {'  '}
+            <T c={C.key}>serverUrl</T>
+            <T c={C.punct}>=</T>
+            <T c={C.str}>&quot;https://chimely.example.com&quot;</T>
+          </Line>
+          <Line>
+            {'  '}
+            <T c={C.key}>environment</T>
+            <T c={C.punct}>=</T>
+            <T c={C.str}>&quot;production&quot;</T>
+          </Line>
+          <Line>
+            {'  '}
+            <T c={C.key}>subscriberId</T>
+            <T c={C.punct}>{'={'}</T>user.id<T c={C.punct}>{'}'}</T>
+          </Line>
+          <Line>
+            {'  '}
+            <T c={C.key}>subscriberHash</T>
+            <T c={C.punct}>{'={'}</T>hash<T c={C.punct}>{'}'}</T>
+          </Line>
+          <Line>
+            <T c={C.punct}>{'/>'}</T>
           </Line>
         </CodeBlock>
       </div>
