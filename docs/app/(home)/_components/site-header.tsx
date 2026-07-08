@@ -21,13 +21,13 @@ export function SiteHeader() {
     <header className="sticky top-0 z-50 border-b border-fd-border bg-fd-background/75 backdrop-blur-md">
       <div className="mx-auto flex h-[60px] max-w-[1200px] items-center justify-between gap-3 px-4 sm:gap-3.5 sm:px-5">
         {/* Org-namespaced wordmark: Dodo Payments logo + breadcrumb */}
-        <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+        <div className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">
           <a
             href={links.dodo}
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Dodo Payments"
-            className="flex items-center gap-2 no-underline transition-opacity hover:opacity-80"
+            className="hidden items-center gap-2 no-underline transition-opacity hover:opacity-80 sm:flex"
           >
             {/* Authentic Dodo Payments mark, see public/chimely/logo-dodo.svg */}
             {/* biome-ignore lint/performance/noImgElement: inline SVG brand mark; next/image adds no value and keeps the home route framework-portable */}
@@ -39,7 +39,7 @@ export function SiteHeader() {
               className="block size-[22px]"
             />
           </a>
-          <span className="text-[15px] text-fd-muted-foreground/60">/</span>
+          <span className="hidden text-[15px] text-fd-muted-foreground/60 sm:inline">/</span>
           <a href={links.docs} className="no-underline transition-opacity hover:opacity-80">
             <span className="text-[15px] font-semibold tracking-tight text-fd-foreground">
               Chimely
