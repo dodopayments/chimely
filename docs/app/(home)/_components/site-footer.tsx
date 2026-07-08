@@ -70,7 +70,7 @@ export function SiteFooter() {
       {/* Pre-1.0 disclaimer, kept visually quiet */}
       <div className="mx-auto mt-7 max-w-[1200px] border-t border-fd-border pt-5">
         <p className="max-w-[80ch] font-mono text-[12.5px] leading-relaxed text-fd-muted-foreground/70">
-          Chimely is at v0.2.0. The HTTP API and SDK surface may still change on minor releases
+          Chimely is at v0.2.1. The HTTP API and SDK surface may still change on minor releases
           until 1.0. Pin your versions.
         </p>
       </div>

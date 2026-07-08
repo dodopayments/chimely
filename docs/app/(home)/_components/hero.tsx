@@ -12,7 +12,7 @@ function Kicker() {
   return (
     <span className="inline-flex w-fit items-center gap-2.5 rounded-full border border-fd-border bg-fd-muted/50 px-3.5 py-1.5 font-mono text-[12.5px] font-medium tracking-wide text-fd-muted-foreground dark:border-white/[0.14] dark:bg-white/[0.04] dark:text-white/70">
       <span className="size-[7px] rounded-full bg-[#00D87D] shadow-[0_0_0_3px_rgba(0,216,125,0.18)] motion-safe:animate-pulse" />
-      Open source · Self-hostable · v0.2.0
+      Open source · Self-hostable · v0.2.1
     </span>
   );
 }
