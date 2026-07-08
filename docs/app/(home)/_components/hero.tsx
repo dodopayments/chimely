@@ -1,5 +1,4 @@
 import { CodeProof } from './code-proof';
-import { ComingSoon } from './coming-soon';
 import { CopyButton } from './copy-button';
 import { ArrowRight, GitHubIcon } from './icons';
 import { links } from './links';
@@ -55,10 +54,9 @@ function InlineCommand() {
   return (
     <div className="inline-flex w-fit items-center gap-3 rounded-xl border border-white/[0.13] bg-[#0E1117] py-2.5 pl-4 pr-2.5 font-mono text-sm font-medium">
       <span className="text-[#7EE0A6]">$</span>
-      <span className="whitespace-nowrap text-[#E8EAED]">npx chimely dev</span>
-      <ComingSoon />
+      <span className="whitespace-nowrap text-[#E8EAED]">npm install @chimely/react</span>
       <CopyButton
-        text="npx chimely dev"
+        text="npm install @chimely/react"
         label="Copy install command"
         iconOnly
         className="grid size-[30px] place-items-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-white/30 hover:text-white"

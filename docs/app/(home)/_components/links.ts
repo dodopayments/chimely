@@ -1,6 +1,6 @@
 /**
- * Outbound destinations. Swap these placeholders for your real URLs.
- * `docs`, `comparison`, `quickstart` are internal routes; the rest are external.
+ * Outbound destinations. `docs`, `comparison`, `quickstart` are internal
+ * routes; the rest are external.
  */
 export const links = {
   docs: '/docs',
