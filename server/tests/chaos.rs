@@ -273,7 +273,13 @@ async fn redis_full_outage_delays_hints_loses_nothing_and_counters_recover() {
     app.drain_jobs().await;
 
     let redis = app.redis.as_ref().expect("redis container");
-    redis.stop_with_timeout(Some(1)).await.expect("stop redis");
+    // Pause (freeze the process) rather than stop. A stopped container is
+    // removed from the port table, so start() re-binds the fixed host port and
+    // races anything that grabbed it during the down window ("port is already
+    // allocated"). Pause keeps the container and its published port intact
+    // while the frozen process refuses connections, which is the outage this
+    // test needs. Recovery is unpause on the exact same URL.
+    redis.pause().await.expect("pause redis");
 
     for i in 0..3 {
         app.create_notification("usr_o", &format!("outage{i}"))
@@ -334,8 +340,8 @@ async fn redis_full_outage_delays_hints_loses_nothing_and_counters_recover() {
     let (unread, _) = app.counts("usr_o").await;
     assert_eq!(unread, 4, "rebuild recomputed the poisoned counter");
 
-    // Recovery: restart Redis, force backed-off retries due, hints flow.
-    redis.start().await.expect("restart redis");
+    // Recovery: unpause Redis, force backed-off retries due, hints flow.
+    redis.unpause().await.expect("unpause redis");
     tokio::time::sleep(Duration::from_millis(500)).await;
     sqlx::query("UPDATE jobs SET run_at = now() WHERE environment_id = $1")
         .bind(app.env.id)
