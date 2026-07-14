@@ -5,7 +5,6 @@ import './global.css';
 export const metadata = {
   title: 'Chimely',
   description: 'In-app notification inbox infrastructure.',
-  icons: { icon: '/icon.svg' },
 };
 
 export default function Layout({ children }: { children: ReactNode }) {
