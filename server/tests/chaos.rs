@@ -341,8 +341,28 @@ async fn redis_full_outage_delays_hints_loses_nothing_and_counters_recover() {
     assert_eq!(unread, 4, "rebuild recomputed the poisoned counter");
 
     // Recovery: unpause Redis, force backed-off retries due, hints flow.
+    // Pause froze the TCP connection rather than closing it, so poll the hint
+    // plane until it answers instead of a fixed sleep. The first command after
+    // unpause can wait the full 5s command timeout before fred reconnects, so
+    // bound the probe by wall clock, not attempt count.
     redis.unpause().await.expect("unpause redis");
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let probe_deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    for attempt in 0u32.. {
+        match app
+            .pubsub
+            .try_acquire_debounce(
+                &format!("recovery-probe-{attempt}"),
+                Duration::from_millis(1),
+            )
+            .await
+        {
+            Ok(_) => break,
+            Err(_) if tokio::time::Instant::now() < probe_deadline => {
+                tokio::time::sleep(Duration::from_millis(250)).await
+            }
+            Err(err) => panic!("hint plane did not recover: {err:#}"),
+        }
+    }
     sqlx::query("UPDATE jobs SET run_at = now() WHERE environment_id = $1")
         .bind(app.env.id)
         .execute(&app.pool)
