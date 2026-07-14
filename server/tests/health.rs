@@ -43,10 +43,10 @@ async fn redis_loss_delays_hints_but_loses_nothing_and_keeps_readiness() {
     app.drain_jobs().await;
 
     let redis = app.redis.as_ref().expect("redis container");
-    redis
-        .stop_with_timeout(Some(1))
-        .await
-        .expect("stopping redis");
+    // Pause rather than stop: unpause resumes on the same published host port,
+    // where stop/start races whatever grabbed the fixed port during the down
+    // window ("port is already allocated"). A frozen process is the outage.
+    redis.pause().await.expect("pausing redis");
 
     // Creates still succeed. Postgres is the source of truth.
     app.create_notification("usr_z", "during.outage").await;
@@ -70,9 +70,12 @@ async fn redis_loss_delays_hints_but_loses_nothing_and_keeps_readiness() {
     );
 
     // Poll until the app's own client answers again. A fixed sleep flakes
-    // under load. Fred's reconnect backoff can exceed the 5s command timeout,
-    // stacking job retries past the assertion window below.
-    redis.start().await.expect("restarting redis");
+    // under load. Pause keeps the TCP connection open but frozen, so the first
+    // command after unpause can burn the full 5s command timeout before fred
+    // notices and reconnects. Bound the probe by wall clock, not attempt count,
+    // so one timed-out command cannot exhaust the budget before a retry lands.
+    redis.unpause().await.expect("unpausing redis");
+    let probe_deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     for attempt in 0u32.. {
         match app
             .pubsub
@@ -83,7 +86,9 @@ async fn redis_loss_delays_hints_but_loses_nothing_and_keeps_readiness() {
             .await
         {
             Ok(_) => break,
-            Err(_) if attempt < 12 => tokio::time::sleep(Duration::from_millis(250)).await,
+            Err(_) if tokio::time::Instant::now() < probe_deadline => {
+                tokio::time::sleep(Duration::from_millis(250)).await
+            }
             Err(err) => panic!("hint plane did not recover: {err:#}"),
         }
     }

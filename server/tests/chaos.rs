@@ -273,7 +273,13 @@ async fn redis_full_outage_delays_hints_loses_nothing_and_counters_recover() {
     app.drain_jobs().await;
 
     let redis = app.redis.as_ref().expect("redis container");
-    redis.stop_with_timeout(Some(1)).await.expect("stop redis");
+    // Pause (freeze the process) rather than stop. A stopped container is
+    // removed from the port table, so start() re-binds the fixed host port and
+    // races anything that grabbed it during the down window ("port is already
+    // allocated"). Pause keeps the container and its published port intact
+    // while the frozen process refuses connections, which is the outage this
+    // test needs. Recovery is unpause on the exact same URL.
+    redis.pause().await.expect("pause redis");
 
     for i in 0..3 {
         app.create_notification("usr_o", &format!("outage{i}"))
@@ -334,9 +340,29 @@ async fn redis_full_outage_delays_hints_loses_nothing_and_counters_recover() {
     let (unread, _) = app.counts("usr_o").await;
     assert_eq!(unread, 4, "rebuild recomputed the poisoned counter");
 
-    // Recovery: restart Redis, force backed-off retries due, hints flow.
-    redis.start().await.expect("restart redis");
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Recovery: unpause Redis, force backed-off retries due, hints flow.
+    // Pause froze the TCP connection rather than closing it, so poll the hint
+    // plane until it answers instead of a fixed sleep. The first command after
+    // unpause can wait the full 5s command timeout before fred reconnects, so
+    // bound the probe by wall clock, not attempt count.
+    redis.unpause().await.expect("unpause redis");
+    let probe_deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    for attempt in 0u32.. {
+        match app
+            .pubsub
+            .try_acquire_debounce(
+                &format!("recovery-probe-{attempt}"),
+                Duration::from_millis(1),
+            )
+            .await
+        {
+            Ok(_) => break,
+            Err(_) if tokio::time::Instant::now() < probe_deadline => {
+                tokio::time::sleep(Duration::from_millis(250)).await
+            }
+            Err(err) => panic!("hint plane did not recover: {err:#}"),
+        }
+    }
     sqlx::query("UPDATE jobs SET run_at = now() WHERE environment_id = $1")
         .bind(app.env.id)
         .execute(&app.pool)

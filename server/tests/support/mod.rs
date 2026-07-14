@@ -93,9 +93,10 @@ async fn spawn_inner(
     let database_url = format!("postgres://postgres:postgres@127.0.0.1:{pg_port}/postgres");
 
     let (redis, redis_url) = if with_redis {
-        // A fixed host port. Docker reassigns ephemeral published ports on
-        // container restart, which would break the Redis kill/recover tests
-        // because clients must reconnect to the same URL.
+        // A fixed host port so the Redis kill/recover tests reconnect to the
+        // same URL across an outage. The outage is simulated with pause/unpause
+        // (see chaos.rs) which keeps this published port bound, avoiding the
+        // stop/start "port is already allocated" race on the down window.
         let port = free_port();
         let redis = RedisImage::default()
             .with_tag("7-alpine")
