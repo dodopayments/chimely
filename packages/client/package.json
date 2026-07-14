@@ -42,7 +42,8 @@
     "vitest": "^4.1.8"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "repository": {
     "type": "git",
