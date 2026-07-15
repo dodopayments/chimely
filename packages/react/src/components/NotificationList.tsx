@@ -184,6 +184,11 @@ export function NotificationList<TPayload>(props: NotificationListProps<TPayload
 
   return (
     <div className="chimely-list-container">
+      {/* Rendered unconditionally so the live region exists in the
+          accessibility tree before its text changes. */}
+      <div className="chimely-sr-only" role="status" aria-live="polite">
+        {pendingCount > 0 ? strings.newNotifications(pendingCount) : null}
+      </div>
       {pendingCount > 0 && (
         <button
           type="button"

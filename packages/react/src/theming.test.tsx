@@ -189,6 +189,31 @@ describe('new-notification pill', () => {
     await screen.findByRole('button', { name: '3 fresh' });
   });
 
+  test('announces the pill count via a polite live region', async () => {
+    const stub = createStubServer();
+    for (let i = 0; i < 6; i += 1) {
+      stub.addNotification();
+    }
+    await renderInbox(stub, {
+      localization: { newNotifications: (count) => `${count} fresh` },
+    });
+    fireEvent.click(bell());
+
+    // Present and empty before any arrival, so assistive tech observes
+    // the text change instead of a region appearing.
+    const region = screen.getByRole('status');
+    expect(region.getAttribute('aria-live')).toBe('polite');
+    expect(region.textContent).toBe('');
+
+    const list = document.querySelector('.chimely-list') as HTMLElement;
+    list.scrollTop = 200;
+
+    stub.addNotification();
+    stub.emitHint();
+    await screen.findByRole('button', { name: '1 fresh' });
+    expect(screen.getByRole('status').textContent).toBe('1 fresh');
+  });
+
   test('arrivals outside the active tab do not bump the pill', async () => {
     const stub = createStubServer();
     for (let i = 0; i < 5; i += 1) {
