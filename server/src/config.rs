@@ -78,6 +78,12 @@ pub struct Config {
     /// In-flight job drain budget after claiming stops. Past it the worker
     /// is aborted. At-least-once semantics make the rollback safe.
     pub shutdown_drain_deadline: Duration,
+    /// Opt-in identifier scrubbing for the access log and the http.request
+    /// span. When set, subscriber and environment identifiers (query params
+    /// and the /v1/subscribers/{id} path segment) are replaced with
+    /// truncated SHA-256 hashes, for operators whose logs leave their
+    /// control. Credentials are scrubbed regardless of this flag.
+    pub log_scrub_identifiers: bool,
 }
 
 /// Manual impl so credentials can never reach logs through `{:?}`.
@@ -130,6 +136,7 @@ impl std::fmt::Debug for Config {
             .field("subscriber_rate_burst", &self.subscriber_rate_burst)
             .field("shutdown_readiness_grace", &self.shutdown_readiness_grace)
             .field("shutdown_drain_deadline", &self.shutdown_drain_deadline)
+            .field("log_scrub_identifiers", &self.log_scrub_identifiers)
             .finish()
     }
 }
@@ -197,6 +204,7 @@ impl Config {
                 "CHIMELY_SHUTDOWN_DRAIN_DEADLINE_MS",
                 30_000,
             )?),
+            log_scrub_identifiers: parse_var("CHIMELY_LOG_SCRUB_IDENTIFIERS", false)?,
         })
     }
 }
@@ -249,6 +257,7 @@ mod tests {
             subscriber_rate_burst: 0.0,
             shutdown_readiness_grace: Duration::from_millis(1),
             shutdown_drain_deadline: Duration::from_millis(1),
+            log_scrub_identifiers: false,
         };
         let out = format!("{cfg:?}");
         assert!(

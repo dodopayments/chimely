@@ -120,7 +120,7 @@ pub fn router(state: AppState) -> Router {
             get(move || std::future::ready(prometheus.render())),
         )
         .merge(utoipa_scalar::Scalar::with_url("/docs", openapi::api_doc()))
-        .layer(middleware::from_fn(access_log))
+        .layer(middleware::from_fn_with_state(state.clone(), access_log))
         .with_state(state)
 }
 
@@ -244,18 +244,24 @@ async fn readyz(
 /// credential on the SSE endpoint (EventSource cannot set headers) and must
 /// never reach log lines. This is a tested invariant.
 ///
+/// Identifier scrubbing (`log_scrub_identifiers`) applies to the log line
+/// and the `http.request` span both, so scrubbed identifiers cannot leak
+/// through OTLP export either.
+///
 /// The handler runs inside an `http.request` span: jobs enqueued by the
 /// handler carry this span's context through the outbox, so the whole
 /// ingest -> outbox -> worker -> hint flow lands in one trace.
 async fn access_log(
+    axum::extract::State(state): axum::extract::State<AppState>,
     req: axum::extract::Request,
     next: middleware::Next,
 ) -> axum::response::Response {
     use tracing::Instrument as _;
 
+    let scrub_identifiers = state.cfg.log_scrub_identifiers;
     let method = req.method().clone();
-    let path = req.uri().path().to_owned();
-    let query = req.uri().query().map(scrub_query);
+    let path = scrub_path(req.uri().path(), scrub_identifiers);
+    let query = req.uri().query().map(|q| scrub_query(q, scrub_identifiers));
     let started = std::time::Instant::now();
     let span = tracing::info_span!("http.request", %method, %path);
     let response = next.run(req).instrument(span).await;
@@ -276,11 +282,20 @@ async fn access_log(
 /// valid credential and must scrub the same way) and the output is
 /// re-encoded, so a credential value can never smuggle raw bytes into a log
 /// line.
-pub fn scrub_query(query: &str) -> String {
+///
+/// With `scrub_identifiers` set, `subscriber_id` and `environment` values
+/// are replaced with truncated hashes. The credential scrub does not depend
+/// on the flag.
+pub fn scrub_query(query: &str, scrub_identifiers: bool) -> String {
     form_urlencoded::parse(query.as_bytes())
         .map(|(name, value)| {
             let value = if name.eq_ignore_ascii_case("subscriber_hash") {
                 std::borrow::Cow::Borrowed("redacted")
+            } else if scrub_identifiers
+                && (name.eq_ignore_ascii_case("subscriber_id")
+                    || name.eq_ignore_ascii_case("environment"))
+            {
+                std::borrow::Cow::Owned(hash_identifier(&value))
             } else {
                 value
             };
@@ -294,31 +309,112 @@ pub fn scrub_query(query: &str) -> String {
         .join("&")
 }
 
+/// Replaces the id segment of `/v1/subscribers/{id}` paths with a truncated
+/// hash when identifier scrubbing is enabled. Other paths pass through
+/// unchanged.
+pub fn scrub_path(path: &str, scrub_identifiers: bool) -> String {
+    if !scrub_identifiers {
+        return path.to_owned();
+    }
+    match path.strip_prefix("/v1/subscribers/") {
+        None | Some("") => path.to_owned(),
+        Some(rest) => match rest.split_once('/') {
+            Some((id, suffix)) => {
+                format!("/v1/subscribers/{}/{suffix}", hash_identifier(id))
+            }
+            None => format!("/v1/subscribers/{}", hash_identifier(rest)),
+        },
+    }
+}
+
+/// Truncated SHA-256 of an identifier for scrubbed log output. Stable per
+/// input, so operators can still correlate log lines by hashing a known
+/// identifier offline.
+fn hash_identifier(value: &str) -> String {
+    use sha2::Digest as _;
+    hex::encode(&sha2::Sha256::digest(value.as_bytes())[..6])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    // Expected hashes are the first 12 hex chars of SHA-256, computed
+    // outside this codebase (shasum -a 256).
+    const HASH_USR_123: &str = "ca010ec7feb3";
+    const HASH_ACME: &str = "822b33ad87c1";
+
     #[test]
     fn scrubs_subscriber_hash_wherever_it_appears() {
         assert_eq!(
-            scrub_query("environment=acme&subscriber_id=u1&subscriber_hash=deadbeef"),
+            scrub_query(
+                "environment=acme&subscriber_id=u1&subscriber_hash=deadbeef",
+                false
+            ),
             "environment=acme&subscriber_id=u1&subscriber_hash=redacted"
         );
-        assert_eq!(scrub_query("subscriber_hash=x"), "subscriber_hash=redacted");
         assert_eq!(
-            scrub_query("SUBSCRIBER_HASH=x&a=b"),
+            scrub_query("subscriber_hash=x", false),
+            "subscriber_hash=redacted"
+        );
+        assert_eq!(
+            scrub_query("SUBSCRIBER_HASH=x&a=b", false),
             "SUBSCRIBER_HASH=redacted&a=b"
         );
         // Percent-encoded names decode before matching: auth accepts
         // `subscriber%5Fhash`, so the scrub must catch it too.
         assert_eq!(
-            scrub_query("subscriber%5Fhash=deadbeef"),
+            scrub_query("subscriber%5Fhash=deadbeef", false),
             "subscriber_hash=redacted"
         );
         assert_eq!(
-            scrub_query("%73ubscriber_hash=deadbeef&a=b"),
+            scrub_query("%73ubscriber_hash=deadbeef&a=b", false),
             "subscriber_hash=redacted&a=b"
         );
-        assert_eq!(scrub_query("a=b"), "a=b");
+        assert_eq!(scrub_query("a=b", false), "a=b");
+    }
+
+    #[test]
+    fn hashes_identifier_params_when_scrub_enabled() {
+        assert_eq!(
+            scrub_query(
+                "environment=acme&subscriber_id=usr_123&subscriber_hash=deadbeef",
+                true
+            ),
+            format!(
+                "environment={HASH_ACME}&subscriber_id={HASH_USR_123}&subscriber_hash=redacted"
+            )
+        );
+        // Name matching is case-insensitive and percent-decoded, like the
+        // credential scrub.
+        assert_eq!(
+            scrub_query("SUBSCRIBER_ID=usr_123", true),
+            format!("SUBSCRIBER_ID={HASH_USR_123}")
+        );
+        assert_eq!(
+            scrub_query("subscriber%5Fid=usr_123", true),
+            format!("subscriber_id={HASH_USR_123}")
+        );
+        // Non-identifier params pass through.
+        assert_eq!(scrub_query("limit=10&a=b", true), "limit=10&a=b");
+    }
+
+    #[test]
+    fn hashes_subscriber_path_segment_when_scrub_enabled() {
+        assert_eq!(
+            scrub_path("/v1/subscribers/usr_123", true),
+            format!("/v1/subscribers/{HASH_USR_123}")
+        );
+        assert_eq!(
+            scrub_path("/v1/subscribers/usr_123/preferences", true),
+            format!("/v1/subscribers/{HASH_USR_123}/preferences")
+        );
+        assert_eq!(scrub_path("/v1/inbox/items", true), "/v1/inbox/items");
+        assert_eq!(scrub_path("/v1/subscribers/", true), "/v1/subscribers/");
+        // Default off: the path logs unchanged.
+        assert_eq!(
+            scrub_path("/v1/subscribers/usr_123", false),
+            "/v1/subscribers/usr_123"
+        );
     }
 }
