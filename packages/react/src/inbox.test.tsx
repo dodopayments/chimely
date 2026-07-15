@@ -876,6 +876,16 @@ describe('action buttons', () => {
     expect(document.querySelector('.chimely-item-cta')).toBeNull();
   });
 
+  test('a whitespace-only label renders no button', async () => {
+    const stub = createStubServer();
+    stub.addNotification({
+      payload: { title: 'x', primary_action: { label: '   ', url: 'https://app.test/x' } },
+    });
+    await renderInbox(stub);
+    fireEvent.click(bell());
+    expect(document.querySelector('.chimely-item-cta')).toBeNull();
+  });
+
   test('same-origin action urls go through routerPush', async () => {
     const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {});
     const routerPush = vi.fn();

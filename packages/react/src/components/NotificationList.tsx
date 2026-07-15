@@ -300,11 +300,14 @@ export function NotificationList<TPayload>(props: NotificationListProps<TPayload
   );
 }
 
-/** A non-empty string label off a payload action, or null. Payloads are verbatim. */
+/**
+ * A non-blank string label off a payload action, or null. Payloads are
+ * verbatim, so a whitespace-only label must not render an invisible button.
+ */
 function actionLabel(action: unknown): string | null {
   if (action !== null && typeof action === 'object' && 'label' in action) {
     const { label } = action as { label: unknown };
-    if (typeof label === 'string' && label.length > 0) {
+    if (typeof label === 'string' && label.trim().length > 0) {
       return label;
     }
   }
