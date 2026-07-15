@@ -45,21 +45,33 @@ read that subscriber's inbox, your backend computes a hash and passes it to
 `<Inbox />`:
 
 ```
-subscriberHash = hex(HMAC-SHA256(environment_secret, subscriber_id))
+subscriberHash = hex(HMAC-SHA256(environment_secret, environment_id + "\0" + subscriber_id))
 ```
 
 The `environment_secret` is the environment's `subscriber_hmac_secret`,
-readable in the admin dashboard (developer or admin role). Compute the hash in
+readable in the admin dashboard (developer or admin role). The
+`environment_id` is the environment's id (`env_...`), shown on the same
+dashboard page; it is joined to the subscriber id with a NUL byte and binds
+the hash to that environment, so a hash never transfers between environments
+even if two environments were ever given the same secret. Compute the hash in
 your backend, per request:
 
 ```ts
 import { createHmac } from 'node:crypto';
 
 const subscriberHash = createHmac('sha256', process.env.CHIMELY_HMAC_SECRET!)
-  .update(subscriberId)
+  .update(`${process.env.CHIMELY_ENVIRONMENT_ID}\0${subscriberId}`)
   .digest('hex');
 // pass subscriberHash to <Inbox subscriberHash={...} />
 ```
+
+<Callout type="warn" title="Legacy formula: accepted for now, removal announced ahead">
+Hashes computed with the previous formula,
+`hex(HMAC-SHA256(environment_secret, subscriber_id))`, are still accepted as
+a fallback. That fallback will be dropped in an announced minor release, and
+the cross-environment binding is only effective once it is gone. Switch your
+backend to the environment-bound formula now.
+</Callout>
 
 <Callout type="error" title="Never sign in the browser">
 The secret signs every subscriber's identity for an environment. Computing the

@@ -41,7 +41,9 @@ SSE hint and the widget refetches conditionally (ETag, mostly 304s).
 ## Production differences
 
 - Set `subscriberHash` on `<Inbox />` — `hex(HMAC-SHA256(secret,
-  subscriberId))`, computed by **your backend**, never in the browser.
+  environmentId + "\0" + subscriberId))`, computed by **your backend**,
+  never in the browser. The environment id is the `env_...` id from the
+  admin dashboard.
   The dev bootstrap turns the requirement off; production environments
   keep it on.
 - `CHIMELY_DEV_ENVIRONMENT` / `CHIMELY_DEV_API_KEY` are for local
