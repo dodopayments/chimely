@@ -30,7 +30,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Replay all dead letters */
+        /**
+         * Replay all dead letters
+         * @description Requeue every parked job. Optionally scoped to one environment by slug.
+         */
         post: operations["adminReplayAllDeadLetters"];
         delete?: never;
         options?: never;
@@ -49,7 +52,7 @@ export interface paths {
         put?: never;
         /**
          * Replay dead letter
-         * @description Requeue one failed job for another attempt.
+         * @description Requeue one failed job for another attempt. Optionally scoped to one environment by slug.
          */
         post: operations["adminReplayDeadLetter"];
         delete?: never;
@@ -1238,7 +1241,10 @@ export interface operations {
     };
     adminReplayAllDeadLetters: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Environment slug to scope the replay to. */
+                environment?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1288,11 +1294,31 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description Unknown environment scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such environment"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     adminReplayDeadLetter: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Environment slug to scope the replay to. */
+                environment?: string | null;
+            };
             header?: never;
             path: {
                 /** @description Job TypeID (job_…). */
@@ -1345,7 +1371,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No such parked job. */
+            /** @description No such parked job, or unknown environment scope. */
             404: {
                 headers: {
                     [name: string]: unknown;

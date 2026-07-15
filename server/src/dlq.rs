@@ -41,11 +41,11 @@ pub async fn list(pool: &PgPool) -> anyhow::Result<Vec<DeadLetter>> {
 }
 
 /// Replay one parked job by id, optionally pinned to one environment.
-/// environment_id is part of every key. An unscoped id match would reach
-/// across environments. Returns false if no such dead letter.
-pub async fn replay(pool: &PgPool, id: Uuid, environment: Option<Uuid>) -> anyhow::Result<bool> {
-    let moved = replay_where(pool, Some(id), environment).await?;
-    Ok(moved > 0)
+/// environment_id is part of every key. Without a pin an id-only match reaches
+/// across environments, so this moves every same-id row and returns the count
+/// moved. Zero means no such dead letter.
+pub async fn replay(pool: &PgPool, id: Uuid, environment: Option<Uuid>) -> anyhow::Result<u64> {
+    replay_where(pool, Some(id), environment).await
 }
 
 /// Replay every parked job, optionally only one environment's.

@@ -95,50 +95,16 @@ paths:
       tags:
       - admin
       summary: Replay all dead letters
+      description: Requeue every parked job. Optionally scoped to one environment by slug.
       operationId: adminReplayAllDeadLetters
-      responses:
-        '200':
-          description: Replayed.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AdminReplayResult'
-        '401':
-          description: Authentication required (no or expired session).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error:
-                  code: unauthorized
-                  message: admin session required
-        '403':
-          description: Authenticated but the role lacks the capability.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error:
-                  code: forbidden
-                  message: your role does not permit this action
-      security:
-      - AdminSession: []
-  /admin/api/dlq/{job_id}/replay:
-    post:
-      tags:
-      - admin
-      summary: Replay dead letter
-      description: Requeue one failed job for another attempt.
-      operationId: adminReplayDeadLetter
       parameters:
-      - name: job_id
-        in: path
-        description: Job TypeID (job_…).
-        required: true
+      - name: environment
+        in: query
+        description: Environment slug to scope the replay to.
+        required: false
         schema:
           type: string
+          nullable: true
       responses:
         '200':
           description: Replayed.
@@ -167,7 +133,67 @@ paths:
                   code: forbidden
                   message: your role does not permit this action
         '404':
-          description: No such parked job.
+          description: Unknown environment scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such environment
+      security:
+      - AdminSession: []
+  /admin/api/dlq/{job_id}/replay:
+    post:
+      tags:
+      - admin
+      summary: Replay dead letter
+      description: Requeue one failed job for another attempt. Optionally scoped to one environment by slug.
+      operationId: adminReplayDeadLetter
+      parameters:
+      - name: job_id
+        in: path
+        description: Job TypeID (job_…).
+        required: true
+        schema:
+          type: string
+      - name: environment
+        in: query
+        description: Environment slug to scope the replay to.
+        required: false
+        schema:
+          type: string
+          nullable: true
+      responses:
+        '200':
+          description: Replayed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminReplayResult'
+        '401':
+          description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
+        '403':
+          description: Authenticated but the role lacks the capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
+        '404':
+          description: No such parked job, or unknown environment scope.
           content:
             application/json:
               schema:

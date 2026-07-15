@@ -1273,6 +1273,100 @@ async fn dlq_replay_404s_for_unknown_job() {
     assert_eq!(res.status(), 404);
 }
 
+async fn park_dead_letter(pool: &sqlx::PgPool, env: uuid::Uuid, id: uuid::Uuid) {
+    sqlx::query(
+        "INSERT INTO dead_letters
+             (environment_id, id, job_type, payload, attempts, max_attempts, last_error, created_at)
+         VALUES ($1, $2, 'counter_rebuild', '{\"subscriber_id\": \"x\"}'::jsonb, 10, 10, 'boom', now())",
+    )
+    .bind(env)
+    .bind(id)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn dead_letters_in(pool: &sqlx::PgPool, env: uuid::Uuid) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM dead_letters WHERE environment_id = $1")
+        .bind(env)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+/// The same job id parked in two environments is legal under the
+/// (environment_id, id) PK. An unscoped replay moves both rows and must report
+/// the true count, not a hard-coded 1.
+#[tokio::test]
+async fn dlq_replay_reports_the_true_cross_environment_count() {
+    let app = support::spawn().await;
+    let env_b = app.create_environment(false).await;
+
+    let job_id = ids::new_uuid();
+    park_dead_letter(&app.pool, app.env.id, job_id).await;
+    park_dead_letter(&app.pool, env_b.id, job_id).await;
+
+    let job_typeid = ids::typeid(ids::JOB, job_id);
+    let res = app
+        .admin_post(&format!("/admin/api/dlq/{job_typeid}/replay"), json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    assert_eq!(res.json::<Value>().await.unwrap()["replayed"], json!(2));
+
+    assert_eq!(dead_letters_in(&app.pool, app.env.id).await, 0);
+    assert_eq!(dead_letters_in(&app.pool, env_b.id).await, 0);
+}
+
+/// A replay scoped by environment slug moves only that environment's copy.
+#[tokio::test]
+async fn dlq_replay_scoped_to_environment_leaves_others_untouched() {
+    let app = support::spawn().await;
+    let env_b = app.create_environment(false).await;
+
+    let job_id = ids::new_uuid();
+    park_dead_letter(&app.pool, app.env.id, job_id).await;
+    park_dead_letter(&app.pool, env_b.id, job_id).await;
+
+    let job_typeid = ids::typeid(ids::JOB, job_id);
+    let res = app
+        .admin_post(
+            &format!(
+                "/admin/api/dlq/{job_typeid}/replay?environment={}",
+                env_b.slug
+            ),
+            json!({}),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    assert_eq!(res.json::<Value>().await.unwrap()["replayed"], json!(1));
+
+    assert_eq!(
+        dead_letters_in(&app.pool, app.env.id).await,
+        1,
+        "env A's same-id copy survives an env-B-scoped replay"
+    );
+    assert_eq!(dead_letters_in(&app.pool, env_b.id).await, 0);
+}
+
+#[tokio::test]
+async fn dlq_replay_404s_for_unknown_environment() {
+    let app = support::spawn().await;
+    let job_typeid = ids::typeid(ids::JOB, ids::new_uuid());
+    let res = app
+        .admin_post(
+            &format!("/admin/api/dlq/{job_typeid}/replay?environment=no-such-env"),
+            json!({}),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 404);
+}
+
 // =============================================================================
 // Status / notification browser
 // =============================================================================

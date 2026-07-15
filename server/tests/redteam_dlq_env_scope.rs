@@ -73,7 +73,10 @@ async fn replay_by_id_replays_only_the_scoped_environment() {
     let replayed = chimely::dlq::replay(&app.pool, shared, Some(app.env.id))
         .await
         .expect("replay env A's copy");
-    assert!(replayed, "env A's copy was replayed");
+    assert_eq!(
+        replayed, 1,
+        "only env A's copy is replayed, not env B's same-id row"
+    );
 
     assert_eq!(
         dead_letters_in(&app.pool, app.env.id).await,
