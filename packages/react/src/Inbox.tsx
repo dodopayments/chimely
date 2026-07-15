@@ -213,6 +213,9 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
         localization={props.localization}
         titleId={titleId}
         preferencesPanel={props.preferencesPanel}
+        preferencesFilter={props.preferencesFilter}
+        preferencesSort={props.preferencesSort}
+        preferenceGroups={props.preferenceGroups}
         onItemClick={props.onItemClick}
         routerPush={props.routerPush}
         renderItem={props.renderItem}
