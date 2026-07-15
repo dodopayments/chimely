@@ -39,7 +39,7 @@ async fn get_counts_status(app: &support::TestApp, h: HeaderMap) -> u16 {
 #[tokio::test]
 async fn hash_is_mandatory_when_the_environment_requires_it() {
     let app = support::spawn().await; // require_subscriber_hash = true
-    let good = compute_subscriber_hash(&app.env.hmac_secret, SUB);
+    let good = compute_subscriber_hash(&app.env.hmac_secret, app.env.id, SUB);
 
     assert_eq!(
         get_counts_status(&app, headers(&app.env.slug, SUB, None)).await,
@@ -52,7 +52,7 @@ async fn hash_is_mandatory_when_the_environment_requires_it() {
         "wrong hash"
     );
     // A valid hash for a DIFFERENT subscriber id must not transfer.
-    let other = compute_subscriber_hash(&app.env.hmac_secret, "usr_else");
+    let other = compute_subscriber_hash(&app.env.hmac_secret, app.env.id, "usr_else");
     assert_eq!(
         get_counts_status(&app, headers(&app.env.slug, SUB, Some(&other))).await,
         401
@@ -77,6 +77,27 @@ async fn hash_is_mandatory_when_the_environment_requires_it() {
     assert_eq!(get_counts_status(&app, h).await, 401);
 }
 
+/// Dual-accept rollout for the env-bound hash formula (issue #55). A hash
+/// minted with the legacy input (subscriber_id alone) still authenticates.
+/// Delete this test when the legacy fallback is dropped at the announced
+/// minor version bump.
+#[tokio::test]
+async fn legacy_subscriber_id_only_hash_still_authenticates() {
+    let app = support::spawn().await;
+    let legacy = {
+        use hmac::Mac;
+        let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(app.env.hmac_secret.as_bytes())
+            .expect("hmac accepts any key length");
+        mac.update(SUB.as_bytes());
+        hex::encode(mac.finalize().into_bytes())
+    };
+    assert_eq!(
+        get_counts_status(&app, headers(&app.env.slug, SUB, Some(&legacy))).await,
+        200,
+        "legacy-formula hashes must keep working until the announced removal"
+    );
+}
+
 #[tokio::test]
 async fn dev_mode_environments_accept_missing_but_not_invalid_hashes() {
     let app = support::spawn_dev_mode().await; // require_subscriber_hash = false
@@ -91,7 +112,7 @@ async fn dev_mode_environments_accept_missing_but_not_invalid_hashes() {
         get_counts_status(&app, headers(&app.env.slug, SUB, Some("deadbeef"))).await,
         401
     );
-    let good = compute_subscriber_hash(&app.env.hmac_secret, SUB);
+    let good = compute_subscriber_hash(&app.env.hmac_secret, app.env.id, SUB);
     assert_eq!(
         get_counts_status(&app, headers(&app.env.slug, SUB, Some(&good))).await,
         200
@@ -102,7 +123,7 @@ async fn dev_mode_environments_accept_missing_but_not_invalid_hashes() {
 async fn rotation_verifies_current_then_previous_secret() {
     let app = support::spawn().await;
     let old_secret = app.env.hmac_secret.clone();
-    let old_hash = compute_subscriber_hash(&old_secret, SUB);
+    let old_hash = compute_subscriber_hash(&old_secret, app.env.id, SUB);
 
     // Rotate: new secret current, old secret in the previous slot.
     let new_secret = "shmac_rotated_secret";
@@ -124,7 +145,7 @@ async fn rotation_verifies_current_then_previous_secret() {
         get_counts_status(&app, headers(&app.env.slug, SUB, Some(&old_hash))).await,
         200
     );
-    let new_hash = compute_subscriber_hash(new_secret, SUB);
+    let new_hash = compute_subscriber_hash(new_secret, app.env.id, SUB);
     assert_eq!(
         get_counts_status(&app, headers(&app.env.slug, SUB, Some(&new_hash))).await,
         200
@@ -149,7 +170,7 @@ async fn rotation_verifies_current_then_previous_secret() {
 #[tokio::test]
 async fn query_parameter_fallbacks_match_the_headers() {
     let app = support::spawn().await;
-    let hash = compute_subscriber_hash(&app.env.hmac_secret, SUB);
+    let hash = compute_subscriber_hash(&app.env.hmac_secret, app.env.id, SUB);
 
     // Pure query auth (the EventSource case) on a regular endpoint.
     let res = app

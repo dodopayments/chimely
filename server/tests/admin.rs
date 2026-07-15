@@ -39,7 +39,7 @@ async fn counts_status_with_secret(
     subscriber: &str,
     secret: &str,
 ) -> reqwest::StatusCode {
-    let hash = compute_subscriber_hash(secret, subscriber);
+    let hash = compute_subscriber_hash(secret, app.env.id, subscriber);
     app.client
         .get(format!("{}/v1/inbox/counts", app.base))
         .header("X-Chimely-Environment", app.env.slug.clone())

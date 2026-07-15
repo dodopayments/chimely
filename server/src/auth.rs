@@ -5,9 +5,11 @@
 //!
 //! Subscriber: environment slug, customer subscriber id, and (when the
 //! environment requires it) `hex(HMAC-SHA256(subscriber_hmac_secret,
-//! subscriber_id))`, verified against the current then the previous secret
-//! slot so secret rotation never invalidates live sessions. Headers with
-//! query-parameter fallbacks (EventSource cannot set headers).
+//! env_typeid || 0x00 || subscriber_id))`, verified against the current then
+//! the previous secret slot so secret rotation never invalidates live
+//! sessions. The legacy input (`subscriber_id` alone) is still accepted
+//! until the announced minor version bump. Headers with query-parameter
+//! fallbacks (EventSource cannot set headers).
 //!
 //! Admin: built-in users (Argon2id passwords) with a server-side session in
 //! an HttpOnly, SameSite=Strict cookie scoped to /admin. Roles are
@@ -378,11 +380,14 @@ impl FromRequestParts<AppState> for SubscriberAuth {
 
         match &hash {
             Some(hash) => {
-                let valid = verify_subscriber_hash(&env.subscriber_hmac_secret, &external_id, hash)
-                    || env
-                        .subscriber_hmac_secret_previous
-                        .as_deref()
-                        .is_some_and(|prev| verify_subscriber_hash(prev, &external_id, hash));
+                let valid =
+                    verify_subscriber_hash(&env.subscriber_hmac_secret, env.id, &external_id, hash)
+                        || env
+                            .subscriber_hmac_secret_previous
+                            .as_deref()
+                            .is_some_and(|prev| {
+                                verify_subscriber_hash(prev, env.id, &external_id, hash)
+                            });
                 if !valid {
                     return Err(ApiError::unauthorized("invalid subscriber hash"));
                 }
@@ -405,22 +410,52 @@ impl FromRequestParts<AppState> for SubscriberAuth {
     }
 }
 
-/// `hex(HMAC-SHA256(secret, subscriber_id))`, constant-time comparison.
-pub fn verify_subscriber_hash(secret: &str, subscriber_id: &str, hash_hex: &str) -> bool {
+/// The MAC input binds the hash to its environment. The environment id is
+/// the public TypeID form (`env_...`), the same string the admin dashboard
+/// displays next to the secret.
+fn subscriber_mac_input(environment_id: Uuid, subscriber_id: &str) -> Vec<u8> {
+    let mut input = ids::typeid(ids::ENVIRONMENT, environment_id).into_bytes();
+    input.push(0);
+    input.extend_from_slice(subscriber_id.as_bytes());
+    input
+}
+
+fn hmac_matches(secret: &str, message: &[u8], provided: &[u8]) -> bool {
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("hmac accepts any key length");
+    mac.update(message);
+    mac.verify_slice(provided).is_ok()
+}
+
+/// `hex(HMAC-SHA256(secret, env_typeid || 0x00 || subscriber_id))`,
+/// constant-time comparison.
+pub fn verify_subscriber_hash(
+    secret: &str,
+    environment_id: Uuid,
+    subscriber_id: &str,
+    hash_hex: &str,
+) -> bool {
     let Ok(provided) = hex::decode(hash_hex) else {
         return false;
     };
-    let mut mac =
-        Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("hmac accepts any key length");
-    mac.update(subscriber_id.as_bytes());
-    mac.verify_slice(&provided).is_ok()
+    if hmac_matches(
+        secret,
+        &subscriber_mac_input(environment_id, subscriber_id),
+        &provided,
+    ) {
+        return true;
+    }
+    // Legacy formula fallback (issue #55 dual-accept rollout). Hashes minted
+    // over `subscriber_id` alone stay valid until the announced minor version
+    // bump. Remove this check at that bump.
+    hmac_matches(secret, subscriber_id.as_bytes(), &provided)
 }
 
 /// Test/SDK helper: compute the subscriber hash the customer backend would.
-pub fn compute_subscriber_hash(secret: &str, subscriber_id: &str) -> String {
+pub fn compute_subscriber_hash(secret: &str, environment_id: Uuid, subscriber_id: &str) -> String {
     let mut mac =
         Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("hmac accepts any key length");
-    mac.update(subscriber_id.as_bytes());
+    mac.update(&subscriber_mac_input(environment_id, subscriber_id));
     hex::encode(mac.finalize().into_bytes())
 }
 

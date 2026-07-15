@@ -17,8 +17,12 @@ const INFO_DESCRIPTION: &str = r#"Two planes, one binary:
   by the key.
 * **Subscriber plane** — called by `@chimely/client` (the `<Inbox />`
   widget) on behalf of one end user. Authenticated with an HMAC subscriber
-  hash: `hex(HMAC-SHA256(environment.subscriber_hmac_secret, subscriber_id))`
-  computed by the customer's backend. Mandatory in environments with
+  hash: `hex(HMAC-SHA256(environment.subscriber_hmac_secret,
+  environment_id + "\0" + subscriber_id))` computed by the customer's
+  backend, where `environment_id` is the environment's TypeID (`env_...`)
+  as shown in the admin dashboard. Hashes computed with the legacy input
+  (`subscriber_id` alone) are still accepted; that fallback is removed at
+  an announced minor version bump. Mandatory in environments with
   `require_subscriber_hash = true` (the production default); optional in
   dev environments so the quickstart works without a backend.
 

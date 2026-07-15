@@ -386,7 +386,12 @@ impl TestApp {
         );
         headers.insert(
             "X-Chimely-Subscriber-Hash",
-            HeaderValue::from_str(&compute_subscriber_hash(&env.hmac_secret, subscriber)).unwrap(),
+            HeaderValue::from_str(&compute_subscriber_hash(
+                &env.hmac_secret,
+                env.id,
+                subscriber,
+            ))
+            .unwrap(),
         );
         headers
     }
@@ -762,7 +767,7 @@ impl SseStream {
         subscriber: &str,
         last_event_id: Option<&str>,
     ) -> Self {
-        let hash = compute_subscriber_hash(&app.env.hmac_secret, subscriber);
+        let hash = compute_subscriber_hash(&app.env.hmac_secret, app.env.id, subscriber);
         let url = format!(
             "{base}/v1/inbox/stream?environment={}&subscriber_id={subscriber}&subscriber_hash={hash}",
             app.env.slug,
@@ -780,7 +785,7 @@ impl SseStream {
     }
 
     pub async fn try_connect(app: &TestApp, subscriber: &str) -> reqwest::Response {
-        let hash = compute_subscriber_hash(&app.env.hmac_secret, subscriber);
+        let hash = compute_subscriber_hash(&app.env.hmac_secret, app.env.id, subscriber);
         let url = format!(
             "{}/v1/inbox/stream?environment={}&subscriber_id={subscriber}&subscriber_hash={hash}",
             app.base, app.env.slug,

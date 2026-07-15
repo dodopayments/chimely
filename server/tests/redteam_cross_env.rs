@@ -132,6 +132,96 @@ async fn counter_updated_at(pool: &sqlx::PgPool, env: Uuid, subscriber: &str) ->
     .expect("counter updated_at")
 }
 
+/// The documented subscriber hash, recomputed with the hmac crate directly
+/// so the expectation is independent of the server helper. The environment
+/// id is the public TypeID form, the string the admin dashboard displays.
+fn env_bound_hash(secret: &str, env_typeid: &str, subscriber: &str) -> String {
+    use hmac::Mac;
+    let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(secret.as_bytes())
+        .expect("hmac accepts any key length");
+    mac.update(env_typeid.as_bytes());
+    mac.update(&[0]);
+    mac.update(subscriber.as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
+fn subscriber_headers_with_hash(slug: &str, subscriber: &str, hash: &str) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "X-Chimely-Environment",
+        HeaderValue::from_str(slug).unwrap(),
+    );
+    headers.insert(
+        "X-Chimely-Subscriber",
+        HeaderValue::from_str(subscriber).unwrap(),
+    );
+    headers.insert(
+        "X-Chimely-Subscriber-Hash",
+        HeaderValue::from_str(hash).unwrap(),
+    );
+    headers
+}
+
+/// Issue #55. Two environments end up sharing one secret (manual DB edit or
+/// restored dump). The MAC input is env_typeid || 0x00 || subscriber_id, so
+/// a hash minted for env A authenticates in env A only. Presented under env
+/// B's slug it is rejected even though env B verifies with the same secret,
+/// and the probe leaves no subscriber row behind in env B.
+#[tokio::test]
+async fn shared_secret_env_a_hash_is_rejected_by_env_b() {
+    let app = support::spawn().await;
+    let env_b = app.create_environment(true).await;
+    sqlx::query("UPDATE environments SET subscriber_hmac_secret = $1 WHERE id = $2")
+        .bind(&app.env.hmac_secret)
+        .bind(env_b.id)
+        .execute(&app.pool)
+        .await
+        .expect("give env B env A's secret");
+
+    let sub = "usr_dump_restore";
+    let hash_a = env_bound_hash(
+        &app.env.hmac_secret,
+        &ids::typeid(ids::ENVIRONMENT, app.env.id),
+        sub,
+    );
+
+    // Control: the env-bound hash is a live credential in env A.
+    let res = app
+        .client
+        .get(format!("{}/v1/inbox/items", app.base))
+        .headers(subscriber_headers_with_hash(&app.env.slug, sub, &hash_a))
+        .send()
+        .await
+        .expect("env A control");
+    assert_eq!(res.status(), 200, "the env-bound hash is valid in env A");
+
+    let res = app
+        .client
+        .get(format!("{}/v1/inbox/items", app.base))
+        .headers(subscriber_headers_with_hash(&env_b.slug, sub, &hash_a))
+        .send()
+        .await
+        .expect("cross-env replay with shared secret");
+    assert_eq!(
+        res.status(),
+        401,
+        "env B must reject env A's hash despite the shared secret"
+    );
+    let body: serde_json::Value = res.json().await.expect("error body");
+    assert_eq!(body["error"]["code"], "unauthorized");
+
+    let env_b_subscribers: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM subscribers WHERE environment_id = $1")
+            .bind(env_b.id)
+            .fetch_one(&app.pool)
+            .await
+            .expect("subscriber count");
+    assert_eq!(
+        env_b_subscribers, 0,
+        "a rejected replay must not create a subscriber in env B"
+    );
+}
+
 /// A valid (subscriber_id, subscriber_hash) pair minted with env A's secret
 /// is rejected when presented under env B's slug. Auth resolves the secret
 /// from the presented slug, so env B can never verify env A's hash. The
@@ -142,7 +232,7 @@ async fn env_a_subscriber_hash_replayed_against_env_b_is_401() {
     let app = support::spawn().await;
     let env_b = app.create_environment(true).await;
     let sub = "usr_replay";
-    let hash_a = compute_subscriber_hash(&app.env.hmac_secret, sub);
+    let hash_a = compute_subscriber_hash(&app.env.hmac_secret, app.env.id, sub);
 
     // Control: the pair is a live credential in env A.
     let res = app
