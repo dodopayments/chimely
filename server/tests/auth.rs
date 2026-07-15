@@ -77,6 +77,15 @@ async fn hash_is_mandatory_when_the_environment_requires_it() {
     assert_eq!(get_counts_status(&app, h).await, 401);
 }
 
+/// The pre-#55 formula: HMAC over subscriber_id alone, no environment input.
+fn legacy_hash(secret: &str, sub: &str) -> String {
+    use hmac::Mac;
+    let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(secret.as_bytes())
+        .expect("hmac accepts any key length");
+    mac.update(sub.as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
 /// Dual-accept rollout for the env-bound hash formula (issue #55). A hash
 /// minted with the legacy input (subscriber_id alone) still authenticates.
 /// This test is deleted when the legacy fallback is dropped at the announced
@@ -84,17 +93,49 @@ async fn hash_is_mandatory_when_the_environment_requires_it() {
 #[tokio::test]
 async fn legacy_subscriber_id_only_hash_still_authenticates() {
     let app = support::spawn().await;
-    let legacy = {
-        use hmac::Mac;
-        let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(app.env.hmac_secret.as_bytes())
-            .expect("hmac accepts any key length");
-        mac.update(SUB.as_bytes());
-        hex::encode(mac.finalize().into_bytes())
-    };
+    let legacy = legacy_hash(&app.env.hmac_secret, SUB);
     assert_eq!(
         get_counts_status(&app, headers(&app.env.slug, SUB, Some(&legacy))).await,
         200,
         "legacy-formula hashes must keep working until the announced removal"
+    );
+}
+
+/// A customer still on the legacy formula rotates their secret. Their
+/// pre-rotation hash must verify through the previous-slot fallback, the same
+/// overlap guarantee new-formula hashes get. Deleted with the legacy fallback.
+#[tokio::test]
+async fn legacy_hash_survives_rotation_via_previous_slot() {
+    let app = support::spawn().await;
+    let legacy = legacy_hash(&app.env.hmac_secret, SUB);
+
+    sqlx::query(
+        "UPDATE environments SET
+             subscriber_hmac_secret = 'shmac_rotated_secret',
+             subscriber_hmac_secret_previous = subscriber_hmac_secret,
+             subscriber_hmac_rotated_at = now()
+         WHERE id = $1",
+    )
+    .bind(app.env.id)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        get_counts_status(&app, headers(&app.env.slug, SUB, Some(&legacy))).await,
+        200,
+        "legacy hashes ride the rotation overlap via the previous slot"
+    );
+
+    // Rotation ends: the legacy hash dies with the previous slot.
+    sqlx::query("UPDATE environments SET subscriber_hmac_secret_previous = NULL WHERE id = $1")
+        .bind(app.env.id)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        get_counts_status(&app, headers(&app.env.slug, SUB, Some(&legacy))).await,
+        401
     );
 }
 
