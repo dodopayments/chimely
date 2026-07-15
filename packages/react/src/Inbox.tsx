@@ -170,8 +170,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
   // The dialog is modal, so Tab and Shift+Tab wrap at its edges. A
   // portaled popover is the last child of document.body, so without the
   // wrap Tab past the last focusable lands back in the host page with
-  // the dialog still open. Wrapping only fires at the edges, interior
-  // moves stay native.
+  // the dialog still open.
   const trapFocus = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
     if (event.key !== 'Tab') {
       return;
