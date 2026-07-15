@@ -268,4 +268,22 @@ mod tests {
         assert!(out.contains("listen_addr"));
         assert!(out.contains("ops@example.com"));
     }
+
+    /// Identifier scrubbing is opt-in. An absent variable must parse to
+    /// false. nextest runs every test in its own process, so mutating this
+    /// process's environment cannot race another test.
+    #[test]
+    fn log_scrub_identifiers_env_var_defaults_off() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", "postgres://localhost/chimely");
+            std::env::remove_var("CHIMELY_LOG_SCRUB_IDENTIFIERS");
+        }
+        assert!(!Config::from_env().unwrap().log_scrub_identifiers);
+
+        unsafe { std::env::set_var("CHIMELY_LOG_SCRUB_IDENTIFIERS", "true") }
+        assert!(Config::from_env().unwrap().log_scrub_identifiers);
+
+        unsafe { std::env::set_var("CHIMELY_LOG_SCRUB_IDENTIFIERS", "false") }
+        assert!(!Config::from_env().unwrap().log_scrub_identifiers);
+    }
 }
