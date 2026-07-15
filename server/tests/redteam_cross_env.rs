@@ -164,9 +164,12 @@ fn subscriber_headers_with_hash(slug: &str, subscriber: &str, hash: &str) -> Hea
 
 /// Issue #55. Two environments end up sharing one secret (manual DB edit or
 /// restored dump). The MAC input is env_typeid || 0x00 || subscriber_id, so
-/// a hash minted for env A authenticates in env A only. Presented under env
-/// B's slug it is rejected even though env B verifies with the same secret,
-/// and the probe leaves no subscriber row behind in env B.
+/// an env-bound hash minted for env A authenticates in env A only. Presented
+/// under env B's slug it is rejected even though env B verifies with the
+/// same secret, and the probe leaves no subscriber row behind in env B.
+/// Legacy-formula hashes carry no such binding during the dual-accept
+/// window. shared_secret_legacy_hash_cross_authenticates_until_removal pins
+/// that window.
 #[tokio::test]
 async fn shared_secret_env_a_hash_is_rejected_by_env_b() {
     let app = support::spawn().await;
@@ -219,6 +222,45 @@ async fn shared_secret_env_a_hash_is_rejected_by_env_b() {
     assert_eq!(
         env_b_subscribers, 0,
         "a rejected replay must not create a subscriber in env B"
+    );
+}
+
+/// Issue #55 dual-accept window. A legacy-formula hash MACs subscriber_id
+/// alone and carries no environment binding, so with a shared secret it also
+/// authenticates in env B. This is the accepted tradeoff of the rollout,
+/// documented in the auth guide's legacy-formula callout. This test flips to
+/// 401 when the fallback is dropped at the announced minor version bump.
+#[tokio::test]
+async fn shared_secret_legacy_hash_cross_authenticates_until_removal() {
+    let app = support::spawn().await;
+    let env_b = app.create_environment(true).await;
+    sqlx::query("UPDATE environments SET subscriber_hmac_secret = $1 WHERE id = $2")
+        .bind(&app.env.hmac_secret)
+        .bind(env_b.id)
+        .execute(&app.pool)
+        .await
+        .expect("give env B env A's secret");
+
+    let sub = "usr_dump_restore_legacy";
+    let legacy = {
+        use hmac::Mac;
+        let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(app.env.hmac_secret.as_bytes())
+            .expect("hmac accepts any key length");
+        mac.update(sub.as_bytes());
+        hex::encode(mac.finalize().into_bytes())
+    };
+
+    let res = app
+        .client
+        .get(format!("{}/v1/inbox/items", app.base))
+        .headers(subscriber_headers_with_hash(&env_b.slug, sub, &legacy))
+        .send()
+        .await
+        .expect("legacy cross-env probe");
+    assert_eq!(
+        res.status(),
+        200,
+        "legacy hashes cross-authenticate while the dual-accept fallback is live"
     );
 }
 
