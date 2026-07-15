@@ -80,9 +80,10 @@ pub struct Config {
     pub shutdown_drain_deadline: Duration,
     /// Opt-in identifier scrubbing for the access log and the http.request
     /// span. When set, subscriber and environment identifiers (query params
-    /// and the /v1/subscribers/{id} path segment) are replaced with
-    /// truncated SHA-256 hashes, for operators whose logs leave their
-    /// control. Credentials are scrubbed regardless of this flag.
+    /// and the subscriber id path segment, on the public and admin planes
+    /// both) are replaced with truncated SHA-256 hashes, for operators whose
+    /// logs leave their control. Credentials are scrubbed regardless of this
+    /// flag.
     pub log_scrub_identifiers: bool,
 }
 

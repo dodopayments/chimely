@@ -309,22 +309,28 @@ pub fn scrub_query(query: &str, scrub_identifiers: bool) -> String {
         .join("&")
 }
 
-/// Replaces the id segment of `/v1/subscribers/{id}` paths with a truncated
-/// hash when identifier scrubbing is enabled. Other paths pass through
-/// unchanged.
+/// Replaces the path segment that follows a `subscribers` segment with a
+/// truncated hash when identifier scrubbing is enabled. The positional rule
+/// covers `/v1/subscribers/{id}` and the admin plane's
+/// `/admin/api/environments/{env_id}/subscribers/{subscriber_id}` alike.
+/// Other paths pass through unchanged.
 pub fn scrub_path(path: &str, scrub_identifiers: bool) -> String {
     if !scrub_identifiers {
         return path.to_owned();
     }
-    match path.strip_prefix("/v1/subscribers/") {
-        None | Some("") => path.to_owned(),
-        Some(rest) => match rest.split_once('/') {
-            Some((id, suffix)) => {
-                format!("/v1/subscribers/{}/{suffix}", hash_identifier(id))
-            }
-            None => format!("/v1/subscribers/{}", hash_identifier(rest)),
-        },
-    }
+    let mut previous = "";
+    path.split('/')
+        .map(|segment| {
+            let scrubbed = if previous == "subscribers" && !segment.is_empty() {
+                std::borrow::Cow::Owned(hash_identifier(segment))
+            } else {
+                std::borrow::Cow::Borrowed(segment)
+            };
+            previous = segment;
+            scrubbed
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// Truncated SHA-256 of an identifier for scrubbed log output. Stable per
@@ -396,6 +402,18 @@ mod tests {
             format!("subscriber_id={HASH_USR_123}")
         );
         assert_eq!(scrub_query("limit=10&a=b", true), "limit=10&a=b");
+    }
+
+    #[test]
+    fn hashes_admin_subscriber_path_segment_when_scrub_enabled() {
+        assert_eq!(
+            scrub_path("/admin/api/environments/env_1/subscribers/usr_123", true),
+            format!("/admin/api/environments/env_1/subscribers/{HASH_USR_123}")
+        );
+        assert_eq!(
+            scrub_path("/admin/api/environments/env_1/subscribers/usr_123", false),
+            "/admin/api/environments/env_1/subscribers/usr_123"
+        );
     }
 
     #[test]
