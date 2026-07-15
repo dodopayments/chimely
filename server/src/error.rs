@@ -101,6 +101,12 @@ impl IntoResponse for ApiError {
 
 /// Internal failures (database, serialization) become opaque 500s. The detail
 /// goes to tracing, never to the client.
+///
+/// The `?err` line below logs sqlx errors verbatim, and a Postgres unique
+/// violation carries `DETAIL: Key (...)=(...)` with the conflicting values.
+/// Any INSERT that can conflict on a secret-keyed or PII-keyed table must
+/// intercept the conflict before the error reaches this conversion, the way
+/// idempotency conflicts and admin email conflicts already do.
 impl<E> From<E> for ApiError
 where
     E: Into<anyhow::Error>,
