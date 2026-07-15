@@ -16,7 +16,7 @@ them:
 
 | Novu feature | Why Chimely diverges |
 |---|---|
-| `context` / `contextHash` multi-tenancy scoping | Single-org is a design invariant. Environments are the isolation unit; multi-tenancy is another environment or another instance |
+| `context` / `contextHash` multi-tenancy scoping | Single-org is a design invariant. Environments isolate data, not tenants; admin users and roles are instance-wide, so multi-tenancy is "run another instance" |
 | WebSocket transport (`socketUrl`, `socketOptions`) | SSE-as-hint plus conditional REST refetch is the architecture; there is no socket to configure |
 | HTML in notifications (opt-in unsanitized rendering) | The default renderer is plain text by construction; a custom `renderItem` can already render anything it trusts |
 | Schedule / quiet hours | Novu's schedule gates email, SMS, and push, and always delivers in-app; with in-app as the only channel there is nothing to gate. Revisit when push lands |
@@ -24,14 +24,18 @@ them:
 
 ## What this means in practice
 
-- **Tenant scoping.** Where Novu scopes an inbox with `context` +
-  `contextHash`, Chimely scopes with the environment: point each tenant
-  surface at its own environment (or instance) and sign the subscriber hash
-  with that environment's secret. See [Auth & HMAC](/docs/auth).
+- **Tenant scoping.** There is no `context` / `contextHash` equivalent
+  inside one instance. Admin users and roles span every environment, so an
+  environment is not a tenant boundary: serving multiple tenants means
+  running one instance per tenant. Environments within an instance separate
+  stages (development, staging, production), each with its own HMAC secret.
+  See [Auth & HMAC](/docs/auth).
 - **Realtime.** There is no `socketUrl` equivalent. The client opens one SSE
   stream per client instance and treats events as hints to refetch over REST,
-  so a dropped or missed event is harmless. Nothing to configure beyond
-  `backoff`.
-- **Rich content.** Payloads are stored and rendered as plain text by
-  default. To render markup you trust, override `renderItem` (or
-  `renderSubject` / `renderBody`) and sanitize in your own code.
+  so a dropped or missed event is harmless. `<Inbox />` exposes `backoff`;
+  outside the browser, the headless client also takes a `createEventSource`
+  factory (polyfills, React Native, testing).
+- **Rich content.** Payload JSON is stored and passed through verbatim; the
+  default renderer treats the `title` and `body` strings as plain text. To
+  render markup you trust, override `renderItem` (or `renderSubject` /
+  `renderBody`) and sanitize in your own code.
