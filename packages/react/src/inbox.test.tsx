@@ -310,6 +310,21 @@ describe('portal', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(document.activeElement).toBe(bell());
   });
+
+  test('opening moves focus into the dialog, escape returns it', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    await renderInbox(stub, { portal: true });
+
+    bell().focus();
+    fireEvent.click(bell());
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(bell());
+  });
 });
 
 describe('controlled open', () => {
