@@ -325,6 +325,34 @@ describe('portal', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(document.activeElement).toBe(bell());
   });
+
+  test('tab wraps at the dialog edges instead of escaping to the page', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    await renderInbox(stub, { portal: true });
+    fireEvent.click(bell());
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+
+    // First and last tabbables in DOM order: the view filter and the
+    // item's archive action.
+    const first = screen.getByRole('combobox', { name: 'View' });
+    const last = screen.getByRole('button', { name: 'Archive' });
+
+    last.focus();
+    fireEvent.keyDown(last, { key: 'Tab' });
+    expect(document.activeElement).toBe(first);
+
+    fireEvent.keyDown(first, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
+
+    // Shift+Tab with the dialog container itself focused (the open state)
+    // must not walk backward into the host page.
+    dialog.focus();
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
+  });
 });
 
 describe('controlled open', () => {

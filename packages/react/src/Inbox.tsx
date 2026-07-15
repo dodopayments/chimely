@@ -1,7 +1,7 @@
 import type { ChimelyClientConfig, WellKnownPayload } from '@chimely/client';
 import { ChimelyClient } from '@chimely/client';
 import { autoUpdate, computePosition, flip, offset, shift } from '@floating-ui/dom';
-import type { ReactNode } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { InboxSlot } from './appearance';
@@ -14,6 +14,9 @@ import { ChimelyContext, useChimelyClient } from './context';
 import { ensureStyles } from './styles';
 
 export type { InboxAppearance, InboxSlot } from './appearance';
+
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * Drop-in bell + badge + popover inbox.
@@ -152,6 +155,36 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
     }
   }, [isOpen]);
 
+  // The dialog is modal, so Tab and Shift+Tab wrap at its edges. A
+  // portaled popover is the last child of document.body, so without the
+  // wrap Tab past the last focusable lands back in the host page with
+  // the dialog still open. Wrapping only fires at the edges, interior
+  // moves stay native.
+  const trapFocus = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== 'Tab') {
+      return;
+    }
+    const popover = popoverRef.current;
+    if (!popover) {
+      return;
+    }
+    const focusables = popover.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (!first || !last) {
+      event.preventDefault();
+      return;
+    }
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || active === popover)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   useEffect(() => {
     if (!isOpen) {
       return undefined;
@@ -214,8 +247,10 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
       className={portal ? `${cls('popover')} chimely-popover-portal` : cls('popover')}
       style={slotStyle(props.appearance, 'popover', rootStyle)}
       role="dialog"
+      aria-modal="true"
       aria-labelledby={titleId}
       tabIndex={-1}
+      onKeyDown={trapFocus}
     >
       <InboxContent<TPayload>
         tabs={props.tabs}
