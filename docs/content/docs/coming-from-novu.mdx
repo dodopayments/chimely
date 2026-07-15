@@ -49,8 +49,13 @@ them:
   for a keyless mode to skip: keys are minted in your own admin dashboard.
   The try-it-before-wiring-a-backend role is filled by the
   [quickstart](/docs/quickstart)'s `CHIMELY_DEV_*` variables, which seed a
-  dev environment with subscriber hashing off. Nothing is plan-gated: the
-  only limits are the [rate limits](/docs/operations#rate-limits) you
-  configure yourself, and a rate of `0` disables one. Workflow-editor
-  concepts have no equivalent at any tier; the payload your backend POSTs
-  is what the inbox shows.
+  dev environment with subscriber hashing off. Nothing is plan-gated: there
+  is no plan, quota, or tier mechanism. The limits that exist are
+  operational, not commercial: the
+  [rate limits](/docs/operations#rate-limits) you configure yourself (a rate
+  of `0` disables one), the per-subscriber
+  [SSE connection cap](/docs/self-hosting#real-time-sse), and fixed
+  per-request caps (payloads up to 16 KiB serialized, at most 100 recipients
+  per call; use a broadcast for more). Workflow-editor concepts have no
+  equivalent at any tier; the payload your backend POSTs is what the inbox
+  shows.
