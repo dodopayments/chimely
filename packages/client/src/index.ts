@@ -22,6 +22,7 @@ export type {
   InboxItemSource,
   InboxSnapshot,
   NotificationId,
+  PayloadAction,
   Preference,
   WellKnownPayload,
 } from './types';
