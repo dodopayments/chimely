@@ -49,7 +49,7 @@ export const INBOX_CSS = `
   left: 0;
   display: flex;
   flex-direction: column;
-  width: 360px;
+  width: min(360px, calc(100vw - 16px));
   max-height: 480px;
   overflow: hidden;
   background: var(--chimely-colorBackground, #ffffff);
