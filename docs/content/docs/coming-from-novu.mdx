@@ -1,0 +1,61 @@
+---
+title: Coming from Novu
+description: What Chimely's Inbox component covers, and where it deliberately diverges from Novu.
+---
+
+Chimely's `<Inbox />` covers the component surface a Novu inbox integration
+relies on: tabs with per-tab counts, composable sub-components (`Bell`,
+`InboxContent`, `Preferences`), granular render props, portal positioning,
+controlled open, `routerPush`, appearance theming with a dark preset,
+localization, mark-as-unread, and archive. The [SDK
+reference](/docs/sdk-reference) documents the full prop surface.
+
+Some Novu features are missing **on purpose**. They are design decisions, not
+roadmap gaps, so plan your migration around them rather than waiting for
+them:
+
+| Novu feature | Why Chimely diverges |
+|---|---|
+| `context` / `contextHash` multi-tenancy scoping | Single-org is a design invariant. Environments isolate data, not tenants; admin users and roles are instance-wide, so multi-tenancy is "run another instance" |
+| WebSocket transport (`socketUrl`, `socketOptions`) | SSE-as-hint plus conditional REST refetch is the architecture; there is no socket to configure |
+| HTML in notifications (opt-in unsanitized rendering) | The default renderer is plain text by construction; a custom `renderItem` can already render anything it trusts |
+| Schedule / quiet hours | Novu's schedule gates email, SMS, and push, and always delivers in-app; with in-app as the only channel there is nothing to gate. Revisit when push lands |
+| Keyless mode, plan-gated limits, workflow-editor concepts | Cloud-product features, not component features |
+
+## What this means in practice
+
+- **Tenant scoping.** There is no `context` / `contextHash` equivalent
+  inside one instance. Admin users and roles span every environment, so an
+  environment is not a tenant boundary: serving multiple tenants means
+  running one instance per tenant. Environments within an instance separate
+  stages (development, staging, production), each with its own HMAC secret.
+  See [Auth & HMAC](/docs/auth).
+- **Realtime.** There is no `socketUrl` equivalent. The client opens one SSE
+  stream per client instance and treats events as hints to refetch over REST,
+  so a dropped or missed event is harmless. `<Inbox />` exposes `backoff`;
+  outside the browser, the headless client also takes a `createEventSource`
+  factory (polyfills, React Native, testing).
+- **Rich content.** Payload JSON is stored and passed through verbatim; the
+  default renderer treats the `title` and `body` strings as plain text. To
+  render markup you trust, override `renderItem` (or `renderSubject` /
+  `renderBody`) and sanitize in your own code.
+- **Quiet hours.** There is no schedule to recreate. Novu's schedule gates
+  email, SMS, and push and always delivers in-app; in-app is Chimely's only
+  channel, so that always-deliver behavior is already the whole system. The
+  per-subscriber mute that does exist is per-category
+  [preferences](/docs/sdk-reference); preferences already carry a `channel`
+  field, so a future push channel gains gating without a contract break.
+- **Keyless mode.** There is no cloud signup to defer, so there is nothing
+  for a keyless mode to skip: keys are minted in your own admin dashboard.
+  The try-it-before-wiring-a-backend role is filled by the
+  [quickstart](/docs/quickstart)'s `CHIMELY_DEV_*` variables, which seed a
+  dev environment with subscriber hashing off. Nothing is plan-gated: there
+  is no plan, quota, or tier mechanism. The limits that exist are
+  operational, not commercial: the
+  [rate limits](/docs/operations#rate-limits) you configure yourself (a rate
+  of `0` disables one), the per-subscriber
+  [SSE connection cap](/docs/self-hosting#real-time-sse), and fixed
+  per-request caps (payloads up to 16 KiB serialized, at most 100 recipients
+  per call; use a broadcast for more). Workflow-editor concepts have no
+  equivalent at any tier; the payload your backend POSTs is what the inbox
+  shows.

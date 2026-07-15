@@ -67,6 +67,36 @@ hash client-side leaks it and lets anyone read any inbox. Sign on the server
 and send only the per-user hash to the frontend.
 </Callout>
 
+<Callout type="error" title="Never sign a client-supplied id">
+Derive the subscriber id server-side from the authenticated session. An
+endpoint that signs whatever id the request carries makes the HMAC scheme
+theater: the secret never leaks, but any authenticated user can ask your
+backend to mint a valid hash for any inbox and read it.
+</Callout>
+
+### A secure hash endpoint
+
+Authenticate the caller, resolve **their** subscriber id from your own session
+or database, and sign that. The id never comes from query, body, or headers:
+
+```ts
+import { createHmac } from 'node:crypto';
+
+// Express, behind auth middleware
+app.get('/api/inbox-auth', requireLogin, (req, res) => {
+  // Session-derived id, never request input
+  const subscriberId = req.session.userId;
+  const subscriberHash = createHmac('sha256', process.env.CHIMELY_HMAC_SECRET!)
+    .update(subscriberId)
+    .digest('hex');
+  res.json({ subscriberId, subscriberHash });
+});
+```
+
+The frontend fetches both values and passes them to
+`<Inbox subscriberId={...} subscriberHash={...} />`. It cannot influence which
+inbox it is allowed to read.
+
 The hash travels in request headers (or query parameters for the SSE stream,
 where `EventSource` cannot set headers):
 
