@@ -82,9 +82,9 @@ or database, and sign that. The id never comes from query, body, or headers:
 ```ts
 import { createHmac } from 'node:crypto';
 
-// Express, behind your auth middleware
+// Express, behind auth middleware
 app.get('/api/inbox-auth', requireLogin, (req, res) => {
-  // From the session your backend established, never from request input
+  // Session-derived id, never request input
   const subscriberId = req.session.userId;
   const subscriberHash = createHmac('sha256', process.env.CHIMELY_HMAC_SECRET!)
     .update(subscriberId)
