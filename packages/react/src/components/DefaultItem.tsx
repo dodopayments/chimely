@@ -25,8 +25,19 @@ export function DefaultItem<TPayload>(
 ): ReactNode {
   const { item, className, style, formatTimestamp, onClick } = props;
   const payload = item.payload as Partial<WellKnownPayload>;
+  // Payloads pass through verbatim, so guard against values outside the union.
+  const severity =
+    payload.severity === 'high' || payload.severity === 'medium' || payload.severity === 'low'
+      ? payload.severity
+      : undefined;
   return (
     <button type="button" className={className} style={style} onClick={onClick}>
+      {severity && (
+        <span
+          className={`chimely-item-severity chimely-item-severity-${severity}`}
+          aria-hidden="true"
+        />
+      )}
       {props.renderAvatar
         ? props.renderAvatar({ item })
         : typeof payload.icon_url === 'string' &&
