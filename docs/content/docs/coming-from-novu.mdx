@@ -39,3 +39,18 @@ them:
   default renderer treats the `title` and `body` strings as plain text. To
   render markup you trust, override `renderItem` (or `renderSubject` /
   `renderBody`) and sanitize in your own code.
+- **Quiet hours.** There is no schedule to recreate. Novu's schedule gates
+  email, SMS, and push and always delivers in-app; in-app is Chimely's only
+  channel, so that always-deliver behavior is already the whole system. The
+  per-subscriber mute that does exist is per-category
+  [preferences](/docs/sdk-reference); preferences already carry a `channel`
+  field, so a future push channel gains gating without a contract break.
+- **Keyless mode.** There is no cloud signup to defer, so there is nothing
+  for a keyless mode to skip: keys are minted in your own admin dashboard.
+  The try-it-before-wiring-a-backend role is filled by the
+  [quickstart](/docs/quickstart)'s `CHIMELY_DEV_*` variables, which seed a
+  dev environment with subscriber hashing off. Nothing is plan-gated: the
+  only limits are the [rate limits](/docs/operations#rate-limits) you
+  configure yourself, and a rate of `0` disables one. Workflow-editor
+  concepts have no equivalent at any tier; the payload your backend POSTs
+  is what the inbox shows.
