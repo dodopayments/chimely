@@ -447,7 +447,9 @@ pub fn verify_subscriber_hash(
     }
     // Legacy formula fallback (issue #55 dual-accept rollout). Hashes minted
     // over `subscriber_id` alone stay valid until the announced minor version
-    // bump. Remove this check at that bump.
+    // bump. A legacy hash carries no environment binding, so environments
+    // sharing a secret accept each other's legacy hashes for the duration of
+    // the window. This check is removed at that bump.
     hmac_matches(secret, subscriber_id.as_bytes(), &provided)
 }
 

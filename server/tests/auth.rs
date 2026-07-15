@@ -79,7 +79,7 @@ async fn hash_is_mandatory_when_the_environment_requires_it() {
 
 /// Dual-accept rollout for the env-bound hash formula (issue #55). A hash
 /// minted with the legacy input (subscriber_id alone) still authenticates.
-/// Delete this test when the legacy fallback is dropped at the announced
+/// This test is deleted when the legacy fallback is dropped at the announced
 /// minor version bump.
 #[tokio::test]
 async fn legacy_subscriber_id_only_hash_still_authenticates() {

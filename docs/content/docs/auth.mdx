@@ -69,8 +69,10 @@ const subscriberHash = createHmac('sha256', process.env.CHIMELY_HMAC_SECRET!)
 Hashes computed with the previous formula,
 `hex(HMAC-SHA256(environment_secret, subscriber_id))`, are still accepted as
 a fallback. That fallback will be dropped in an announced minor release, and
-the cross-environment binding is only effective once it is gone. Switch your
-backend to the environment-bound formula now.
+the cross-environment binding is only effective once it is gone: until then, a
+legacy hash minted in one environment also verifies in any other environment
+given the same secret. Switch your backend to the environment-bound formula
+now.
 </Callout>
 
 <Callout type="error" title="Never sign in the browser">
