@@ -26,7 +26,10 @@ import { Inbox } from '@chimely/react';
 That is a live bell with an unseen badge, a popover inbox with unread state,
 tabs, filters, archive, infinite scroll, per-category preferences, and SSE
 live updates. `subscriberHash` is `hex(HMAC-SHA256(environment_secret,
-subscriberId))`, computed by **your backend**, never in the browser. See
+environmentId + "\0" + subscriberId))`, computed by **your backend**, never
+in the browser. The environment id is the `env_...` id from the admin
+dashboard. Legacy hashes over `subscriberId` alone are accepted until an
+announced minor release. See
 [Auth and the subscriber hash](https://chimely.dev/docs/auth).
 
 ## Hooks and composables

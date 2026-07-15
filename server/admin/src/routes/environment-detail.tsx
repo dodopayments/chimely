@@ -272,11 +272,19 @@ function HmacTab({ envId }: { envId: string }) {
               <KeyRound className="size-4 text-primary" /> Subscriber HMAC secret
             </CardTitle>
             <CardDescription>
-              The customer backend computes <code>HMAC-SHA256(secret, subscriber_id)</code> with
-              this. Rotation uses two slots so live widget sessions never break.
+              The customer backend computes{' '}
+              <code>{'HMAC-SHA256(secret, environment_id + "\\0" + subscriber_id)'}</code> with this
+              secret and the environment id below. Legacy hashes over{' '}
+              <code>subscriber_id</code> alone verify until an announced minor release. Rotation
+              uses two slots so live widget sessions never break.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-5">
+            <div className="flex flex-col gap-1.5">
+              <Label>Environment ID</Label>
+              <CopyField value={detail.id} />
+            </div>
+
             <div className="flex flex-col gap-1.5">
               <Label>Current secret</Label>
               <CopyField value={detail.subscriber_hmac_secret ?? ''} maskable />

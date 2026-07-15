@@ -19,8 +19,9 @@ const client = new ChimelyClient({
   serverUrl: 'https://chimely.example.com',
   environment: 'production',
   subscriberId: 'usr_123',
-  // Computed by YOUR backend: hex(HMAC-SHA256(environment_secret, subscriberId)).
-  // Never compute it in the browser.
+  // Computed by YOUR backend, never in the browser:
+  // hex(HMAC-SHA256(environment_secret, environmentId + "\0" + subscriberId)),
+  // where environmentId is the env_... id from the admin dashboard.
   subscriberHash,
 });
 
@@ -31,6 +32,10 @@ const unsubscribe = client.subscribe(() => {
 
 client.connect();
 ```
+
+Hashes minted with the legacy input (`subscriberId` alone) are still accepted;
+that fallback is removed in an announced minor release. See
+[Auth and the subscriber hash](https://chimely.dev/docs/auth).
 
 The snapshot is immutable with a new identity per change, so it plugs straight
 into `useSyncExternalStore` or any equality-based renderer. Mutations

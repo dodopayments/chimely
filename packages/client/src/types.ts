@@ -109,9 +109,11 @@ export interface ChimelyClientConfig {
   /** Customer-provided subscriber id of the current user. */
   subscriberId: string;
   /**
-   * HMAC-SHA256(secret, subscriberId) hex, computed by YOUR backend.
-   * Required in production environments. Omittable only where the
-   * environment allows it (dev quickstart).
+   * hex(HMAC-SHA256(secret, environmentId + "\0" + subscriberId)), computed
+   * by YOUR backend. The environmentId is the `env_...` id from the admin
+   * dashboard. Legacy hashes over subscriberId alone are accepted until an
+   * announced minor release. Required in production environments. Omittable
+   * only where the environment allows it (dev quickstart).
    */
   subscriberHash?: string;
   backoff?: BackoffConfig;
