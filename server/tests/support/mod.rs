@@ -149,6 +149,9 @@ async fn spawn_inner(
         subscriber_rate_burst: 0.0,
         shutdown_readiness_grace: Duration::from_millis(150),
         shutdown_drain_deadline: Duration::from_secs(5),
+        // Off matches the production default. Tests that need the scrub
+        // opt in via spawn_configured.
+        log_scrub_identifiers: false,
     };
     configure(&mut cfg);
     let cfg = Arc::new(cfg);

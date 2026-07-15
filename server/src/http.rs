@@ -120,7 +120,10 @@ pub fn router(state: AppState) -> Router {
             get(move || std::future::ready(prometheus.render())),
         )
         .merge(utoipa_scalar::Scalar::with_url("/docs", openapi::api_doc()))
-        .layer(middleware::from_fn(access_log))
+        .layer(middleware::from_fn({
+            let scrub_identifiers = state.cfg.log_scrub_identifiers;
+            move |req, next| access_log(scrub_identifiers, req, next)
+        }))
         .with_state(state)
 }
 
@@ -244,18 +247,28 @@ async fn readyz(
 /// credential on the SSE endpoint (EventSource cannot set headers) and must
 /// never reach log lines. This is a tested invariant.
 ///
+/// With `scrub_identifiers` set, subscriber and environment identifiers are
+/// redacted too, from the query string and from the subscriber path segment.
+/// The scrubbed path also names the `http.request` span, so identifiers stay
+/// out of exported traces.
+///
 /// The handler runs inside an `http.request` span: jobs enqueued by the
 /// handler carry this span's context through the outbox, so the whole
 /// ingest -> outbox -> worker -> hint flow lands in one trace.
 async fn access_log(
+    scrub_identifiers: bool,
     req: axum::extract::Request,
     next: middleware::Next,
 ) -> axum::response::Response {
     use tracing::Instrument as _;
 
     let method = req.method().clone();
-    let path = req.uri().path().to_owned();
-    let query = req.uri().query().map(scrub_query);
+    let path = if scrub_identifiers {
+        scrub_path(req.uri().path())
+    } else {
+        req.uri().path().to_owned()
+    };
+    let query = req.uri().query().map(|q| scrub_query(q, scrub_identifiers));
     let started = std::time::Instant::now();
     let span = tracing::info_span!("http.request", %method, %path);
     let response = next.run(req).instrument(span).await;
@@ -276,10 +289,18 @@ async fn access_log(
 /// valid credential and must scrub the same way) and the output is
 /// re-encoded, so a credential value can never smuggle raw bytes into a log
 /// line.
-pub fn scrub_query(query: &str) -> String {
+///
+/// `scrub_identifiers` additionally redacts `subscriber_id` and
+/// `environment`. Those are identifiers, not credentials. The opt-in exists
+/// for operators whose logs leave their control.
+pub fn scrub_query(query: &str, scrub_identifiers: bool) -> String {
     form_urlencoded::parse(query.as_bytes())
         .map(|(name, value)| {
-            let value = if name.eq_ignore_ascii_case("subscriber_hash") {
+            let credential = name.eq_ignore_ascii_case("subscriber_hash");
+            let identifier = scrub_identifiers
+                && (name.eq_ignore_ascii_case("subscriber_id")
+                    || name.eq_ignore_ascii_case("environment"));
+            let value = if credential || identifier {
                 std::borrow::Cow::Borrowed("redacted")
             } else {
                 value
@@ -294,6 +315,25 @@ pub fn scrub_query(query: &str) -> String {
         .join("&")
 }
 
+/// Replaces the path segment after a `subscribers` segment with a fixed
+/// marker. The external subscriber id is customer-chosen and can be an email
+/// or an internal user id. Covers the management routes
+/// `/v1/subscribers/{id}` and `/v1/subscribers/{id}/preferences` and the
+/// admin subscriber lookup.
+fn scrub_path(path: &str) -> String {
+    let mut redact_next = false;
+    path.split('/')
+        .map(|segment| {
+            if std::mem::replace(&mut redact_next, segment == "subscribers") {
+                "redacted"
+            } else {
+                segment
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,24 +341,65 @@ mod tests {
     #[test]
     fn scrubs_subscriber_hash_wherever_it_appears() {
         assert_eq!(
-            scrub_query("environment=acme&subscriber_id=u1&subscriber_hash=deadbeef"),
+            scrub_query(
+                "environment=acme&subscriber_id=u1&subscriber_hash=deadbeef",
+                false
+            ),
             "environment=acme&subscriber_id=u1&subscriber_hash=redacted"
         );
-        assert_eq!(scrub_query("subscriber_hash=x"), "subscriber_hash=redacted");
         assert_eq!(
-            scrub_query("SUBSCRIBER_HASH=x&a=b"),
+            scrub_query("subscriber_hash=x", false),
+            "subscriber_hash=redacted"
+        );
+        assert_eq!(
+            scrub_query("SUBSCRIBER_HASH=x&a=b", false),
             "SUBSCRIBER_HASH=redacted&a=b"
         );
         // Percent-encoded names decode before matching: auth accepts
         // `subscriber%5Fhash`, so the scrub must catch it too.
         assert_eq!(
-            scrub_query("subscriber%5Fhash=deadbeef"),
+            scrub_query("subscriber%5Fhash=deadbeef", false),
             "subscriber_hash=redacted"
         );
         assert_eq!(
-            scrub_query("%73ubscriber_hash=deadbeef&a=b"),
+            scrub_query("%73ubscriber_hash=deadbeef&a=b", false),
             "subscriber_hash=redacted&a=b"
         );
-        assert_eq!(scrub_query("a=b"), "a=b");
+        assert_eq!(scrub_query("a=b", false), "a=b");
+    }
+
+    #[test]
+    fn identifier_scrubbing_is_opt_in() {
+        assert_eq!(
+            scrub_query("environment=acme&subscriber_id=u1&subscriber_hash=x", true),
+            "environment=redacted&subscriber_id=redacted&subscriber_hash=redacted"
+        );
+        assert_eq!(
+            scrub_query("SUBSCRIBER_ID=u1&Environment=acme", true),
+            "SUBSCRIBER_ID=redacted&Environment=redacted"
+        );
+        assert_eq!(
+            scrub_query("subscriber%5Fid=u1", true),
+            "subscriber_id=redacted"
+        );
+        assert_eq!(scrub_query("a=b", true), "a=b");
+    }
+
+    #[test]
+    fn scrub_path_redacts_the_subscriber_segment() {
+        assert_eq!(
+            scrub_path("/v1/subscribers/user-42"),
+            "/v1/subscribers/redacted"
+        );
+        assert_eq!(
+            scrub_path("/v1/subscribers/user-42/preferences"),
+            "/v1/subscribers/redacted/preferences"
+        );
+        assert_eq!(
+            scrub_path("/admin/api/environments/0197abcd/subscribers/user-42"),
+            "/admin/api/environments/0197abcd/subscribers/redacted"
+        );
+        assert_eq!(scrub_path("/v1/inbox/items"), "/v1/inbox/items");
+        assert_eq!(scrub_path("/v1/subscribers"), "/v1/subscribers");
     }
 }

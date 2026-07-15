@@ -101,6 +101,11 @@ impl IntoResponse for ApiError {
 
 /// Internal failures (database, serialization) become opaque 500s. The detail
 /// goes to tracing, never to the client.
+///
+/// The logged error can embed Postgres DETAIL values on a unique violation
+/// (`Key (...)=(<values>)`). Any new plain INSERT on a secret-keyed or
+/// PII-keyed table must intercept the conflict before its error reaches this
+/// path or any `tracing::error!(error = ?err)` site.
 impl<E> From<E> for ApiError
 where
     E: Into<anyhow::Error>,
