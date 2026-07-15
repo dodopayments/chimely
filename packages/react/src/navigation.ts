@@ -53,3 +53,21 @@ export function resolveActionUrl(url: string): ResolvedActionUrl | null {
   }
   return { kind: 'external', href: url };
 }
+
+/**
+ * Follow a customer-supplied action URL: same-origin targets go through the
+ * SPA `routerPush` when one is provided, everything else (and any router-less
+ * case) falls back to a full assign. Unsafe URLs (per resolveActionUrl) are
+ * ignored. Shared by the item click and the action buttons.
+ */
+export function followActionUrl(url: string, routerPush?: (path: string) => void): void {
+  const resolved = resolveActionUrl(url);
+  if (!resolved) {
+    return;
+  }
+  if (resolved.kind === 'same-origin' && routerPush) {
+    routerPush(resolved.path);
+  } else {
+    navigation.assign(url);
+  }
+}

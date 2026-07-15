@@ -848,3 +848,84 @@ describe('standalone mode', () => {
     expect(stub.stream().closed).toBe(true);
   });
 });
+
+describe('action buttons', () => {
+  test('renders primary and secondary buttons and follows the action url', async () => {
+    const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {});
+    const stub = createStubServer();
+    stub.addNotification({
+      payload: {
+        title: 'invoice',
+        primary_action: { label: 'View invoice', url: 'https://app.test/invoices/42' },
+        secondary_action: { label: 'Dismiss' },
+      },
+    });
+    await renderInbox(stub);
+    fireEvent.click(bell());
+
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'View invoice' }));
+    expect(assign).toHaveBeenCalledWith('https://app.test/invoices/42');
+  });
+
+  test('renders no action bar without a primary or secondary action', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ payload: { title: 'plain' } });
+    await renderInbox(stub);
+    fireEvent.click(bell());
+    expect(document.querySelector('.chimely-item-cta')).toBeNull();
+  });
+
+  test('same-origin action urls go through routerPush', async () => {
+    const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {});
+    const routerPush = vi.fn();
+    const stub = createStubServer();
+    stub.addNotification({
+      payload: { title: 'spa', primary_action: { label: 'Open', url: '/settings?tab=1' } },
+    });
+    await renderInbox(stub, { routerPush });
+    fireEvent.click(bell());
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    expect(routerPush).toHaveBeenCalledWith('/settings?tab=1');
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  test('onPrimaryActionClick returning false suppresses navigation', async () => {
+    const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {});
+    const stub = createStubServer();
+    stub.addNotification({
+      payload: { title: 'x', primary_action: { label: 'Go', url: 'https://app.test/go' } },
+    });
+    const onPrimaryActionClick = vi.fn(() => false);
+    await renderInbox(stub, { onPrimaryActionClick });
+    fireEvent.click(bell());
+    fireEvent.click(screen.getByRole('button', { name: 'Go' }));
+    expect(onPrimaryActionClick).toHaveBeenCalledTimes(1);
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  test('a javascript: action url on a button never navigates', async () => {
+    const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {});
+    const stub = createStubServer();
+    stub.addNotification({
+      payload: { title: 'x', primary_action: { label: 'Hostile', url: 'javascript:alert(1)' } },
+    });
+    await renderInbox(stub);
+    fireEvent.click(bell());
+    fireEvent.click(screen.getByRole('button', { name: 'Hostile' }));
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  test('renderActions replaces the default buttons', async () => {
+    const stub = createStubServer();
+    stub.addNotification({
+      payload: { title: 'x', primary_action: { label: 'Default', url: 'https://app.test' } },
+    });
+    await renderInbox(stub, {
+      renderActions: ({ item }) => <button type="button">Custom {item.category}</button>,
+    });
+    fireEvent.click(bell());
+    expect(screen.queryByRole('button', { name: 'Default' })).toBeNull();
+    expect(screen.getByRole('button', { name: /Custom/ })).toBeDefined();
+  });
+});
