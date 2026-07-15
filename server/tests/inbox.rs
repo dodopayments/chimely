@@ -488,7 +488,9 @@ async fn muted_categories_disappear_from_the_list_at_read_time() {
     assert_eq!(body["preferences"].as_array().unwrap().len(), 0);
     assert_eq!(app.list_all_items(SUB, 10).await.len(), 3);
 
-    // Unknown channels are an API-layer 400 (no DB CHECK by design).
+    // Unknown channels are an API-layer 400 (no DB CHECK by design). The
+    // message is static. Echoing the caller's channel value would reflect
+    // request bytes into the body (H4, #58).
     let res = app
         .client
         .put(format!("{}/v1/inbox/preferences", app.base))
@@ -498,6 +500,15 @@ async fn muted_categories_disappear_from_the_list_at_read_time() {
         .await
         .unwrap();
     assert_eq!(res.status(), 400);
+    let body: serde_json::Value = res.json().await.unwrap();
+    assert_eq!(body["error"]["message"], "unknown channel");
+    assert!(
+        !body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("web_push"),
+        "rejection echoed caller input: {body}"
+    );
 }
 
 #[tokio::test]

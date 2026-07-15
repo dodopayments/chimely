@@ -229,7 +229,9 @@ async fn replay_returns_the_snapshot_even_after_deliver_at_has_passed() {
 }
 
 /// S5 regression: extractor rejections must use the contract's error
-/// envelope, never axum's plain-text 400/415/422.
+/// envelope, never axum's plain-text 400/415/422. The message is static.
+/// serde rejection prose can quote caller scalars, so no request byte may
+/// reach the body (H4, #58).
 #[tokio::test]
 async fn malformed_bodies_get_the_error_envelope() {
     let app = support::spawn().await;
@@ -245,6 +247,25 @@ async fn malformed_bodies_get_the_error_envelope() {
     assert_eq!(res.status(), 400);
     let body: serde_json::Value = res.json().await.expect("envelope body");
     assert_eq!(body["error"]["code"], "invalid_request");
+    assert_eq!(body["error"]["message"], "invalid request body");
+
+    // A type mismatch inside valid JSON must not echo the submitted scalar.
+    let res = app
+        .client
+        .post(format!("{}/v1/notifications", app.base))
+        .bearer_auth(&app.env.api_key)
+        .json(&json!({ "subscriber_id": "usr_q", "category": 31337 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+    let body: serde_json::Value = res.json().await.expect("envelope body");
+    assert_eq!(body["error"]["code"], "invalid_request");
+    assert_eq!(body["error"]["message"], "invalid request body");
+    assert!(
+        !body["error"]["message"].as_str().unwrap().contains("31337"),
+        "rejection echoed caller input: {body}"
+    );
 
     // Wrong content type is a 400 envelope too (the contract has no 415).
     let res = app
@@ -259,6 +280,7 @@ async fn malformed_bodies_get_the_error_envelope() {
     assert_eq!(res.status(), 400);
     let body: serde_json::Value = res.json().await.expect("envelope body");
     assert_eq!(body["error"]["code"], "invalid_request");
+    assert_eq!(body["error"]["message"], "invalid request body");
 
     // Malformed query parameters on the subscriber plane as well.
     let res = app
@@ -271,6 +293,14 @@ async fn malformed_bodies_get_the_error_envelope() {
     assert_eq!(res.status(), 400);
     let body: serde_json::Value = res.json().await.expect("envelope body");
     assert_eq!(body["error"]["code"], "invalid_request");
+    assert_eq!(body["error"]["message"], "invalid query string");
+    assert!(
+        !body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("banana"),
+        "rejection echoed caller input: {body}"
+    );
 }
 
 #[tokio::test]

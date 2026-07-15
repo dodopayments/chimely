@@ -228,11 +228,10 @@ pub async fn write(
         if p.category.is_empty() || p.category.len() > 255 {
             return Err(ApiError::bad_request("category must be 1–255 characters"));
         }
+        // Static message. The submitted channel value is caller input and
+        // must not be reflected into the response body.
         if !ALLOWED_CHANNELS.contains(&p.channel.as_str()) {
-            return Err(ApiError::bad_request(format!(
-                "unknown channel: {}",
-                p.channel
-            )));
+            return Err(ApiError::bad_request("unknown channel"));
         }
     }
 

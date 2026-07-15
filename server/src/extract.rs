@@ -4,6 +4,10 @@
 //! plain-text 400/415/422 bodies. The contract allows exactly one error
 //! shape (`{"error": {"code", "message"}}`) and no 415/422, so every handler
 //! extracts through these wrappers instead.
+//!
+//! Rejection messages are static. axum/serde rejection prose can quote a
+//! caller scalar on type mismatch, so no request-derived text may reach the
+//! response body.
 
 use axum::extract::{FromRequest, FromRequestParts, OptionalFromRequest, Request};
 use axum::http::request::Parts;
@@ -23,7 +27,7 @@ where
     async fn from_request(req: Request, state: &S) -> Result<Self, ApiError> {
         match <axum::Json<T> as FromRequest<S>>::from_request(req, state).await {
             Ok(axum::Json(value)) => Ok(Self(value)),
-            Err(rejection) => Err(ApiError::bad_request(rejection.body_text())),
+            Err(_) => Err(ApiError::bad_request("invalid request body")),
         }
     }
 }
@@ -39,7 +43,7 @@ where
         match <axum::Json<T> as OptionalFromRequest<S>>::from_request(req, state).await {
             Ok(Some(axum::Json(value))) => Ok(Some(Self(value))),
             Ok(None) => Ok(None),
-            Err(rejection) => Err(ApiError::bad_request(rejection.body_text())),
+            Err(_) => Err(ApiError::bad_request("invalid request body")),
         }
     }
 }
@@ -56,7 +60,7 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, ApiError> {
         match axum::extract::Query::<T>::from_request_parts(parts, state).await {
             Ok(axum::extract::Query(value)) => Ok(Self(value)),
-            Err(rejection) => Err(ApiError::bad_request(rejection.body_text())),
+            Err(_) => Err(ApiError::bad_request("invalid query string")),
         }
     }
 }
