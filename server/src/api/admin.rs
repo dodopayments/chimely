@@ -1302,7 +1302,7 @@ pub async fn replay_dead_letter(
     let replayed = dlq::replay(&state.pool, id, None)
         .await
         .map_err(ApiError::from)?;
-    if !replayed {
+    if replayed == 0 {
         return Err(ApiError::not_found("no such parked job"));
     }
     Ok(Json(AdminReplayResult { replayed: 1 }))
