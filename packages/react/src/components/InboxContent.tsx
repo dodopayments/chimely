@@ -150,6 +150,43 @@ export function InboxContent<TPayload = WellKnownPayload>(
     };
   }, [menuOpen]);
 
+  // role=menu promises the APG menu keyboard contract: focus enters the
+  // first item on open, arrows move it with wrap, Home and End jump.
+  useEffect(() => {
+    if (menuOpen) {
+      menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    }
+  }, [menuOpen]);
+
+  const handleMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const items = Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [],
+    );
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (items.length === 0) {
+      return;
+    }
+    let next: number;
+    switch (event.key) {
+      case 'ArrowDown':
+        next = (index + 1) % items.length;
+        break;
+      case 'ArrowUp':
+        next = (index - 1 + items.length) % items.length;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = items.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    items[next]?.focus();
+  };
+
   // Roving tabindex with automatic activation per the ARIA tabs pattern.
   // Arrows wrap, Home and End jump, and the moved-to tab is selected.
   const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -249,7 +286,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
                   {'\u22ef'}
                 </button>
                 {menuOpen && (
-                  <div className="chimely-menu" role="menu">
+                  <div className="chimely-menu" role="menu" onKeyDown={handleMenuKeyDown}>
                     <button
                       type="button"
                       role="menuitem"

@@ -98,6 +98,32 @@ describe('more-actions menu', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
+  test('opens with the first item focused, arrows wrap, Home/End jump', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    await renderInbox(stub);
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    const items = screen.getAllByRole('menuitem');
+    expect(items).toHaveLength(3);
+    expect(document.activeElement).toBe(items[0]);
+
+    fireEvent.keyDown(items[0] as HTMLElement, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(items[1]);
+    fireEvent.keyDown(items[1] as HTMLElement, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(items[2]);
+    fireEvent.keyDown(items[2] as HTMLElement, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(items[0]);
+
+    fireEvent.keyDown(items[0] as HTMLElement, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(items[2]);
+
+    fireEvent.keyDown(items[2] as HTMLElement, { key: 'Home' });
+    expect(document.activeElement).toBe(items[0]);
+    fireEvent.keyDown(items[0] as HTMLElement, { key: 'End' });
+    expect(document.activeElement).toBe(items[2]);
+  });
+
   test('escape closes only the menu and restores trigger focus', async () => {
     const stub = createStubServer();
     stub.addNotification();
