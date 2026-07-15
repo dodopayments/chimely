@@ -124,6 +124,26 @@ describe('more-actions menu', () => {
     expect(document.activeElement).toBe(items[2]);
   });
 
+  test('tab closes the menu and lets focus move on naturally', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    await renderInbox(stub);
+
+    const trigger = screen.getByRole('button', { name: 'More actions' });
+    fireEvent.click(trigger);
+    const items = screen.getAllByRole('menuitem');
+    expect(document.activeElement).toBe(items[0]);
+
+    // fireEvent returns false when preventDefault was called. Tab must
+    // stay uncancelled so the browser's own focus move still runs, and
+    // it starts from the trigger, the menu's place in the tab sequence.
+    const uncancelled = fireEvent.keyDown(items[0] as HTMLElement, { key: 'Tab' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(uncancelled).toBe(true);
+    expect(document.activeElement).toBe(trigger);
+    expect(screen.getByRole('dialog')).toBeDefined();
+  });
+
   test('escape closes only the menu and restores trigger focus', async () => {
     const stub = createStubServer();
     stub.addNotification();

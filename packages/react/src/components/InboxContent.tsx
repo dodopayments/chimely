@@ -151,7 +151,8 @@ export function InboxContent<TPayload = WellKnownPayload>(
   }, [menuOpen]);
 
   // role=menu promises the APG menu keyboard contract: focus enters the
-  // first item on open, arrows move it with wrap, Home and End jump.
+  // first item on open, arrows move it with wrap, Home and End jump,
+  // Tab closes the menu and moves on.
   useEffect(() => {
     if (menuOpen) {
       menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
@@ -180,6 +181,13 @@ export function InboxContent<TPayload = WellKnownPayload>(
       case 'End':
         next = items.length - 1;
         break;
+      // APG menus close on Tab. The default action stays uncancelled and
+      // runs from the trigger, the menu's place in the tab sequence, so
+      // focus moves on instead of dropping to body with the items gone.
+      case 'Tab':
+        setMenuOpen(false);
+        menuTriggerRef.current?.focus();
+        return;
       default:
         return;
     }
