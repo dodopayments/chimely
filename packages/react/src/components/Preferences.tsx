@@ -86,13 +86,23 @@ export function Preferences(props: PreferencesProps): ReactNode {
   const grouped = new Set(groups.flatMap((group) => group.categories));
   const ungrouped = visible.filter((category) => !grouped.has(category));
 
+  // A category renders at most once. The first group that lists it wins, so
+  // overlapping groups cannot produce two checkboxes writing one preference.
+  const claimed = new Set<string>();
+
   return (
     <div
       className={slotClass(props.appearance?.classNames, 'preferences')}
       style={variablesToStyle(props.appearance?.variables)}
     >
       {groups.map((group) => {
-        const rows = group.categories.filter((category) => visibleSet.has(category));
+        const rows = group.categories.filter((category) => {
+          if (!visibleSet.has(category) || claimed.has(category)) {
+            return false;
+          }
+          claimed.add(category);
+          return true;
+        });
         if (rows.length === 0) {
           return null;
         }

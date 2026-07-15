@@ -154,6 +154,23 @@ describe('preferences grouping', () => {
     expect(rowLabels()).toEqual(['billing.invoice', 'security.alert', 'social.mention']);
   });
 
+  test('a category listed in two groups renders once, first group wins', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.invoice' });
+    await provided(stub, () => (
+      <Preferences
+        preferenceGroups={[
+          { label: 'Money', categories: ['billing.invoice'] },
+          { label: 'Everything', categories: ['billing.invoice'] },
+        ]}
+      />
+    ));
+    expect(screen.getByText('Money')).toBeDefined();
+    expect(screen.queryByText('Everything')).toBeNull();
+    expect(rowLabels()).toEqual(['billing.invoice']);
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1);
+  });
+
   test('a group with no visible category renders no heading', async () => {
     const stub = createStubServer();
     stub.addNotification({ category: 'social.mention' });
