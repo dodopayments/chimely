@@ -341,20 +341,22 @@ export const INBOX_CSS = `
 }
 `;
 
-let injected = false;
-
-/** Idempotent, SSR-safe. Called on <Inbox /> mount, never at import time. */
+/**
+ * Idempotent, SSR-safe. Called on <Inbox /> mount, never at import time.
+ * The DOM is re-checked on every call rather than cached in module state.
+ * Head-replacing navigation (Turbo, PJAX) removes the injected tag while
+ * the module instance survives, so a cached flag would block re-injection
+ * until a full reload.
+ */
 export function ensureStyles(): void {
-  if (injected || typeof document === 'undefined') {
+  if (typeof document === 'undefined') {
     return;
   }
   if (document.querySelector('style[data-chimely]')) {
-    injected = true;
     return;
   }
   const element = document.createElement('style');
   element.setAttribute('data-chimely', '');
   element.textContent = INBOX_CSS;
   document.head.appendChild(element);
-  injected = true;
 }
