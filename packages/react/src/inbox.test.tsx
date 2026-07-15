@@ -353,6 +353,31 @@ describe('portal', () => {
     fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
     expect(document.activeElement).toBe(last);
   });
+
+  test('tab wraps from the active tab, not an inactive roving tab', async () => {
+    const stub = createStubServer();
+    await renderInbox(stub, {
+      portal: true,
+      tabs: [{ label: 'All' }, { label: 'Billing', filter: () => false }],
+    });
+    fireEvent.click(bell());
+
+    // Empty tabbed inbox: the active tab is the last sequential tab stop,
+    // and the inactive tab after it carries tabindex="-1". The trap must
+    // wrap from the active tab, not treat the inactive one as its edge.
+    const first = screen.getByRole('combobox', { name: 'View' });
+    const [active, inactive] = screen.getAllByRole('tab');
+    expect(inactive?.tabIndex).toBe(-1);
+
+    active?.focus();
+    // fireEvent returns false when a handler cancelled the event, so a
+    // true here means forward Tab escaped to the host page.
+    expect(fireEvent.keyDown(active as HTMLElement, { key: 'Tab' })).toBe(false);
+    expect(document.activeElement).toBe(first);
+
+    fireEvent.keyDown(first, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(active);
+  });
 });
 
 describe('controlled open', () => {

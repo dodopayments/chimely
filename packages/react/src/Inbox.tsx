@@ -15,8 +15,20 @@ import { ensureStyles } from './styles';
 
 export type { InboxAppearance, InboxSlot } from './appearance';
 
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+// Sequential tab stops only. The branches are alternatives, so each one
+// carries the tabindex="-1" exclusion. A native control opted out of the
+// tab order that way (the tab strip's roving tabindex) would otherwise
+// still match and become a false trap edge.
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]',
+]
+  .map((branch) => `${branch}:not([tabindex="-1"])`)
+  .join(', ');
 
 /**
  * Drop-in bell + badge + popover inbox.
