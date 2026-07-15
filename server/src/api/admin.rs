@@ -1215,6 +1215,13 @@ pub struct AdminReplayResult {
     pub replayed: i64,
 }
 
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct AdminReplayFilter {
+    /// Environment slug. Pins the replay to that environment.
+    pub environment: Option<String>,
+}
+
 #[utoipa::path(
     get,
     path = "/admin/api/dlq",
@@ -1265,8 +1272,14 @@ pub async fn list_dlq(
     tag = "admin",
     operation_id = "adminReplayDeadLetter",
     summary = "Replay dead letter",
-    description = "Requeue one failed job for another attempt.",
-    params(("job_id" = String, Path, description = "Job TypeID (job_…).")),
+    description = r#"Requeue one failed job for another attempt.
+
+Without an environment filter the replay reaches across environments and
+`replayed` reports every row moved."#,
+    params(
+        ("job_id" = String, Path, description = "Job TypeID (job_…)."),
+        AdminReplayFilter
+    ),
     responses(
         (status = 200, description = "Replayed.", body = AdminReplayResult),
         (
@@ -1283,7 +1296,7 @@ pub async fn list_dlq(
         ),
         (
             status = 404,
-            description = "No such parked job.",
+            description = "No such parked job, or no such environment.",
             body = crate::api::contract::Error,
             example = json!({"error": {"code": "not_found", "message": "no such parked job"}}),
         ),
@@ -1294,18 +1307,30 @@ pub async fn replay_dead_letter(
     auth: AdminAuth,
     State(state): State<AppState>,
     Path(job_id): Path<String>,
+    ApiQuery(filter): ApiQuery<AdminReplayFilter>,
 ) -> Result<Json<AdminReplayResult>, ApiError> {
     auth.require(Capability::DlqReplay)?;
     let id = ids::parse_typeid(ids::JOB, &job_id)
         .ok_or_else(|| ApiError::not_found("no such parked job"))?;
-    // Cross-environment admin path: job ids are globally unique UUIDv7s.
-    let replayed = dlq::replay(&state.pool, id, None)
+    let environment = match &filter.environment {
+        Some(slug) => Some(
+            dlq::environment_by_slug(&state.pool, slug)
+                .await
+                .map_err(ApiError::from)?
+                .ok_or_else(|| ApiError::not_found("no such environment"))?,
+        ),
+        None => None,
+    };
+    // The same job id can be parked in more than one environment under the
+    // (environment_id, id) key. An unfiltered replay moves every copy, so the
+    // response carries the real count.
+    let replayed = dlq::replay(&state.pool, id, environment)
         .await
-        .map_err(ApiError::from)?;
+        .map_err(ApiError::from)? as i64;
     if replayed == 0 {
         return Err(ApiError::not_found("no such parked job"));
     }
-    Ok(Json(AdminReplayResult { replayed: 1 }))
+    Ok(Json(AdminReplayResult { replayed }))
 }
 
 #[utoipa::path(

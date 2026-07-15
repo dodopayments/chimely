@@ -83,7 +83,8 @@ async fn replay_where(
     Ok(moved)
 }
 
-/// Resolve an environment slug for the CLI's `--env` flag.
+/// Resolve an environment slug for the CLI's `--env` flag and the admin
+/// replay filter.
 pub async fn environment_by_slug(pool: &PgPool, slug: &str) -> anyhow::Result<Option<Uuid>> {
     Ok(
         sqlx::query_scalar!("SELECT id FROM environments WHERE slug = $1", slug)

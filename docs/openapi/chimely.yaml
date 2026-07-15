@@ -130,13 +130,23 @@ paths:
       tags:
       - admin
       summary: Replay dead letter
-      description: Requeue one failed job for another attempt.
+      description: |-
+        Requeue one failed job for another attempt.
+
+        Without an environment filter the replay reaches across environments and
+        `replayed` reports every row moved.
       operationId: adminReplayDeadLetter
       parameters:
       - name: job_id
         in: path
         description: Job TypeID (job_…).
         required: true
+        schema:
+          type: string
+      - name: environment
+        in: query
+        description: Environment slug. Pins the replay to that environment.
+        required: false
         schema:
           type: string
       responses:
@@ -167,7 +177,7 @@ paths:
                   code: forbidden
                   message: your role does not permit this action
         '404':
-          description: No such parked job.
+          description: No such parked job, or no such environment.
           content:
             application/json:
               schema:

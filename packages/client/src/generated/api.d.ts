@@ -50,6 +50,9 @@ export interface paths {
         /**
          * Replay dead letter
          * @description Requeue one failed job for another attempt.
+         *
+         *     Without an environment filter the replay reaches across environments and
+         *     `replayed` reports every row moved.
          */
         post: operations["adminReplayDeadLetter"];
         delete?: never;
@@ -1292,7 +1295,10 @@ export interface operations {
     };
     adminReplayDeadLetter: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Environment slug. Pins the replay to that environment. */
+                environment?: string;
+            };
             header?: never;
             path: {
                 /** @description Job TypeID (job_…). */
@@ -1345,7 +1351,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No such parked job. */
+            /** @description No such parked job, or no such environment. */
             404: {
                 headers: {
                     [name: string]: unknown;
