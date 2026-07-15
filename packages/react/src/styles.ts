@@ -339,6 +339,14 @@ export const INBOX_CSS = `
 .chimely-preference input {
   accent-color: var(--chimely-colorPrimary, #1264FF);
 }
+.chimely-preference-group-label {
+  padding: 12px 14px 4px;
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
 `;
 
 let injected = false;

@@ -11,7 +11,7 @@ import { ensureStyles } from '../styles';
 import type { ItemRenderProps } from './DefaultItem';
 import { GearIcon } from './icons';
 import { NotificationList } from './NotificationList';
-import { Preferences } from './Preferences';
+import { type PreferenceGroup, Preferences } from './Preferences';
 
 /**
  * One tab of the inbox list. The filter runs client-side over loaded items.
@@ -56,6 +56,12 @@ export interface InboxContentProps<TPayload = WellKnownPayload> extends ItemRend
   renderItem?: (ctx: { item: InboxItem<TPayload>; markRead: () => Promise<void> }) => ReactNode;
   renderEmpty?: () => ReactNode;
   renderFooter?: () => ReactNode;
+  /** Show only preference categories for which this returns true. */
+  preferencesFilter?: (category: string) => boolean;
+  /** Order the preference category rows. Default: alphabetical. */
+  preferencesSort?: (a: string, b: string) => number;
+  /** Group preference category rows under labeled headings. */
+  preferenceGroups?: ReadonlyArray<PreferenceGroup>;
 }
 
 export function InboxContent<TPayload = WellKnownPayload>(
@@ -334,7 +340,13 @@ export function InboxContent<TPayload = WellKnownPayload>(
         </div>
       )}
       {showPreferences ? (
-        <Preferences appearance={props.appearance} localization={props.localization} />
+        <Preferences
+          appearance={props.appearance}
+          localization={props.localization}
+          preferencesFilter={props.preferencesFilter}
+          preferencesSort={props.preferencesSort}
+          preferenceGroups={props.preferenceGroups}
+        />
       ) : (
         <NotificationList
           // Remount on tab switch: resets scroll and the sentinel fill loop.

@@ -14,7 +14,7 @@ export type { BellProps } from './components/Bell';
 export { Bell } from './components/Bell';
 export type { InboxContentProps, InboxTab } from './components/InboxContent';
 export { InboxContent } from './components/InboxContent';
-export type { PreferencesProps } from './components/Preferences';
+export type { PreferenceGroup, PreferencesProps } from './components/Preferences';
 export { Preferences } from './components/Preferences';
 export type { ChimelyProviderProps } from './context';
 export { ChimelyProvider, useChimelyClient } from './context';
