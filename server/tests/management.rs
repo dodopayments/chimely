@@ -303,6 +303,32 @@ async fn malformed_bodies_get_the_error_envelope() {
     );
 }
 
+/// The optional-body extractor rejects with the same static message.
+/// PUT /v1/subscribers/{id} takes `Option<ApiJson<..>>`, so a malformed
+/// body goes through `OptionalFromRequest`, whose rejection prose can also
+/// quote caller scalars (H4, #58).
+#[tokio::test]
+async fn malformed_optional_bodies_get_the_static_message() {
+    let app = support::spawn().await;
+    let res = app
+        .client
+        .put(format!("{}/v1/subscribers/usr_opt", app.base))
+        .bearer_auth(&app.env.api_key)
+        .json(&json!({ "created_at": 9001 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+    let text = res.text().await.unwrap();
+    assert!(
+        !text.contains("9001"),
+        "rejection echoed caller input: {text}"
+    );
+    let body: serde_json::Value = serde_json::from_str(&text).expect("envelope body");
+    assert_eq!(body["error"]["code"], "invalid_request");
+    assert_eq!(body["error"]["message"], "invalid request body");
+}
+
 #[tokio::test]
 async fn management_plane_requires_a_valid_bearer_key() {
     let app = support::spawn().await;
