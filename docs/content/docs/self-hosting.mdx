@@ -90,6 +90,7 @@ Every knob is an environment variable with a production default. Only
 | `CHIMELY_ADMIN_TLS_TERMINATED` | `false` | Set `true` when TLS terminates upstream |
 | `CHIMELY_SHUTDOWN_GRACE_MS` | `5000` | `/readyz` 503 window before the listener closes |
 | `CHIMELY_SHUTDOWN_DRAIN_DEADLINE_MS` | `30000` | In-flight job drain budget |
+| `CHIMELY_SUBSCRIBER_HASH_LEGACY_ACCEPT` | `true` | Accept subscriber hashes without the environment binding (see [Auth](/docs/auth)) |
 
 <Callout type="warn" title="Dev-only">
 `CHIMELY_DEV_ENVIRONMENT` and `CHIMELY_DEV_API_KEY` seed a quickstart
