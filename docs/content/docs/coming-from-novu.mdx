@@ -1,0 +1,37 @@
+---
+title: Coming from Novu
+description: What Chimely's <Inbox /> covers, and where it deliberately diverges.
+---
+
+Chimely's `<Inbox />` covers the component surface a Novu inbox integration
+relies on: tabs with per-tab counts, composable sub-components (`Bell`,
+`InboxContent`, `Preferences`), granular render props, portal positioning,
+controlled open, `routerPush`, appearance theming with a dark preset,
+localization, mark-as-unread, and archive. The [SDK
+reference](/docs/sdk-reference) documents the full prop surface.
+
+Some Novu features are missing **on purpose**. They are design decisions, not
+roadmap gaps, so plan your migration around them rather than waiting for
+them:
+
+| Novu feature | Why Chimely diverges |
+|---|---|
+| `context` / `contextHash` multi-tenancy scoping | Single-org is a design invariant. Environments are the isolation unit; multi-tenancy is another environment or another instance |
+| WebSocket transport (`socketUrl`, `socketOptions`) | SSE-as-hint plus conditional REST refetch is the architecture; there is no socket to configure |
+| HTML in notifications (opt-in unsanitized rendering) | The default renderer is plain text by construction; a custom `renderItem` can already render anything it trusts |
+| Schedule / quiet hours | Novu's schedule gates email, SMS, and push, and always delivers in-app; with in-app as the only channel there is nothing to gate. Revisit when push lands |
+| Keyless mode, plan-gated limits, workflow-editor concepts | Cloud-product features, not component features |
+
+## What this means in practice
+
+- **Tenant scoping.** Where Novu scopes an inbox with `context` +
+  `contextHash`, Chimely scopes with the environment: point each tenant
+  surface at its own environment (or instance) and sign the subscriber hash
+  with that environment's secret. See [Auth & HMAC](/docs/auth).
+- **Realtime.** There is no `socketUrl` equivalent. The client opens one SSE
+  stream per client instance and treats events as hints to refetch over REST,
+  so a dropped or missed event is harmless. Nothing to configure beyond
+  `backoff`.
+- **Rich content.** Payloads are stored and rendered as plain text by
+  default. To render markup you trust, override `renderItem` (or
+  `renderSubject` / `renderBody`) and sanitize in your own code.

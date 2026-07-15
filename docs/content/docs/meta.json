@@ -1,3 +1,11 @@
 {
-  "pages": ["index", "quickstart", "auth", "self-hosting", "operations", "sdk-reference"]
+  "pages": [
+    "index",
+    "quickstart",
+    "auth",
+    "self-hosting",
+    "operations",
+    "sdk-reference",
+    "coming-from-novu"
+  ]
 }
