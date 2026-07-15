@@ -160,6 +160,33 @@ describe('new-notification pill', () => {
     expect(document.querySelector('.chimely-pill')).toBeNull();
   });
 
+  test('arrivals behind the pill announce via a polite status region', async () => {
+    const stub = createStubServer();
+    for (let i = 0; i < 6; i += 1) {
+      stub.addNotification();
+    }
+    await renderInbox(stub);
+    fireEvent.click(bell());
+
+    const status = screen.getByRole('status');
+    expect(status.classList.contains('chimely-sr-only')).toBe(true);
+    expect(status.textContent).toBe('');
+
+    const list = document.querySelector('.chimely-list') as HTMLElement;
+    list.scrollTop = 200;
+    stub.addNotification({ payload: { title: 'late arrival' } });
+    stub.emitHint();
+    await waitFor(() => {
+      expect(status.textContent).toBe('1 new notification');
+    });
+
+    // Dismissing the pill empties the region without a further announcement.
+    fireEvent.click(screen.getByRole('button', { name: '1 new notification' }));
+    await waitFor(() => {
+      expect(status.textContent).toBe('');
+    });
+  });
+
   test('prunes ids evicted by a non-contiguous reset', async () => {
     const stub = createStubServer();
     for (let i = 0; i < 3; i += 1) {
