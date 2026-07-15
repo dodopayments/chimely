@@ -395,7 +395,6 @@ mod tests {
             scrub_query("subscriber%5Fid=usr_123", true),
             format!("subscriber_id={HASH_USR_123}")
         );
-        // Non-identifier params pass through.
         assert_eq!(scrub_query("limit=10&a=b", true), "limit=10&a=b");
     }
 
@@ -411,7 +410,6 @@ mod tests {
         );
         assert_eq!(scrub_path("/v1/inbox/items", true), "/v1/inbox/items");
         assert_eq!(scrub_path("/v1/subscribers/", true), "/v1/subscribers/");
-        // Default off: the path logs unchanged.
         assert_eq!(
             scrub_path("/v1/subscribers/usr_123", false),
             "/v1/subscribers/usr_123"
