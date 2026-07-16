@@ -1226,8 +1226,12 @@ pub struct AdminReplayQuery {
 }
 
 /// Resolve an optional environment slug to its id, 404 if the slug is unknown.
+/// A blank value (an empty `?environment=` from a form field or unset selector)
+/// is treated as no scope, not a lookup of the empty slug.
 async fn replay_scope(state: &AppState, slug: Option<String>) -> Result<Option<Uuid>, ApiError> {
-    let Some(slug) = slug else { return Ok(None) };
+    let Some(slug) = slug.filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
     let id = dlq::environment_by_slug(&state.pool, &slug)
         .await
         .map_err(ApiError::from)?

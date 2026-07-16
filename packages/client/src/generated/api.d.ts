@@ -1243,7 +1243,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Environment slug to scope the replay to. */
-                environment?: string | null;
+                environment?: string;
             };
             header?: never;
             path?: never;
@@ -1317,7 +1317,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Environment slug to scope the replay to. */
-                environment?: string | null;
+                environment?: string;
             };
             header?: never;
             path: {

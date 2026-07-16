@@ -104,7 +104,6 @@ paths:
         required: false
         schema:
           type: string
-          nullable: true
       responses:
         '200':
           description: Replayed.
@@ -164,7 +163,6 @@ paths:
         required: false
         schema:
           type: string
-          nullable: true
       responses:
         '200':
           description: Replayed.

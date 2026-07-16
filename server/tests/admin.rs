@@ -1355,7 +1355,11 @@ async fn dlq_replay_scoped_to_environment_leaves_others_untouched() {
 #[tokio::test]
 async fn dlq_replay_404s_for_unknown_environment() {
     let app = support::spawn().await;
-    let job_typeid = ids::typeid(ids::JOB, ids::new_uuid());
+    // Park a real row so the 404 can only come from the unknown-scope branch,
+    // not the "no such parked job" branch. A rejected replay must not move it.
+    let job_id = ids::new_uuid();
+    park_dead_letter(&app.pool, app.env.id, job_id).await;
+    let job_typeid = ids::typeid(ids::JOB, job_id);
     let res = app
         .admin_post(
             &format!("/admin/api/dlq/{job_typeid}/replay?environment=no-such-env"),
@@ -1365,6 +1369,30 @@ async fn dlq_replay_404s_for_unknown_environment() {
         .await
         .unwrap();
     assert_eq!(res.status(), 404);
+    assert_eq!(
+        dead_letters_in(&app.pool, app.env.id).await,
+        1,
+        "a rejected replay must not move the parked job"
+    );
+}
+
+#[tokio::test]
+async fn dlq_replay_treats_a_blank_environment_as_no_scope() {
+    let app = support::spawn().await;
+    let job_id = ids::new_uuid();
+    park_dead_letter(&app.pool, app.env.id, job_id).await;
+    let job_typeid = ids::typeid(ids::JOB, job_id);
+    // An empty ?environment= is an omitted scope, not a lookup of the empty slug.
+    let res = app
+        .admin_post(
+            &format!("/admin/api/dlq/{job_typeid}/replay?environment="),
+            json!({}),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    assert_eq!(res.json::<Value>().await.unwrap()["replayed"], json!(1));
 }
 
 // =============================================================================
