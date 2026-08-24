@@ -14,8 +14,9 @@
 # npm; the same v* tag push publishes the Docker image (see ci.yml docker job).
 #
 # Prerequisites (repo settings, one-time, human):
-#   - NPM_TOKEN secret: an npm automation token with publish rights to the
-#     @chimely scope, and the @chimely scope must grant that token access.
+#   - npm Trusted Publishing (OIDC), no NPM_TOKEN: each @chimely/* package has
+#     a trusted publisher on npmjs.com for repo dodopayments/chimely + workflow
+#     release.yml. The publish job's id-token: write authenticates the publish.
 #   - "Allow GitHub Actions to create and approve pull requests" enabled.
 #     The `version` job opens the Version Packages PR. The `publish` job does
 #     NOT need this (no pull-requests permission), so the publish path is
@@ -93,5 +94,11 @@ jobs:
           createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # No NPM_TOKEN: npm Trusted Publishing (OIDC) authenticates the
+          # publish via the job's id-token: write. pnpm >= the #11495 fix
+          # (this repo pins pnpm 11.5.2) lets the OIDC-derived token override
+          # any static _authToken, so a token here would only downgrade the
+          # publish back to legacy token auth (no trusted-publisher metadata).
+          # Each @chimely/* package has a trusted publisher registered on
+          # npmjs.com for repo dodopayments/chimely + workflow release.yml.
           NPM_CONFIG_PROVENANCE: ${{ steps.vis.outputs.provenance }}
