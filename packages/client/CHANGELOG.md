@@ -1,5 +1,11 @@
 # @chimely/client
 
+## 0.2.2
+
+### Patch Changes
+
+- Patch release validating npm Trusted Publishing (OIDC) — tokenless publish. No functional changes.
+
 ## 0.2.1
 
 ### Patch Changes

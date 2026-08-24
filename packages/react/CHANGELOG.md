@@ -1,5 +1,13 @@
 # @chimely/react
 
+## 0.2.2
+
+### Patch Changes
+
+- Patch release validating npm Trusted Publishing (OIDC) — tokenless publish. No functional changes.
+- Updated dependencies:
+  - @chimely/client@0.2.2
+
 ## 0.2.1
 
 ### Patch Changes
