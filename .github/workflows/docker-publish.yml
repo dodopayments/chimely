@@ -6,9 +6,13 @@
 # to GHCR by the `docker` job in ci.yml. The two are independent and target
 # different registries.
 #
+# Authentication to GAR is keyless via Workload Identity Federation -- no secret
+# is required. The job's `id-token: write` permission is what makes it work:
+# without it GitHub issues no OIDC token and google-github-actions/auth fails
+# before it ever reaches GCP. The service account is bound org-wide at
+# `attribute.repository_owner/dodopayments`, so no GCP-side IAM change is needed.
+#
 # Prerequisites (repo settings, one-time, human):
-#   - secrets.SERVICE_ACCOUNT_KEY: JSON key for a GCP service account with
-#     Artifact Registry write access on the target repository.
 #   - vars.REGION: GAR region host prefix, e.g. `us-central1`.
 #   - vars.CHIMELY_GAR_LOCATION: full image path without a tag, e.g.
 #     `us-central1-docker.pkg.dev/PROJECT/REPO/chimely`.
@@ -25,6 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # Required for Workload Identity Federation.
+      id-token: write
     env:
       IMAGE: ${{ vars.CHIMELY_GAR_LOCATION }}
       REGION: ${{ vars.REGION }}
@@ -44,7 +50,8 @@ jobs:
       - name: Google Auth
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: "${{ secrets.SERVICE_ACCOUNT_KEY }}"
+          workload_identity_provider: projects/1042125736866/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions@dodopayments.iam.gserviceaccount.com
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
