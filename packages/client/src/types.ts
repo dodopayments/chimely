@@ -62,6 +62,15 @@ export interface InboxCounts {
   unseen: number;
 }
 
+/** Exact category names combined with OR semantics for one unread count. */
+export interface InboxCountFilter {
+  categories: ReadonlyArray<string>;
+}
+
+export interface FilteredInboxCount {
+  unread: number;
+}
+
 export interface Preference {
   category: string;
   /** Only 'in_app' exists in v1. The union widens (never narrows) when push lands. */

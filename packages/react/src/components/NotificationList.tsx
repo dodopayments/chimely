@@ -66,7 +66,6 @@ export function NotificationList<TPayload>(props: NotificationListProps<TPayload
   // view (a sparse tab filter, a short list) the fill effect below keeps
   // fetching until items push it out or pages run out. A tab whose filter
   // matches few items therefore pages through the whole inbox on activation.
-  // Server-side per-tab counts (#39) are the planned bound.
   const [sentinelVisible, setSentinelVisible] = useState(false);
 
   useEffect(() => {

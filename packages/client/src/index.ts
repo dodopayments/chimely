@@ -15,6 +15,8 @@ export type {
   ChimelyClientConfig,
   ConnectionStatus,
   EventSourceLike,
+  FilteredInboxCount,
+  InboxCountFilter,
   InboxCounts,
   InboxFilterView,
   InboxItem,

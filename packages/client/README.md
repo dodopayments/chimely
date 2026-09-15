@@ -30,12 +30,21 @@ const unsubscribe = client.subscribe(() => {
 });
 
 client.connect();
+
+const categoryCounts = await client.getFilteredCounts([
+  { categories: ['payment.succeeded', 'payment.failed'] },
+  { categories: ['refund.created'] },
+]);
 ```
 
 The snapshot is immutable with a new identity per change, so it plugs straight
 into `useSyncExternalStore` or any equality-based renderer. Mutations
 (`markRead`, `markUnread`, `archive`, `markAllRead`, ...) apply optimistically
 and roll back on failure.
+
+`getFilteredCounts` returns exact unread counts from Postgres in the same
+order as the supplied category filters. Categories within one filter use OR
+semantics.
 
 Live updates arrive over Server-Sent Events, but SSE is a hint, not a
 transport: every hint triggers a conditional REST refetch (ETag, mostly

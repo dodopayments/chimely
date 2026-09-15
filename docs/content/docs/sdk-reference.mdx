@@ -119,6 +119,10 @@ better).
     {
       label: 'Transactions',
       icon: <MoneyWavy />,
+      categories: ['payment.succeeded', 'payment.failed'],
+    },
+    {
+      label: 'Tagged',
       filter: (item) =>
         Array.isArray(item.payload.tags) && item.payload.tags.includes('transactions'),
     },
@@ -127,14 +131,17 @@ better).
 />
 ```
 
-`InboxTab.filter` is a client-side predicate over loaded items: it can match
-tag arrays, category prefixes, or anything else in the payload. Custom payload
-fields are typed `unknown`, so narrow them (as with `Array.isArray` above)
-before use. A tab without a filter shows everything. When the active tab's filtered view runs short, the
-list keeps fetching pages until the tab fills or the inbox is exhausted.
+`InboxTab.categories` matches exact category names with OR semantics and uses
+the server for exact unread counts, including notifications beyond the loaded
+pages. A request may contain at most 100 category entries across all tabs. If
+both `categories` and `filter` are supplied, `categories` controls the tab.
 
-Per-tab unread counts cover loaded pages only, so they are approximate for
-deep inboxes. Server-side filtered counts are tracked in issue #39.
+`InboxTab.filter` remains a client-side predicate over loaded items for tag
+arrays, category prefixes, or other payload fields. Its unread count covers
+loaded pages only. Custom payload fields are typed `unknown`, so narrow them
+before use. A tab without either option shows everything and uses the global
+unread count. When a filtered view runs short, the list keeps fetching pages
+until the tab fills or the inbox is exhausted.
 
 ### Localization
 

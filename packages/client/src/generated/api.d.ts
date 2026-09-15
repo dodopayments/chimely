@@ -496,7 +496,11 @@ export interface paths {
          */
         get: operations["getInboxCounts"];
         put?: never;
-        post?: never;
+        /**
+         * Filtered inbox counts
+         * @description Exact unread counts for ordered category filters. Categories within one filter use OR semantics. Counts include direct notifications and broadcasts and exclude archived or muted items.
+         */
+        post: operations["getFilteredInboxCounts"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1002,6 +1006,21 @@ export interface components {
                 /** @description Human-readable detail, for logs and developers. Not stable, do not parse. */
                 message: string;
             };
+        };
+        FilteredInboxCount: {
+            unread: number;
+        };
+        FilteredInboxCounts: {
+            /** @description Results in the same order as the request filters. */
+            counts: components["schemas"]["FilteredInboxCount"][];
+        };
+        /** @description Ordered category filters. The complete request is limited to 100 category entries. */
+        FilteredInboxCountsRequest: {
+            filters: components["schemas"]["InboxCountFilter"][];
+        };
+        InboxCountFilter: {
+            /** @description Exact category names combined with OR semantics. */
+            categories: string[];
         };
         InboxCounts: {
             unread: number;
@@ -3272,6 +3291,81 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InboxCounts"];
+                };
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid subscriber hash"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getFilteredInboxCounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "filters": [
+                 *         {
+                 *           "categories": [
+                 *             "payment.succeeded",
+                 *             "payment.failed"
+                 *           ]
+                 *         },
+                 *         {
+                 *           "categories": [
+                 *             "refund.created"
+                 *           ]
+                 *         }
+                 *       ]
+                 *     }
+                 */
+                "application/json": components["schemas"]["FilteredInboxCountsRequest"];
+            };
+        };
+        responses: {
+            /** @description Counts in request order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilteredInboxCounts"];
+                };
+            };
+            /** @description Malformed or over-limit filter request. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "invalid_request",
+                     *         "message": "filters must contain 1–100 entries"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Missing/invalid API key or subscriber hash. */
