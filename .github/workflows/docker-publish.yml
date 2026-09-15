@@ -36,7 +36,7 @@ jobs:
       REGION: ${{ vars.REGION }}
       PRERELEASE: ${{ github.event.release.prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Extract release tag
         run: echo "RELEASE_TAG=${GITHUB_REF#refs/tags/}" >> "$GITHUB_ENV"
@@ -48,13 +48,13 @@ jobs:
 
       # Auth precedes the build so the registry cache can be read from GAR.
       - name: Google Auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: projects/1042125736866/locations/global/workloadIdentityPools/github-pool/providers/github-provider
           service_account: github-actions@dodopayments.iam.gserviceaccount.com
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Docker auth
         run: gcloud auth configure-docker "${REGION}-docker.pkg.dev"
