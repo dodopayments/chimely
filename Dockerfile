@@ -45,7 +45,10 @@ ENV SQLX_OFFLINE=true
 RUN cargo build --release --bin chimely
 
 FROM debian:trixie-slim AS runtime
+# `apt-get upgrade` pulls Debian security fixes (perl-base, util-linux family,
+# pcre2, ...) that the floating trixie-slim tag has not been rebuilt with yet.
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --user-group chimely
