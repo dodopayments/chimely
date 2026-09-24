@@ -43,6 +43,12 @@ export interface InboxAppearance {
     colorBadgeForeground?: string;
     /** Popover and pill box-shadow. Default 0 8px 24px rgba(0, 0, 0, 0.12). */
     shadow?: string;
+    /** Accent on `severity: 'high'` items. Default #dc2626. */
+    colorSeverityHigh?: string;
+    /** Accent on `severity: 'medium'` items. Default #d97706. */
+    colorSeverityMedium?: string;
+    /** Accent on `severity: 'low'` items. Default #2563eb. */
+    colorSeverityLow?: string;
     /** Extension point: forwarded as `--chimely-<key>` verbatim. */
     [customProperty: string]: string | undefined;
   };
