@@ -212,7 +212,7 @@ async fn dlq_command(args: Vec<String>) -> anyhow::Result<()> {
                 let id = ids::parse_typeid(ids::JOB, id)
                     .or_else(|| id.parse().ok())
                     .context("expected a job_… TypeID or a raw UUID")?;
-                if dlq::replay(&pool, id, environment).await? {
+                if dlq::replay(&pool, id, environment).await? > 0 {
                     println!("replayed {}", ids::typeid(ids::JOB, id));
                 } else {
                     eprintln!("no such dead letter");
