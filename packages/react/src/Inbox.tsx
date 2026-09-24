@@ -198,6 +198,17 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
     };
   }, [isOpen]);
 
+  // APG dialog pattern: move focus into the dialog on open. A portaled popover
+  // renders under document.body, after the host page in Tab order, so keyboard
+  // users would otherwise tab through the whole page to reach it. Escape returns
+  // focus to the bell (the dismissal effect above).
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    popoverRef.current?.focus();
+  }, [isOpen]);
+
   const popover = isOpen && (
     <div
       ref={popoverRef}
@@ -206,6 +217,7 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
       style={slotStyle(props.appearance, 'popover', rootStyle)}
       role="dialog"
       aria-labelledby={titleId}
+      tabIndex={-1}
     >
       <InboxContent<TPayload>
         tabs={props.tabs}
