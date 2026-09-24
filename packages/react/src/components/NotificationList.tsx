@@ -1,4 +1,10 @@
-import type { ChimelyError, InboxItem, InboxItemId, InboxItemSource } from '@chimely/client';
+import type {
+  ChimelyError,
+  InboxItem,
+  InboxItemId,
+  InboxItemSource,
+  WellKnownPayload,
+} from '@chimely/client';
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type { InboxAppearance, InboxSlot } from '../appearance';
@@ -21,6 +27,7 @@ interface NotificationListProps<TPayload> extends ItemRenderProps<TPayload> {
   archive: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
   unarchive: (item: { id: InboxItemId; source: InboxItemSource }) => Promise<void>;
   onItem: (item: InboxItem<TPayload>) => void;
+  onAction: (item: InboxItem<TPayload>, which: 'primary' | 'secondary') => void;
   cls: (slot: InboxSlot) => string;
   strings: Required<InboxLocalization>;
   appearance?: InboxAppearance;
@@ -28,6 +35,8 @@ interface NotificationListProps<TPayload> extends ItemRenderProps<TPayload> {
   newItemIds?: ReadonlyArray<InboxItemId>;
   renderItem?: (ctx: { item: InboxItem<TPayload>; markRead: () => Promise<void> }) => ReactNode;
   renderEmpty?: () => ReactNode;
+  /** Replace the default per-item action buttons with custom UI. */
+  renderActions?: (ctx: { item: InboxItem<TPayload> }) => ReactNode;
   /**
    * Suppress the empty state while more pages may still fill the view.
    * Set when a tab filter is active and hasMore is true.
@@ -276,12 +285,74 @@ export function NotificationList<TPayload>(props: NotificationListProps<TPayload
                         {item.archived === true ? '\u21a5' : '\u21a7'}
                       </button>
                     </span>
+                    <ItemActions
+                      item={item}
+                      onAction={props.onAction}
+                      renderActions={props.renderActions}
+                    />
                   </>
                 )}
               </li>
             ))}
         <li ref={sentinelRef} className="chimely-sentinel" aria-hidden="true" />
       </ul>
+    </div>
+  );
+}
+
+/**
+ * A non-blank string label off a payload action, or null. Payloads are
+ * verbatim, so a whitespace-only label must not render an invisible button.
+ */
+function actionLabel(action: unknown): string | null {
+  if (action !== null && typeof action === 'object' && 'label' in action) {
+    const { label } = action as { label: unknown };
+    if (typeof label === 'string' && label.trim().length > 0) {
+      return label;
+    }
+  }
+  return null;
+}
+
+/**
+ * The default item's call-to-action buttons, a sibling of the item button (a
+ * button cannot nest inside a button). renderActions replaces them wholesale.
+ * With neither actions nor renderActions, nothing renders.
+ */
+function ItemActions<TPayload>(props: {
+  item: InboxItem<TPayload>;
+  onAction: (item: InboxItem<TPayload>, which: 'primary' | 'secondary') => void;
+  renderActions?: (ctx: { item: InboxItem<TPayload> }) => ReactNode;
+}): ReactNode {
+  if (props.renderActions) {
+    return <div className="chimely-item-cta">{props.renderActions({ item: props.item })}</div>;
+  }
+  const payload = props.item.payload as Partial<WellKnownPayload>;
+  const primary = actionLabel(payload.primary_action);
+  const secondary = actionLabel(payload.secondary_action);
+  if (primary === null && secondary === null) {
+    return null;
+  }
+  return (
+    <div className="chimely-item-cta">
+      {primary !== null && (
+        <button
+          type="button"
+          className="chimely-item-cta-primary"
+          onClick={() => props.onAction(props.item, 'primary')}
+        >
+          {primary}
+        </button>
+      )}
+      {secondary !== null && (
+        <button
+          type="button"
+          className="chimely-item-cta-secondary"
+          onClick={() => props.onAction(props.item, 'secondary')}
+        >
+          {secondary}
+        </button>
+      )}
     </div>
   );
 }

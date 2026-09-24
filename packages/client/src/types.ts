@@ -8,6 +8,15 @@ import type { ChimelyError } from './errors';
 
 export type InboxItemSource = 'notification' | 'broadcast';
 
+/**
+ * A call-to-action button the default item renders. The optional `url` is
+ * followed on click through the same safe-navigation path as `action_url`.
+ */
+export interface PayloadAction {
+  label: string;
+  url?: string;
+}
+
 /** TypeID of a direct notification: `notif_` + UUIDv7 in Crockford base32. */
 export type NotificationId = `notif_${string}`;
 /** TypeID of a broadcast: `bcast_` + UUIDv7 in Crockford base32. */
@@ -30,6 +39,10 @@ export interface WellKnownPayload {
   action_url?: string;
   /** Leading icon/avatar in the default rendering. */
   icon_url?: string;
+  /** Primary call-to-action button on the default item. */
+  primary_action?: PayloadAction;
+  /** Secondary call-to-action, rendered beside the primary. */
+  secondary_action?: PayloadAction;
   [custom: string]: unknown;
 }
 
