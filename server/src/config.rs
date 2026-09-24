@@ -78,6 +78,10 @@ pub struct Config {
     /// In-flight job drain budget after claiming stops. Past it the worker
     /// is aborted. At-least-once semantics make the rollback safe.
     pub shutdown_drain_deadline: Duration,
+    /// Accept the legacy subscriber hash form that omits the environment
+    /// binding. On by default so deployed customer backends keep working.
+    /// Flip to false once every backend computes the environment-bound form.
+    pub subscriber_hash_legacy_accept: bool,
 }
 
 /// Manual impl so credentials can never reach logs through `{:?}`.
@@ -130,6 +134,10 @@ impl std::fmt::Debug for Config {
             .field("subscriber_rate_burst", &self.subscriber_rate_burst)
             .field("shutdown_readiness_grace", &self.shutdown_readiness_grace)
             .field("shutdown_drain_deadline", &self.shutdown_drain_deadline)
+            .field(
+                "subscriber_hash_legacy_accept",
+                &self.subscriber_hash_legacy_accept,
+            )
             .finish()
     }
 }
@@ -197,6 +205,10 @@ impl Config {
                 "CHIMELY_SHUTDOWN_DRAIN_DEADLINE_MS",
                 30_000,
             )?),
+            subscriber_hash_legacy_accept: parse_var(
+                "CHIMELY_SUBSCRIBER_HASH_LEGACY_ACCEPT",
+                true,
+            )?,
         })
     }
 }
@@ -249,6 +261,7 @@ mod tests {
             subscriber_rate_burst: 0.0,
             shutdown_readiness_grace: Duration::from_millis(1),
             shutdown_drain_deadline: Duration::from_millis(1),
+            subscriber_hash_legacy_accept: true,
         };
         let out = format!("{cfg:?}");
         assert!(

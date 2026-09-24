@@ -10,10 +10,15 @@ info:
       by the key.
     * **Subscriber plane** — called by `@chimely/client` (the `<Inbox />`
       widget) on behalf of one end user. Authenticated with an HMAC subscriber
-      hash: `hex(HMAC-SHA256(environment.subscriber_hmac_secret, subscriber_id))`
-      computed by the customer's backend. Mandatory in environments with
-      `require_subscriber_hash = true` (the production default); optional in
-      dev environments so the quickstart works without a backend.
+      hash computed by the customer's backend:
+      `hex(HMAC-SHA256(environment.subscriber_hmac_secret, env_typeid || 0x00 || subscriber_id))`
+      where `env_typeid` is the environment's `env_…` TypeID. The legacy form
+      without the environment binding,
+      `hex(HMAC-SHA256(environment.subscriber_hmac_secret, subscriber_id))`,
+      stays accepted while `CHIMELY_SUBSCRIBER_HASH_LEGACY_ACCEPT` is true (the
+      default). Mandatory in environments with `require_subscriber_hash = true`
+      (the production default); optional in dev environments so the quickstart
+      works without a backend.
 
     Subscriber-plane scoping travels in headers (or query parameters where
     headers are impossible, i.e. `EventSource`):

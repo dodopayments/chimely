@@ -527,6 +527,7 @@ async fn sustained_jobs_churn_stays_bounded_under_autovacuum() {
         subscriber_rate_burst: 0.0,
         shutdown_readiness_grace: Duration::from_millis(100),
         shutdown_drain_deadline: Duration::from_secs(5),
+        subscriber_hash_legacy_accept: true,
     };
     let cfg = std::sync::Arc::new(cfg);
     let pubsub = chimely::pubsub::build(None, &pool).await.unwrap();

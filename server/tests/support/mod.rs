@@ -149,6 +149,9 @@ async fn spawn_inner(
         subscriber_rate_burst: 0.0,
         shutdown_readiness_grace: Duration::from_millis(150),
         shutdown_drain_deadline: Duration::from_secs(5),
+        // Legacy on matches the production default. Binding tests flip it
+        // via spawn_configured.
+        subscriber_hash_legacy_accept: true,
     };
     configure(&mut cfg);
     let cfg = Arc::new(cfg);
