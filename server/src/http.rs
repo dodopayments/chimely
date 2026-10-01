@@ -39,7 +39,10 @@ pub fn router(state: AppState) -> Router {
 
     let subscriber_plane = Router::new()
         .route("/v1/inbox/items", get(inbox::list_items))
-        .route("/v1/inbox/counts", get(inbox::get_counts))
+        .route(
+            "/v1/inbox/counts",
+            get(inbox::get_counts).post(inbox::get_filtered_counts),
+        )
         .route(
             "/v1/inbox/notifications/{id}/read",
             post(inbox::mark_notification_read),

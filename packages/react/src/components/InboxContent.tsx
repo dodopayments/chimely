@@ -3,25 +3,35 @@ import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { InboxAppearance, InboxSlot } from '../appearance';
 import { slotClass, slotStyle, variablesToStyle } from '../appearance';
-import { useNotifications } from '../hooks';
+import { useNotifications, useUnreadCount } from '../hooks';
 import type { InboxLocalization } from '../localization';
 import { mergeLocalization } from '../localization';
 import { navigation, resolveActionUrl } from '../navigation';
 import { ensureStyles } from '../styles';
+import { useExactTabCounts } from '../tab-counts';
 import type { ItemRenderProps } from './DefaultItem';
 import { GearIcon } from './icons';
 import { NotificationList } from './NotificationList';
 import { Preferences } from './Preferences';
 
 /**
- * One tab of the inbox list. The filter runs client-side over loaded items.
- * Omitting it shows everything. Unread counts per tab cover loaded pages
- * only.
+ * One tab of the inbox list. Category tabs receive exact unread counts from
+ * the server. Predicate tabs remain client-side and cover loaded items only.
  */
 export interface InboxTab<TPayload = WellKnownPayload> {
   label: string;
   icon?: ReactNode;
+  /** Exact category names combined with OR semantics. Takes precedence over filter. */
+  categories?: ReadonlyArray<string>;
+  /** Client-side predicate over loaded items when categories is omitted. */
   filter?: (item: InboxItem<TPayload>) => boolean;
+}
+
+function tabMatches<TPayload>(tab: InboxTab<TPayload>, item: InboxItem<TPayload>): boolean {
+  if (tab.categories !== undefined) {
+    return tab.categories.includes(item.category);
+  }
+  return tab.filter?.(item) ?? true;
 }
 
 /**
@@ -78,6 +88,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
     archiveRead,
     setFilter,
   } = useNotifications<TPayload>();
+  const { count: globalUnread } = useUnreadCount();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -87,8 +98,21 @@ export function InboxContent<TPayload = WellKnownPayload>(
   const tabs = props.tabs;
   const hasTabs = tabs !== undefined && tabs.length > 0;
   const activeIndex = hasTabs ? Math.min(activeTabIndex, tabs.length - 1) : 0;
-  const activeFilter = hasTabs ? tabs[activeIndex]?.filter : undefined;
-  const visibleItems = activeFilter ? items.filter(activeFilter) : items;
+  const activeTab = hasTabs ? tabs[activeIndex] : undefined;
+  const activeTabFiltered = activeTab?.categories !== undefined || activeTab?.filter !== undefined;
+  const visibleItems =
+    activeTab !== undefined && activeTabFiltered
+      ? items.filter((item) => tabMatches(activeTab, item))
+      : items;
+  const { counts: exactCounts, refresh: refreshExactCounts } = useExactTabCounts(
+    tabs,
+    lastRefreshNewItemIds,
+  );
+
+  const withCountRefresh = async (operation: Promise<void>): Promise<void> => {
+    await operation;
+    await refreshExactCounts();
+  };
 
   // Arrival ids restricted to the active tab so items in other tabs never
   // bump the pill. Keyed on the merge, not on items, so later renders
@@ -96,13 +120,13 @@ export function InboxContent<TPayload = WellKnownPayload>(
   // are read from the render that carried the merge.
   // biome-ignore lint/correctness/useExhaustiveDependencies: recompute only per merge
   const visibleNewItemIds = useMemo(() => {
-    if (!activeFilter || lastRefreshNewItemIds === undefined) {
+    if (!activeTabFiltered || activeTab === undefined || lastRefreshNewItemIds === undefined) {
       return lastRefreshNewItemIds;
     }
     const byId = new Map(items.map((item) => [item.id, item]));
     return lastRefreshNewItemIds.filter((id) => {
       const item = byId.get(id);
-      return item !== undefined && activeFilter(item);
+      return item !== undefined && tabMatches(activeTab, item);
     });
   }, [lastRefreshNewItemIds]);
 
@@ -183,6 +207,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
       return;
     }
     void markRead({ id: item.id, source: item.source }).then(() => {
+      void refreshExactCounts();
       const url = (item.payload as Partial<WellKnownPayload>).action_url;
       if (typeof url !== 'string' || url.length === 0) {
         return;
@@ -255,7 +280,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
                       role="menuitem"
                       onClick={() => {
                         setMenuOpen(false);
-                        void markAllRead();
+                        void withCountRefresh(markAllRead());
                       }}
                     >
                       {strings.markAllRead}
@@ -275,7 +300,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
                       role="menuitem"
                       onClick={() => {
                         setMenuOpen(false);
-                        void archiveAll();
+                        void withCountRefresh(archiveAll());
                       }}
                     >
                       {strings.archiveAllAction}
@@ -301,9 +326,13 @@ export function InboxContent<TPayload = WellKnownPayload>(
       {hasTabs && !showPreferences && (
         <div className={cls('tabs')} role="tablist" style={slotStyle(props.appearance, 'tabs')}>
           {tabs.map((tab, index) => {
-            const unread = (tab.filter ? items.filter(tab.filter) : items).filter(
-              (item) => !item.read,
-            ).length;
+            const loadedUnread = items.filter((item) => tabMatches(tab, item) && !item.read).length;
+            const unread =
+              tab.categories !== undefined
+                ? (exactCounts.get(index) ?? loadedUnread)
+                : tab.filter === undefined
+                  ? globalUnread
+                  : loadedUnread;
             return (
               <button
                 // biome-ignore lint/suspicious/noArrayIndexKey: tabs are a static configuration list
@@ -344,16 +373,16 @@ export function InboxContent<TPayload = WellKnownPayload>(
           fetchMore={fetchMore}
           error={error}
           panel={hasTabs ? { id: panelId, labelledBy: tabId(activeIndex) } : undefined}
-          markRead={markRead}
-          markUnread={markUnread}
-          archive={archive}
-          unarchive={unarchive}
+          markRead={(item) => withCountRefresh(markRead(item))}
+          markUnread={(item) => withCountRefresh(markUnread(item))}
+          archive={(item) => withCountRefresh(archive(item))}
+          unarchive={(item) => withCountRefresh(unarchive(item))}
           onItem={handleItemClick}
           cls={cls}
           strings={strings}
           appearance={props.appearance}
           newItemIds={visibleNewItemIds}
-          deferEmpty={activeFilter !== undefined && hasMore}
+          deferEmpty={activeTabFiltered && hasMore}
           renderItem={props.renderItem}
           renderEmpty={props.renderEmpty}
           renderSubject={props.renderSubject}
