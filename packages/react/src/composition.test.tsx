@@ -119,6 +119,79 @@ describe('standalone Preferences', () => {
   });
 });
 
+describe('preferences grouping', () => {
+  const rowLabels = (): Array<string | null> =>
+    [...document.querySelectorAll('.chimely-preference span')].map((el) => el.textContent);
+
+  test('preferencesFilter limits the shown categories', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.invoice' });
+    stub.addNotification({ category: 'security.alert' });
+    await provided(stub, () => (
+      <Preferences preferencesFilter={(category) => category.startsWith('billing')} />
+    ));
+    expect(rowLabels()).toEqual(['billing.invoice']);
+  });
+
+  test('preferencesSort orders the category rows', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'a.one' });
+    stub.addNotification({ category: 'b.two' });
+    await provided(stub, () => <Preferences preferencesSort={(a, b) => b.localeCompare(a)} />);
+    expect(rowLabels()).toEqual(['b.two', 'a.one']);
+  });
+
+  test('preferenceGroups renders labeled groups with an ungrouped tail', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.invoice' });
+    stub.addNotification({ category: 'security.alert' });
+    stub.addNotification({ category: 'social.mention' });
+    await provided(stub, () => (
+      <Preferences preferenceGroups={[{ label: 'Money', categories: ['billing.invoice'] }]} />
+    ));
+    expect(screen.getByText('Money')).toBeDefined();
+    // Grouped first (group order), then the ungrouped tail (sorted).
+    expect(rowLabels()).toEqual(['billing.invoice', 'security.alert', 'social.mention']);
+  });
+
+  test('a category listed in two groups renders once, first group wins', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.invoice' });
+    await provided(stub, () => (
+      <Preferences
+        preferenceGroups={[
+          { label: 'Money', categories: ['billing.invoice'] },
+          { label: 'Everything', categories: ['billing.invoice'] },
+        ]}
+      />
+    ));
+    expect(screen.getByText('Money')).toBeDefined();
+    expect(screen.queryByText('Everything')).toBeNull();
+    expect(rowLabels()).toEqual(['billing.invoice']);
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1);
+  });
+
+  test('a group with no visible category renders no heading', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'social.mention' });
+    await provided(stub, () => (
+      <Preferences preferenceGroups={[{ label: 'Money', categories: ['billing.invoice'] }]} />
+    ));
+    expect(screen.queryByText('Money')).toBeNull();
+    expect(rowLabels()).toEqual(['social.mention']);
+  });
+
+  test('the props thread through <Inbox> to the panel', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.invoice' });
+    await renderInbox(stub, {
+      preferenceGroups: [{ label: 'Money', categories: ['billing.invoice'] }],
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Notification preferences' }));
+    expect(screen.getByText('Money')).toBeDefined();
+  });
+});
+
 describe('granular render props', () => {
   test('renderSubject replaces only the subject', async () => {
     const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {});
