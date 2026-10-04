@@ -30,6 +30,12 @@ export interface WellKnownPayload {
   action_url?: string;
   /** Leading icon/avatar in the default rendering. */
   icon_url?: string;
+  /**
+   * Relative importance. The default item shows a matching severity accent
+   * tinted by the `colorSeverity*` appearance variables. Any other value
+   * renders no accent.
+   */
+  severity?: 'high' | 'medium' | 'low';
   [custom: string]: unknown;
 }
 

@@ -848,3 +848,36 @@ describe('standalone mode', () => {
     expect(stub.stream().closed).toBe(true);
   });
 });
+
+describe('severity accent', () => {
+  test('renders a tinted accent for a known severity', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ payload: { title: 'urgent', severity: 'high' } });
+    await renderInbox(stub);
+    fireEvent.click(bell());
+
+    const accent = document.querySelector('.chimely-item-severity');
+    expect(accent).not.toBeNull();
+    expect(accent?.classList.contains('chimely-item-severity-high')).toBe(true);
+    // Decorative only: the count already rides the item text.
+    expect(accent?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  test('renders no accent without a severity', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ payload: { title: 'routine' } });
+    await renderInbox(stub);
+    fireEvent.click(bell());
+
+    expect(document.querySelector('.chimely-item-severity')).toBeNull();
+  });
+
+  test('ignores a severity outside the known set', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ payload: { title: 'weird', severity: 'critical' } });
+    await renderInbox(stub);
+    fireEvent.click(bell());
+
+    expect(document.querySelector('.chimely-item-severity')).toBeNull();
+  });
+});
