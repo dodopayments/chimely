@@ -46,8 +46,8 @@ RUN cargo build --release --bin chimely
 
 FROM gcr.io/distroless/cc-debian13:nonroot AS runtime
 # The base supplies glibc, libgcc, CA certificates and tzdata. The admin SPA
-# is embedded in the Rust binary; no Node runtime or node_modules is shipped.
-# Kubernetes preStop execs sleep directly; distroless has no coreutils/shell.
+# is embedded in the Rust binary. No Node runtime or node_modules is shipped.
+# Kubernetes preStop execs sleep directly. Distroless has no coreutils or shell.
 COPY --from=builder /bin/sleep /bin/sleep
 COPY --from=builder /app/target/release/chimely /usr/local/bin/chimely
 USER 65532:65532
