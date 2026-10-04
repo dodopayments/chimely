@@ -142,7 +142,9 @@ export const INBOX_CSS = `
 }
 .chimely-bell:focus-visible,
 .chimely-header-action:focus-visible,
-.chimely-item:focus-visible {
+.chimely-item:focus-visible,
+.chimely-item-cta-primary:focus-visible,
+.chimely-item-cta-secondary:focus-visible {
   outline: 2px solid var(--chimely-colorPrimary, #1264FF);
   outline-offset: 2px;
 }
@@ -223,6 +225,11 @@ export const INBOX_CSS = `
 .chimely-list-row {
   position: relative;
 }
+/* The row owns the divider so action buttons sit inside it, above the line.
+   Scoped to default-item rows: custom renderItem rows keep their own layout. */
+.chimely-list-row:has(> .chimely-item) {
+  border-bottom: 1px solid var(--chimely-colorMuted, #f3f4f6);
+}
 .chimely-item-actions {
   position: absolute;
   top: 8px;
@@ -259,12 +266,37 @@ export const INBOX_CSS = `
   width: 100%;
   padding: 12px 14px;
   border: none;
-  border-bottom: 1px solid var(--chimely-colorMuted, #f3f4f6);
   background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+.chimely-item-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 14px 12px;
+}
+.chimely-item-cta-primary,
+.chimely-item-cta-secondary {
+  border: 1px solid var(--chimely-colorMuted, #e5e7eb);
+  border-radius: var(--chimely-borderRadius, 8px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.9em;
+  font-weight: 500;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.chimely-item-cta-primary {
+  background: var(--chimely-colorPrimary, #1264FF);
+  border-color: var(--chimely-colorPrimary, #1264FF);
+  color: var(--chimely-colorBadgeForeground, #ffffff);
+}
+.chimely-item-cta-secondary:hover {
+  background: var(--chimely-colorMuted, #f3f4f6);
 }
 .chimely-item:hover {
   background: var(--chimely-colorMuted, #f9fafb);

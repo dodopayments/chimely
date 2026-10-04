@@ -6,7 +6,7 @@ import { slotClass, slotStyle, variablesToStyle } from '../appearance';
 import { useNotifications } from '../hooks';
 import type { InboxLocalization } from '../localization';
 import { mergeLocalization } from '../localization';
-import { navigation, resolveActionUrl } from '../navigation';
+import { followActionUrl } from '../navigation';
 import { ensureStyles } from '../styles';
 import type { ItemRenderProps } from './DefaultItem';
 import { GearIcon } from './icons';
@@ -56,6 +56,17 @@ export interface InboxContentProps<TPayload = WellKnownPayload> extends ItemRend
   renderItem?: (ctx: { item: InboxItem<TPayload>; markRead: () => Promise<void> }) => ReactNode;
   renderEmpty?: () => ReactNode;
   renderFooter?: () => ReactNode;
+  /**
+   * Primary action-button click. Default (follow `primary_action.url` through
+   * routerPush/full navigation) runs unless this returns false.
+   */
+  // biome-ignore lint/suspicious/noConfusingVoidType: frozen contract type
+  onPrimaryActionClick?: (item: InboxItem<TPayload>) => boolean | void;
+  /** Secondary action-button click. Symmetric with onPrimaryActionClick. */
+  // biome-ignore lint/suspicious/noConfusingVoidType: frozen contract type
+  onSecondaryActionClick?: (item: InboxItem<TPayload>) => boolean | void;
+  /** Replace the default action buttons with custom UI. */
+  renderActions?: (ctx: { item: InboxItem<TPayload> }) => ReactNode;
 }
 
 export function InboxContent<TPayload = WellKnownPayload>(
@@ -184,19 +195,24 @@ export function InboxContent<TPayload = WellKnownPayload>(
     }
     void markRead({ id: item.id, source: item.source }).then(() => {
       const url = (item.payload as Partial<WellKnownPayload>).action_url;
-      if (typeof url !== 'string' || url.length === 0) {
-        return;
-      }
-      const resolved = resolveActionUrl(url);
-      if (!resolved) {
-        return;
-      }
-      if (resolved.kind === 'same-origin' && props.routerPush) {
-        props.routerPush(resolved.path);
-      } else {
-        navigation.assign(url);
+      if (typeof url === 'string' && url.length > 0) {
+        followActionUrl(url, props.routerPush);
       }
     });
+  };
+
+  // Action buttons do not mark the item read: the CTA is a distinct intent
+  // from opening the notification. The optional callback can veto navigation.
+  const handleActionClick = (item: InboxItem<TPayload>, which: 'primary' | 'secondary') => {
+    const onClick = which === 'primary' ? props.onPrimaryActionClick : props.onSecondaryActionClick;
+    if (onClick?.(item) === false) {
+      return;
+    }
+    const payload = item.payload as Partial<WellKnownPayload>;
+    const action = which === 'primary' ? payload.primary_action : payload.secondary_action;
+    if (action && typeof action.url === 'string' && action.url.length > 0) {
+      followActionUrl(action.url, props.routerPush);
+    }
   };
 
   return (
@@ -349,6 +365,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
           archive={archive}
           unarchive={unarchive}
           onItem={handleItemClick}
+          onAction={handleActionClick}
           cls={cls}
           strings={strings}
           appearance={props.appearance}
@@ -356,6 +373,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
           deferEmpty={activeFilter !== undefined && hasMore}
           renderItem={props.renderItem}
           renderEmpty={props.renderEmpty}
+          renderActions={props.renderActions}
           renderSubject={props.renderSubject}
           renderBody={props.renderBody}
           renderAvatar={props.renderAvatar}

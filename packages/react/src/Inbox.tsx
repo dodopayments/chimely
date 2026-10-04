@@ -214,10 +214,13 @@ function InboxView<TPayload>(props: InboxProps<TPayload>): ReactNode {
         titleId={titleId}
         preferencesPanel={props.preferencesPanel}
         onItemClick={props.onItemClick}
+        onPrimaryActionClick={props.onPrimaryActionClick}
+        onSecondaryActionClick={props.onSecondaryActionClick}
         routerPush={props.routerPush}
         renderItem={props.renderItem}
         renderEmpty={props.renderEmpty}
         renderFooter={props.renderFooter}
+        renderActions={props.renderActions}
         renderSubject={props.renderSubject}
         renderBody={props.renderBody}
         renderAvatar={props.renderAvatar}
