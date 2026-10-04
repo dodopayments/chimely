@@ -1215,6 +1215,30 @@ pub struct AdminReplayResult {
     pub replayed: i64,
 }
 
+/// Optional environment scope for a replay, mirroring the CLI's `--env`.
+/// environment_id is part of every key. Without a scope the instance-wide
+/// admin plane matches the bare job id across environments.
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct AdminReplayQuery {
+    /// Environment slug to scope the replay to.
+    pub environment: Option<String>,
+}
+
+/// Resolve an optional environment slug to its id, 404 if the slug is unknown.
+/// A blank value (an empty `?environment=` from a form field or unset selector)
+/// is treated as no scope, not a lookup of the empty slug.
+async fn replay_scope(state: &AppState, slug: Option<String>) -> Result<Option<Uuid>, ApiError> {
+    let Some(slug) = slug.filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let id = dlq::environment_by_slug(&state.pool, &slug)
+        .await
+        .map_err(ApiError::from)?
+        .ok_or_else(|| ApiError::not_found("no such environment"))?;
+    Ok(Some(id))
+}
+
 #[utoipa::path(
     get,
     path = "/admin/api/dlq",
@@ -1265,8 +1289,11 @@ pub async fn list_dlq(
     tag = "admin",
     operation_id = "adminReplayDeadLetter",
     summary = "Replay dead letter",
-    description = "Requeue one failed job for another attempt.",
-    params(("job_id" = String, Path, description = "Job TypeID (job_…).")),
+    description = "Requeue one failed job for another attempt. Optionally scoped to one environment by slug.",
+    params(
+        ("job_id" = String, Path, description = "Job TypeID (job_…)."),
+        AdminReplayQuery,
+    ),
     responses(
         (status = 200, description = "Replayed.", body = AdminReplayResult),
         (
@@ -1283,7 +1310,7 @@ pub async fn list_dlq(
         ),
         (
             status = 404,
-            description = "No such parked job.",
+            description = "No such parked job, or unknown environment scope.",
             body = crate::api::contract::Error,
             example = json!({"error": {"code": "not_found", "message": "no such parked job"}}),
         ),
@@ -1294,18 +1321,21 @@ pub async fn replay_dead_letter(
     auth: AdminAuth,
     State(state): State<AppState>,
     Path(job_id): Path<String>,
+    ApiQuery(query): ApiQuery<AdminReplayQuery>,
 ) -> Result<Json<AdminReplayResult>, ApiError> {
     auth.require(Capability::DlqReplay)?;
     let id = ids::parse_typeid(ids::JOB, &job_id)
         .ok_or_else(|| ApiError::not_found("no such parked job"))?;
-    // Cross-environment admin path: job ids are globally unique UUIDv7s.
-    let replayed = dlq::replay(&state.pool, id, None)
+    let environment = replay_scope(&state, query.environment).await?;
+    let replayed = dlq::replay(&state.pool, id, environment)
         .await
         .map_err(ApiError::from)?;
-    if !replayed {
+    if replayed == 0 {
         return Err(ApiError::not_found("no such parked job"));
     }
-    Ok(Json(AdminReplayResult { replayed: 1 }))
+    Ok(Json(AdminReplayResult {
+        replayed: replayed as i64,
+    }))
 }
 
 #[utoipa::path(
@@ -1314,6 +1344,8 @@ pub async fn replay_dead_letter(
     tag = "admin",
     operation_id = "adminReplayAllDeadLetters",
     summary = "Replay all dead letters",
+    description = "Requeue every parked job. Optionally scoped to one environment by slug.",
+    params(AdminReplayQuery),
     responses(
         (status = 200, description = "Replayed.", body = AdminReplayResult),
         (
@@ -1328,15 +1360,23 @@ pub async fn replay_dead_letter(
             body = crate::api::contract::Error,
             example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
         ),
+        (
+            status = 404,
+            description = "Unknown environment scope.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such environment"}}),
+        ),
     ),
     security(("AdminSession" = []))
 )]
 pub async fn replay_all_dead_letters(
     auth: AdminAuth,
     State(state): State<AppState>,
+    ApiQuery(query): ApiQuery<AdminReplayQuery>,
 ) -> Result<Json<AdminReplayResult>, ApiError> {
     auth.require(Capability::DlqReplay)?;
-    let replayed = dlq::replay_all(&state.pool, None)
+    let environment = replay_scope(&state, query.environment).await?;
+    let replayed = dlq::replay_all(&state.pool, environment)
         .await
         .map_err(ApiError::from)? as i64;
     Ok(Json(AdminReplayResult { replayed }))
