@@ -44,16 +44,13 @@ COPY --from=admin /app/server/admin/dist ./admin/dist
 ENV SQLX_OFFLINE=true
 RUN cargo build --release --bin chimely
 
-FROM debian:trixie-slim AS runtime
-# `apt-get upgrade` pulls Debian security fixes (perl-base, util-linux family,
-# pcre2, ...) that the floating trixie-slim tag has not been rebuilt with yet.
-RUN apt-get update \
-    && apt-get upgrade -y --no-install-recommends \
-    && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --uid 10001 --user-group chimely
+FROM gcr.io/distroless/cc-debian13:nonroot AS runtime
+# The base supplies glibc, libgcc, CA certificates and tzdata. The admin SPA
+# is embedded in the Rust binary; no Node runtime or node_modules is shipped.
+# Kubernetes preStop execs sleep directly; distroless has no coreutils/shell.
+COPY --from=builder /bin/sleep /bin/sleep
 COPY --from=builder /app/target/release/chimely /usr/local/bin/chimely
-USER chimely
+USER 65532:65532
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/chimely"]
 CMD ["serve"]
