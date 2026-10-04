@@ -70,6 +70,29 @@ jobs:
           [ "$PRERELEASE" = "true" ] || TAGS="$TAGS,$IMAGE:latest"
           echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
 
+      - name: Build the image for the smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: chimely:smoke
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+
+      # Gate on the freshly built final image actually starting: chimely must
+      # load its shared libraries and reach config validation, and the copied
+      # /bin/sleep that Kubernetes preStop hooks exec must run.
+      - name: Smoke-test the built image
+        env:
+          SMOKE_IMAGE: chimely:smoke
+        run: |
+          if out=$(docker run --rm --network none "$SMOKE_IMAGE" serve 2>&1); then
+            echo "::error::chimely serve started without DATABASE_URL"; echo "$out"; exit 1
+          fi
+          echo "$out"
+          grep -q "DATABASE_URL is required" <<<"$out" || { echo "::error::chimely did not reach config validation"; exit 1; }
+          docker run --rm --network none --entrypoint /bin/sleep "$SMOKE_IMAGE" 1
+          test "$(docker image inspect -f '{{.Config.User}}' "$SMOKE_IMAGE")" = "65532:65532"
+
       # Durable registry cache in GAR. The cargo-chef dependency layer is
       # compiled once and reused across releases.
       - name: Build and push chimely image
