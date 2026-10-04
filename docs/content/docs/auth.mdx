@@ -45,21 +45,31 @@ read that subscriber's inbox, your backend computes a hash and passes it to
 `<Inbox />`:
 
 ```
-subscriberHash = hex(HMAC-SHA256(environment_secret, subscriber_id))
+subscriberHash = hex(HMAC-SHA256(environment_secret, env_typeid || 0x00 || subscriber_id))
 ```
 
-The `environment_secret` is the environment's `subscriber_hmac_secret`,
-readable in the admin dashboard (developer or admin role). Compute the hash in
-your backend, per request:
+The `environment_secret` is the environment's `subscriber_hmac_secret` and
+`env_typeid` is the environment's `env_…` TypeID, both readable in the admin
+dashboard (developer or admin role). Including the environment id binds the
+hash to its environment, so it can never authenticate anywhere else. Compute
+the hash in your backend, per request:
 
 ```ts
 import { createHmac } from 'node:crypto';
 
 const subscriberHash = createHmac('sha256', process.env.CHIMELY_HMAC_SECRET!)
-  .update(subscriberId)
+  .update(`${process.env.CHIMELY_ENV_ID}\0${subscriberId}`)
   .digest('hex');
 // pass subscriberHash to <Inbox subscriberHash={...} />
 ```
+
+<Callout title="Migrating from the unbound form">
+Backends deployed before the environment binding compute
+`hex(HMAC-SHA256(environment_secret, subscriber_id))`. That form stays
+accepted while `CHIMELY_SUBSCRIBER_HASH_LEGACY_ACCEPT` is `true` (the
+default). Update your backends to the bound form at your own pace, then set
+the variable to `false` to require the binding.
+</Callout>
 
 <Callout type="error" title="Never sign in the browser">
 The secret signs every subscriber's identity for an environment. Computing the

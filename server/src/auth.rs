@@ -5,9 +5,12 @@
 //!
 //! Subscriber: environment slug, customer subscriber id, and (when the
 //! environment requires it) `hex(HMAC-SHA256(subscriber_hmac_secret,
-//! subscriber_id))`, verified against the current then the previous secret
-//! slot so secret rotation never invalidates live sessions. Headers with
-//! query-parameter fallbacks (EventSource cannot set headers).
+//! env_typeid || 0x00 || subscriber_id))`, verified against the current then
+//! the previous secret slot so secret rotation never invalidates live
+//! sessions. The legacy unbound form `hex(HMAC-SHA256(secret,
+//! subscriber_id))` stays accepted while
+//! `CHIMELY_SUBSCRIBER_HASH_LEGACY_ACCEPT` is true (the default). Headers
+//! with query-parameter fallbacks (EventSource cannot set headers).
 //!
 //! Admin: built-in users (Argon2id passwords) with a server-side session in
 //! an HttpOnly, SameSite=Strict cookie scoped to /admin. Roles are
@@ -378,11 +381,19 @@ impl FromRequestParts<AppState> for SubscriberAuth {
 
         match &hash {
             Some(hash) => {
-                let valid = verify_subscriber_hash(&env.subscriber_hmac_secret, &external_id, hash)
-                    || env
-                        .subscriber_hmac_secret_previous
-                        .as_deref()
-                        .is_some_and(|prev| verify_subscriber_hash(prev, &external_id, hash));
+                let env_typeid = ids::typeid(ids::ENVIRONMENT, env.id);
+                let accept_legacy = state.cfg.subscriber_hash_legacy_accept;
+                let valid = verify_subscriber_hash(
+                    &env.subscriber_hmac_secret,
+                    &env_typeid,
+                    &external_id,
+                    hash,
+                    accept_legacy,
+                ) || env.subscriber_hmac_secret_previous.as_deref().is_some_and(
+                    |prev| {
+                        verify_subscriber_hash(prev, &env_typeid, &external_id, hash, accept_legacy)
+                    },
+                );
                 if !valid {
                     return Err(ApiError::unauthorized("invalid subscriber hash"));
                 }
@@ -405,21 +416,64 @@ impl FromRequestParts<AppState> for SubscriberAuth {
     }
 }
 
-/// `hex(HMAC-SHA256(secret, subscriber_id))`, constant-time comparison.
-pub fn verify_subscriber_hash(secret: &str, subscriber_id: &str, hash_hex: &str) -> bool {
+/// Verify a subscriber hash against one secret slot.
+///
+/// The environment-bound form `hex(HMAC-SHA256(secret, env_typeid || 0x00 ||
+/// subscriber_id))` is checked first. Isolation otherwise rests entirely on
+/// per-environment secrets. If two environments ever shared one (manual DB
+/// edit, restored dump), an unbound hash would transfer between them.
+///
+/// `accept_legacy` also admits the original `hex(HMAC-SHA256(secret,
+/// subscriber_id))` so deployed customer backends keep working through the
+/// changeover. Both comparisons are constant-time.
+pub fn verify_subscriber_hash(
+    secret: &str,
+    env_typeid: &str,
+    subscriber_id: &str,
+    hash_hex: &str,
+    accept_legacy: bool,
+) -> bool {
     let Ok(provided) = hex::decode(hash_hex) else {
         return false;
     };
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("hmac accepts any key length");
+    mac.update(env_typeid.as_bytes());
+    mac.update(&[0]);
+    mac.update(subscriber_id.as_bytes());
+    if mac.verify_slice(&provided).is_ok() {
+        return true;
+    }
+    if !accept_legacy {
+        return false;
+    }
     let mut mac =
         Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("hmac accepts any key length");
     mac.update(subscriber_id.as_bytes());
     mac.verify_slice(&provided).is_ok()
 }
 
-/// Test/SDK helper: compute the subscriber hash the customer backend would.
+/// Test/SDK helper: compute the legacy subscriber hash the customer backend
+/// would. Superseded by [`compute_subscriber_hash_env_bound`].
 pub fn compute_subscriber_hash(secret: &str, subscriber_id: &str) -> String {
     let mut mac =
         Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("hmac accepts any key length");
+    mac.update(subscriber_id.as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
+/// Test/SDK helper: compute the environment-bound subscriber hash.
+/// `env_typeid` is the environment's `env_…` TypeID as shown in the admin
+/// dashboard, next to the secret.
+pub fn compute_subscriber_hash_env_bound(
+    secret: &str,
+    env_typeid: &str,
+    subscriber_id: &str,
+) -> String {
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("hmac accepts any key length");
+    mac.update(env_typeid.as_bytes());
+    mac.update(&[0]);
     mac.update(subscriber_id.as_bytes());
     hex::encode(mac.finalize().into_bytes())
 }
