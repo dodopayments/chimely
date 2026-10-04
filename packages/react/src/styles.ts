@@ -193,6 +193,17 @@ export const INBOX_CSS = `
   flex: 1;
   min-height: 0;
 }
+.chimely-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 .chimely-pill {
   position: absolute;
   top: 8px;
