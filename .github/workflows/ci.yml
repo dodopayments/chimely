@@ -134,6 +134,7 @@ jobs:
           load: true
           tags: chimely:smoke
           cache-from: type=gha
+          cache-to: type=gha,mode=max
       # Gate on the freshly built final image actually starting: chimely must
       # load its shared libraries and reach config validation, and the copied
       # /bin/sleep that Kubernetes preStop hooks exec must run.

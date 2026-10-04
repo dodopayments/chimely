@@ -77,6 +77,7 @@ jobs:
           load: true
           tags: chimely:smoke
           cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
 
       # Gate on the freshly built final image actually starting: chimely must
       # load its shared libraries and reach config validation, and the copied
