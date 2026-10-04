@@ -138,7 +138,7 @@ relicensing and commercial-licensing flexibility.
 
 **Admin SPA:** Vite + React + TanStack Query/Router, embedded via rust-embed.
 
-**Build/ship:** GitHub Actions (Swatinem/rust-cache), cargo-chef multi-stage Docker, debian-slim image. Docs: Fumadocs (Next.js), with fumadocs-openapi rendering the exported spec so the docs site stays generated-from-code too. `npx chimely dev`: postgresql_embedded, Redis-less mode (exercises the LISTEN/NOTIFY fallback).
+**Build/ship:** GitHub Actions (Swatinem/rust-cache), cargo-chef multi-stage Docker, `gcr.io/distroless/cc-debian13:nonroot` runtime image (uid 65532, no shell). Docs: Fumadocs (Next.js), with fumadocs-openapi rendering the exported spec so the docs site stays generated-from-code too. `npx chimely dev`: postgresql_embedded, Redis-less mode (exercises the LISTEN/NOTIFY fallback).
 
 ## Commands
 
