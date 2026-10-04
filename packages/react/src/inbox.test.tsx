@@ -68,6 +68,17 @@ describe('bell and badge', () => {
     expect(document.querySelectorAll('style[data-chimely]')).toHaveLength(1);
   });
 
+  test('re-injects the stylesheet after head-replacing navigation drops it', async () => {
+    const stub = createStubServer();
+    const { unmount } = await renderInbox(stub);
+    expect(document.querySelectorAll('style[data-chimely]')).toHaveLength(1);
+    unmount();
+    // Turbo/PJAX swaps <head>, removing the tag while the module stays loaded.
+    document.querySelector('style[data-chimely]')?.remove();
+    await renderInbox(stub);
+    expect(document.querySelectorAll('style[data-chimely]')).toHaveLength(1);
+  });
+
   test('no badge when nothing is unseen', async () => {
     const stub = createStubServer();
     stub.addNotification({ seen: true });
@@ -309,6 +320,13 @@ describe('portal', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(document.activeElement).toBe(bell());
+  });
+
+  test('opening moves focus into the dialog', async () => {
+    const stub = createStubServer();
+    await renderInbox(stub, { portal: true });
+    fireEvent.click(bell());
+    expect(document.activeElement).toBe(screen.getByRole('dialog'));
   });
 });
 

@@ -49,7 +49,7 @@ export const INBOX_CSS = `
   left: 0;
   display: flex;
   flex-direction: column;
-  width: 360px;
+  width: min(360px, calc(100vw - 16px));
   max-height: 480px;
   overflow: hidden;
   background: var(--chimely-colorBackground, #ffffff);
@@ -341,20 +341,20 @@ export const INBOX_CSS = `
 }
 `;
 
-let injected = false;
-
 /** Idempotent, SSR-safe. Called on <Inbox /> mount, never at import time. */
 export function ensureStyles(): void {
-  if (injected || typeof document === 'undefined') {
+  if (typeof document === 'undefined') {
     return;
   }
+  // Probe the DOM each call rather than trusting a module-level flag.
+  // Head-replacing navigation (Turbo/PJAX) can drop the injected tag while
+  // the module stays loaded, so a stale flag would suppress re-injection
+  // until a full reload. The query also keeps injection idempotent.
   if (document.querySelector('style[data-chimely]')) {
-    injected = true;
     return;
   }
   const element = document.createElement('style');
   element.setAttribute('data-chimely', '');
   element.textContent = INBOX_CSS;
   document.head.appendChild(element);
-  injected = true;
 }

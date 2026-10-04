@@ -150,6 +150,16 @@ export function InboxContent<TPayload = WellKnownPayload>(
     };
   }, [menuOpen]);
 
+  // role=menu owes keyboard semantics: focus the first item on open so the
+  // arrow keys have a starting point. Escape and outside pointerdown (above)
+  // close it, restoring focus to the trigger.
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+    menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+  }, [menuOpen]);
+
   // Roving tabindex with automatic activation per the ARIA tabs pattern.
   // Arrows wrap, Home and End jump, and the moved-to tab is selected.
   const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -176,6 +186,37 @@ export function InboxContent<TPayload = WellKnownPayload>(
     event.preventDefault();
     setActiveTabIndex(next);
     document.getElementById(tabId(next))?.focus();
+  };
+
+  // Roving focus across the more-actions menu items. Down and Up wrap, Home
+  // and End jump. Escape and Tab are left to their default handlers.
+  const handleMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const menuItems = Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [],
+    );
+    if (menuItems.length === 0) {
+      return;
+    }
+    const current = menuItems.indexOf(document.activeElement as HTMLButtonElement);
+    let next: number;
+    switch (event.key) {
+      case 'ArrowDown':
+        next = current < 0 ? 0 : (current + 1) % menuItems.length;
+        break;
+      case 'ArrowUp':
+        next = current <= 0 ? menuItems.length - 1 : current - 1;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = menuItems.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    menuItems[next]?.focus();
   };
 
   const handleItemClick = (item: InboxItem<TPayload>) => {
@@ -249,7 +290,7 @@ export function InboxContent<TPayload = WellKnownPayload>(
                   {'\u22ef'}
                 </button>
                 {menuOpen && (
-                  <div className="chimely-menu" role="menu">
+                  <div className="chimely-menu" role="menu" onKeyDown={handleMenuKeyDown}>
                     <button
                       type="button"
                       role="menuitem"

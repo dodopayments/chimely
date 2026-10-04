@@ -98,6 +98,34 @@ describe('more-actions menu', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
+  test('arrow keys and Home/End roam the menu items, wrapping at the ends', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    await renderInbox(stub);
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    const items = screen.getAllByRole('menuitem');
+    // Focus lands on the first item when the menu opens.
+    expect(document.activeElement).toBe(items[0]);
+
+    fireEvent.keyDown(items[0] as HTMLElement, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(items[1]);
+
+    fireEvent.keyDown(items[1] as HTMLElement, { key: 'End' });
+    expect(document.activeElement).toBe(items[items.length - 1]);
+
+    // ArrowDown from the last item wraps to the first.
+    fireEvent.keyDown(items[items.length - 1] as HTMLElement, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(items[0]);
+
+    // ArrowUp from the first item wraps to the last.
+    fireEvent.keyDown(items[0] as HTMLElement, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(items[items.length - 1]);
+
+    fireEvent.keyDown(items[items.length - 1] as HTMLElement, { key: 'Home' });
+    expect(document.activeElement).toBe(items[0]);
+  });
+
   test('escape closes only the menu and restores trigger focus', async () => {
     const stub = createStubServer();
     stub.addNotification();
