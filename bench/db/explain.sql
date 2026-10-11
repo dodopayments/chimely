@@ -1,4 +1,4 @@
--- EXPLAIN (ANALYZE, BUFFERS) suite for the four inbox hot paths, run for one
+-- EXPLAIN (ANALYZE, BUFFERS) suite for the five inbox hot paths, run for one
 -- subscriber. The SQL is copied verbatim from server/src/api/inbox.rs. If a
 -- query there changes, this file must be updated to match.
 --
@@ -15,6 +15,7 @@
 --   b  unread/unseen counts (maintained counter + broadcast terms)
 --   c  mark-all-read watermark upsert + bounded exception GC (rolled back)
 --   d  the broadcast fan-out-on-read arm in isolation
+--   e  category-filtered unread counts
 
 \if :{?subscriber}
 \else
@@ -316,5 +317,134 @@ EXPLAIN (ANALYZE, BUFFERS)
 EXECUTE broadcast_arm(:'env', :'sub', 'infinity',
                       'ffffffff-ffff-ffff-ffff-ffffffffffff', 20, :'sub_created',
                       'unread');
+
+-- ============================================================================
+-- (e) category-filtered unread counts  [inbox.rs fetch_filtered_counts_for]
+-- ============================================================================
+
+PREPARE filtered_inbox_counts (uuid, uuid, timestamptz, int4[], text[]) AS
+WITH requested_categories AS (
+       SELECT filter_index, category
+         FROM unnest($4::int4[], $5::text[]) AS requested(filter_index, category)
+   ),
+   requested_filters AS (
+       SELECT DISTINCT filter_index FROM requested_categories
+   ),
+   wanted_categories AS (
+       SELECT DISTINCT category FROM requested_categories
+   ),
+   counter AS (
+       SELECT read_watermark, archive_watermark
+         FROM subscriber_counters
+        WHERE environment_id = $1 AND subscriber_id = $2
+   ),
+   category_counts AS (
+       SELECT n.category, count(*) AS unread
+         FROM counter c
+         JOIN notifications n
+           ON n.environment_id = $1 AND n.subscriber_id = $2
+         JOIN wanted_categories wanted ON wanted.category = n.category
+        WHERE n.visible_at <= now()
+          AND n.visible_at > c.read_watermark
+          AND n.read_at IS NULL
+          AND NOT (n.archived_at IS NOT NULL
+                OR (n.unarchived_at IS NULL
+                    AND n.visible_at <= c.archive_watermark))
+          AND NOT EXISTS (SELECT 1 FROM preferences p
+                WHERE p.environment_id = n.environment_id
+                  AND p.subscriber_id = n.subscriber_id
+                  AND p.category = n.category AND p.channel = 'in_app'
+                  AND p.enabled = false)
+        GROUP BY n.category
+
+        UNION ALL
+
+       SELECT n.category, count(*) AS unread
+         FROM counter c
+         JOIN notifications n
+           ON n.environment_id = $1 AND n.subscriber_id = $2
+         JOIN wanted_categories wanted ON wanted.category = n.category
+        WHERE n.visible_at <= now()
+          AND n.visible_at <= c.read_watermark
+          AND n.read_at IS NULL
+          AND n.unread_at IS NOT NULL
+          AND NOT (n.archived_at IS NOT NULL
+                OR (n.unarchived_at IS NULL
+                    AND n.visible_at <= c.archive_watermark))
+          AND NOT EXISTS (SELECT 1 FROM preferences p
+                WHERE p.environment_id = n.environment_id
+                  AND p.subscriber_id = n.subscriber_id
+                  AND p.category = n.category AND p.channel = 'in_app'
+                  AND p.enabled = false)
+        GROUP BY n.category
+
+        UNION ALL
+
+       SELECT b.category, count(*) AS unread
+         FROM counter c
+         JOIN broadcasts b ON b.environment_id = $1
+         JOIN wanted_categories wanted ON wanted.category = b.category
+         LEFT JOIN broadcast_reads br
+           ON br.environment_id = b.environment_id
+          AND br.subscriber_id = $2
+          AND br.broadcast_id = b.id
+         LEFT JOIN broadcast_archives ba
+           ON ba.environment_id = b.environment_id
+          AND ba.subscriber_id = $2
+          AND ba.broadcast_id = b.id
+        WHERE b.created_at >= $3
+          AND b.created_at > c.read_watermark
+          AND NOT COALESCE(br.read, false)
+          AND NOT COALESCE(ba.archived, b.created_at <= c.archive_watermark)
+          AND NOT EXISTS (SELECT 1 FROM preferences p
+                WHERE p.environment_id = b.environment_id
+                  AND p.subscriber_id = $2
+                  AND p.category = b.category AND p.channel = 'in_app'
+                  AND p.enabled = false)
+        GROUP BY b.category
+
+        UNION ALL
+
+       SELECT b.category, count(*) AS unread
+         FROM counter c
+         JOIN broadcast_reads br
+           ON br.environment_id = $1 AND br.subscriber_id = $2
+         JOIN broadcasts b
+           ON b.environment_id = br.environment_id AND b.id = br.broadcast_id
+         JOIN wanted_categories wanted ON wanted.category = b.category
+         LEFT JOIN broadcast_archives ba
+           ON ba.environment_id = b.environment_id
+          AND ba.subscriber_id = br.subscriber_id
+          AND ba.broadcast_id = b.id
+        WHERE NOT br.read
+          AND br.broadcast_created_at <= c.read_watermark
+          AND b.created_at >= $3
+          AND NOT COALESCE(ba.archived, b.created_at <= c.archive_watermark)
+          AND NOT EXISTS (SELECT 1 FROM preferences p
+                WHERE p.environment_id = b.environment_id
+                  AND p.subscriber_id = $2
+                  AND p.category = b.category AND p.channel = 'in_app'
+                  AND p.enabled = false)
+        GROUP BY b.category
+   ),
+   category_totals AS (
+       SELECT category, sum(unread) AS unread
+         FROM category_counts
+        GROUP BY category
+   )
+SELECT COALESCE(sum(category_totals.unread), 0)::int AS "unread!"
+  FROM requested_filters filters
+  LEFT JOIN requested_categories requested USING (filter_index)
+  LEFT JOIN category_totals USING (category)
+ GROUP BY filters.filter_index
+ ORDER BY filters.filter_index;
+
+\echo ''
+\echo '--- (e) category-filtered unread counts ---'
+EXPLAIN (ANALYZE, BUFFERS)
+EXECUTE filtered_inbox_counts(
+    :'env', :'sub', :'sub_created',
+    ARRAY[0, 0, 1, 1, 2, 2]::int4[],
+    ARRAY['billing', 'security', 'social', 'product', 'billing', 'digest']::text[]);
 
 DEALLOCATE ALL;

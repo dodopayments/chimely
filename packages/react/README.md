@@ -29,6 +29,20 @@ live updates. `subscriberHash` is `hex(HMAC-SHA256(environment_secret,
 subscriberId))`, computed by **your backend**, never in the browser. See
 [Auth and the subscriber hash](https://chimely.dev/docs/auth).
 
+Category tabs use exact server-side unread counts:
+
+```tsx
+<Inbox
+  tabs={[
+    { label: 'All' },
+    { label: 'Billing', categories: ['payment.succeeded', 'payment.failed'] },
+  ]}
+/>
+```
+
+Predicate tabs remain available for payload-based filtering and count loaded
+items only. When both options are present, `categories` takes precedence.
+
 ## Hooks and composables
 
 For custom UIs, skip the popover and compose:

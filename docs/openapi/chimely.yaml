@@ -1571,6 +1571,56 @@ paths:
       - SubscriberEnv: []
         SubscriberHash: []
         SubscriberId: []
+    post:
+      tags:
+      - subscriber
+      summary: Filtered inbox counts
+      description: Exact unread counts for ordered category filters. Categories within one filter use OR semantics. Counts include direct notifications and broadcasts and exclude archived or muted items.
+      operationId: getFilteredInboxCounts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FilteredInboxCountsRequest'
+            example:
+              filters:
+              - categories:
+                - payment.succeeded
+                - payment.failed
+              - categories:
+                - refund.created
+        required: true
+      responses:
+        '200':
+          description: Counts in request order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FilteredInboxCounts'
+        '400':
+          description: Malformed or over-limit filter request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: invalid_request
+                  message: filters must contain 1–100 entries
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid subscriber hash
+      security:
+      - SubscriberEnv: []
+        SubscriberHash: []
+        SubscriberId: []
   /v1/inbox/items:
     get:
       tags:
@@ -2759,6 +2809,51 @@ components:
             message:
               type: string
               description: Human-readable detail, for logs and developers. Not stable, do not parse.
+    FilteredInboxCount:
+      type: object
+      required:
+      - unread
+      properties:
+        unread:
+          type: integer
+          minimum: 0
+    FilteredInboxCounts:
+      type: object
+      required:
+      - counts
+      properties:
+        counts:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilteredInboxCount'
+          description: Results in the same order as the request filters.
+          maxItems: 100
+          minItems: 1
+    FilteredInboxCountsRequest:
+      type: object
+      description: Ordered category filters. The complete request is limited to 100 category entries.
+      required:
+      - filters
+      properties:
+        filters:
+          type: array
+          items:
+            $ref: '#/components/schemas/InboxCountFilter'
+          maxItems: 100
+          minItems: 1
+    InboxCountFilter:
+      type: object
+      required:
+      - categories
+      properties:
+        categories:
+          type: array
+          items:
+            type: string
+            maxLength: 255
+          description: Exact category names combined with OR semantics.
+          maxItems: 100
+          minItems: 1
     InboxCounts:
       type: object
       required:

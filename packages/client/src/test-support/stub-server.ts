@@ -10,6 +10,7 @@ import type { EventSourceLike } from '../types';
 type WireItem = components['schemas']['InboxItem'];
 type WirePage = components['schemas']['InboxPage'];
 type WireCounts = components['schemas']['InboxCounts'];
+type WireFilteredCountsRequest = components['schemas']['FilteredInboxCountsRequest'];
 type WirePreference = components['schemas']['Preference'];
 type WireError = components['schemas']['Error'];
 type WireErrorCode = WireError['error']['code'];
@@ -306,6 +307,21 @@ export class StubServer {
     }
     if (method === 'GET' && path === '/v1/inbox/counts') {
       return json(200, this.counts());
+    }
+    if (method === 'POST' && path === '/v1/inbox/counts') {
+      const { filters } = body as WireFilteredCountsRequest;
+      const muted = new Set(this.prefs.filter((row) => !row.enabled).map((row) => row.category));
+      return json(200, {
+        counts: filters.map((filter) => ({
+          unread: this.items.filter(
+            (item) =>
+              filter.categories.includes(item.category) &&
+              !item.read &&
+              !item.archived &&
+              !muted.has(item.category),
+          ).length,
+        })),
+      });
     }
     const readMatch = path.match(
       /^\/v1\/inbox\/(notifications|broadcasts)\/([^/]+)\/(read|unread|archive|unarchive)$/,

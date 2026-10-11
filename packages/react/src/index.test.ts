@@ -1,4 +1,5 @@
 import { expect, test } from 'vitest';
+import type { InboxTab } from './index';
 import {
   Bell,
   ChimelyProvider,
@@ -15,6 +16,10 @@ import {
   useUnseenCount,
 } from './index';
 
+interface TrackedTab extends InboxTab {
+  analyticsId: string;
+}
+
 test('public surface exports', () => {
   expect(typeof ChimelyProvider).toBe('function');
   expect(typeof useChimelyClient).toBe('function');
@@ -30,4 +35,13 @@ test('public surface exports', () => {
   expect(Bell).toBeDefined();
   expect(DEFAULT_LOCALIZATION.markAllRead.length).toBeGreaterThan(0);
   expect(INBOX_CSS).toContain('.chimely-popover');
+});
+
+test('InboxTab remains an extendable public interface', () => {
+  const tab: TrackedTab = {
+    label: 'Billing',
+    categories: ['billing.alerts'],
+    analyticsId: 'billing',
+  };
+  expect(tab.analyticsId).toBe('billing');
 });

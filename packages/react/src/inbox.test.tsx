@@ -724,6 +724,106 @@ describe('tabs', () => {
     expect(screen.queryByText('maintenance')).toBeNull();
     expect(screen.getByRole('tab', { name: /Billing/ }).getAttribute('aria-selected')).toBe('true');
     expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(tabButtons[1]?.id);
+    expect(
+      stub.requestsFor('/v1/inbox/counts').filter((request) => request.method === 'POST'),
+    ).toHaveLength(0);
+  });
+
+  test('category tabs use exact server counts beyond the loaded page', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.alerts' });
+    stub.addBroadcast({ category: 'billing.alerts' });
+    for (let i = 0; i < 5; i += 1) {
+      stub.addNotification({ category: 'system' });
+    }
+    const { client } = await renderInbox(
+      stub,
+      {
+        tabs: [{ label: 'All' }, { label: 'Billing', categories: ['billing.alerts'] }],
+      },
+      { pageSize: 2 },
+    );
+    fireEvent.click(bell());
+
+    expect(client.getSnapshot().items.every((item) => item.category === 'system')).toBe(true);
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /All.*7/ })).toBeDefined();
+      expect(screen.getByRole('tab', { name: /Billing.*2/ })).toBeDefined();
+    });
+    const request = stub
+      .requestsFor('/v1/inbox/counts')
+      .find((candidate) => candidate.method === 'POST');
+    expect(request?.body).toEqual({ filters: [{ categories: ['billing.alerts'] }] });
+  });
+
+  test('categories take precedence over a predicate on the same tab', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.alerts', payload: { title: 'invoice' } });
+    stub.addNotification({ category: 'system', payload: { title: 'maintenance' } });
+    await renderInbox(stub, {
+      tabs: [
+        {
+          label: 'Billing',
+          categories: ['billing.alerts'],
+          filter: (item) => item.category === 'system',
+        },
+      ],
+    });
+    fireEvent.click(bell());
+
+    await screen.findByRole('tab', { name: /Billing.*1/ });
+    expect(screen.getByText('invoice')).toBeDefined();
+    expect(screen.queryByText('maintenance')).toBeNull();
+  });
+
+  test('category counts refresh after item actions and SSE hints', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.alerts', payload: { title: 'invoice' } });
+    await renderInbox(stub, {
+      tabs: [{ label: 'All' }, { label: 'Billing', categories: ['billing.alerts'] }],
+    });
+    fireEvent.click(bell());
+    await screen.findByRole('tab', { name: /Billing.*1/ });
+    const filteredRequestCount = () =>
+      stub.requestsFor('/v1/inbox/counts').filter((request) => request.method === 'POST').length;
+
+    const beforeAction = filteredRequestCount();
+    fireEvent.click(screen.getByRole('tab', { name: /Billing/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mark as read' }));
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Billing' })).toBeDefined();
+    });
+    expect(filteredRequestCount()).toBe(beforeAction + 1);
+
+    const beforeHint = filteredRequestCount();
+    stub.addBroadcast({ category: 'billing.alerts' });
+    stub.emitHint();
+    await screen.findByRole('tab', { name: /Billing.*1/ });
+    expect(filteredRequestCount()).toBe(beforeHint + 1);
+  });
+
+  test('a server view change triggers one category-count refresh', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ category: 'billing.alerts' });
+    await renderInbox(stub, {
+      tabs: [{ label: 'Billing', categories: ['billing.alerts'] }],
+    });
+    fireEvent.click(bell());
+    await screen.findByRole('tab', { name: /Billing.*1/ });
+    const filteredRequestCount = () =>
+      stub.requestsFor('/v1/inbox/counts').filter((request) => request.method === 'POST').length;
+
+    const beforeViewChange = filteredRequestCount();
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'unread' } });
+
+    await waitFor(() => {
+      expect(
+        stub
+          .requestsFor('/v1/inbox/items')
+          .some((request) => request.search.get('filter') === 'unread'),
+      ).toBe(true);
+      expect(filteredRequestCount()).toBe(beforeViewChange + 1);
+    });
   });
 
   test('arrow keys move focus and selection with a roving tabindex', async () => {

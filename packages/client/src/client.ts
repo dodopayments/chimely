@@ -6,6 +6,8 @@ import { InboxStore } from './store';
 import type {
   ChimelyClientConfig,
   EventSourceLike,
+  FilteredInboxCount,
+  InboxCountFilter,
   InboxFilterView,
   InboxItem,
   InboxItemId,
@@ -18,6 +20,7 @@ import type {
 type WireInboxItem = components['schemas']['InboxItem'];
 type WireInboxPage = components['schemas']['InboxPage'];
 type WireCounts = components['schemas']['InboxCounts'];
+type WireFilteredCounts = components['schemas']['FilteredInboxCounts'];
 type WirePreferenceList = components['schemas']['PreferenceList'];
 
 function toItem<TPayload>(wire: WireInboxItem): InboxItem<TPayload> {
@@ -150,6 +153,19 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
     return this.store.subscribe(listener);
   }
 
+  /** Fetch exact unread counts for ordered category filters. */
+  async getFilteredCounts(
+    filters: ReadonlyArray<InboxCountFilter>,
+  ): Promise<ReadonlyArray<FilteredInboxCount>> {
+    const response = await this.http('POST', '/v1/inbox/counts', {
+      body: {
+        filters: filters.map((filter) => ({ categories: [...filter.categories] })),
+      },
+    });
+    const body = (await response.json()) as WireFilteredCounts;
+    return body.counts;
+  }
+
   /**
    * Conditional refetch of page one + counts (the hint/reconnect path).
    * Concurrent calls coalesce: a request arriving mid-flight queues exactly
@@ -206,7 +222,6 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
       filter,
       items: [],
       hasMore: true,
-      lastRefreshNewItemIds: [],
     });
     return this.refresh();
   }

@@ -21,12 +21,13 @@ use uuid::Uuid;
 use crate::api::format_ts;
 use crate::auth::SubscriberAuth;
 use crate::error::ApiError;
-use crate::extract::ApiQuery;
+use crate::extract::{ApiJson, ApiQuery};
 use crate::state::AppState;
 use crate::{ids, jobs, ratelimit, timeline};
 
 pub const DEFAULT_PAGE_SIZE: i64 = 20;
 pub const MAX_PAGE_SIZE: i64 = 100;
+const MAX_FILTER_TERMS: usize = 100;
 pub const CACHE_CONTROL: &str = "private, max-age=0";
 
 #[derive(Debug, Serialize)]
@@ -56,6 +57,26 @@ pub struct InboxPage {
 pub struct InboxCounts {
     pub unread: i32,
     pub unseen: i32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InboxCountFilter {
+    pub categories: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FilteredInboxCountsRequest {
+    pub filters: Vec<InboxCountFilter>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FilteredInboxCount {
+    pub unread: i32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FilteredInboxCounts {
+    pub counts: Vec<FilteredInboxCount>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -376,6 +397,240 @@ pub async fn get_counts(
     let mut conn = state.pool.acquire().await.map_err(ApiError::from)?;
     let counts = fetch_counts(&mut conn, &auth).await?;
     Ok(Json(counts))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/inbox/counts",
+    tag = "subscriber",
+    operation_id = "getFilteredInboxCounts",
+    summary = "Filtered inbox counts",
+    description = r#"Exact unread counts for ordered category filters. Categories within one filter use OR semantics. Counts include direct notifications and broadcasts and exclude archived or muted items."#,
+    request_body(
+        content = crate::api::contract::FilteredInboxCountsRequest,
+        example = json!({
+            "filters": [
+                { "categories": ["payment.succeeded", "payment.failed"] },
+                { "categories": ["refund.created"] }
+            ]
+        }),
+    ),
+    responses(
+        (status = 200, description = "Counts in request order.", body = crate::api::contract::FilteredInboxCounts),
+        (
+            status = 400,
+            description = "Malformed or over-limit filter request.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "filters must contain 1–100 entries"}}),
+        ),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid subscriber hash"}}),
+        ),
+    ),
+    security(("SubscriberEnv" = [], "SubscriberId" = [], "SubscriberHash" = []))
+)]
+pub async fn get_filtered_counts(
+    State(state): State<AppState>,
+    auth: SubscriberAuth,
+    ApiJson(request): ApiJson<FilteredInboxCountsRequest>,
+) -> Result<Json<FilteredInboxCounts>, ApiError> {
+    let filters = normalize_count_filters(request)?;
+    let mut conn = state.pool.acquire().await.map_err(ApiError::from)?;
+    let counts = fetch_filtered_counts_for(
+        &mut conn,
+        auth.environment_id,
+        auth.subscriber_id,
+        auth.subscriber_created_at,
+        &filters,
+    )
+    .await?;
+    Ok(Json(FilteredInboxCounts { counts }))
+}
+
+struct NormalizedCountFilters {
+    category_filter_indexes: Vec<i32>,
+    categories: Vec<String>,
+}
+
+fn normalize_count_filters(
+    request: FilteredInboxCountsRequest,
+) -> Result<NormalizedCountFilters, ApiError> {
+    if request.filters.is_empty() || request.filters.len() > MAX_FILTER_TERMS {
+        return Err(ApiError::bad_request("filters must contain 1–100 entries"));
+    }
+
+    let mut category_filter_indexes = Vec::new();
+    let mut categories = Vec::new();
+    let mut term_count = 0;
+    for (filter_index, filter) in request.filters.into_iter().enumerate() {
+        if filter.categories.is_empty() {
+            return Err(ApiError::bad_request(
+                "each filter must contain at least one category",
+            ));
+        }
+        if filter.categories.len() > MAX_FILTER_TERMS - term_count {
+            return Err(ApiError::bad_request(
+                "filters must contain at most 100 category entries",
+            ));
+        }
+        term_count += filter.categories.len();
+
+        let mut seen = std::collections::HashSet::new();
+        for category in filter.categories {
+            crate::api::management::validate_category(&category)?;
+            if seen.insert(category.clone()) {
+                category_filter_indexes.push(filter_index as i32);
+                categories.push(category);
+            }
+        }
+    }
+
+    Ok(NormalizedCountFilters {
+        category_filter_indexes,
+        categories,
+    })
+}
+
+async fn fetch_filtered_counts_for(
+    conn: &mut sqlx::PgConnection,
+    environment_id: Uuid,
+    subscriber_id: Uuid,
+    subscriber_created_at: DateTime<Utc>,
+    filters: &NormalizedCountFilters,
+) -> Result<Vec<FilteredInboxCount>, ApiError> {
+    let rows = sqlx::query!(
+        r#"WITH requested_categories AS (
+               SELECT filter_index, category
+                 FROM unnest($4::int4[], $5::text[]) AS requested(filter_index, category)
+           ),
+           requested_filters AS (
+               SELECT DISTINCT filter_index FROM requested_categories
+           ),
+           wanted_categories AS (
+               SELECT DISTINCT category FROM requested_categories
+           ),
+           counter AS (
+               SELECT read_watermark, archive_watermark
+                 FROM subscriber_counters
+                WHERE environment_id = $1 AND subscriber_id = $2
+           ),
+           category_counts AS (
+               SELECT n.category, count(*) AS unread
+                 FROM counter c
+                 JOIN notifications n
+                   ON n.environment_id = $1 AND n.subscriber_id = $2
+                 JOIN wanted_categories wanted ON wanted.category = n.category
+                WHERE n.visible_at <= now()
+                  AND n.visible_at > c.read_watermark
+                  AND n.read_at IS NULL
+                  AND NOT (n.archived_at IS NOT NULL
+                        OR (n.unarchived_at IS NULL
+                            AND n.visible_at <= c.archive_watermark))
+                  AND NOT EXISTS (SELECT 1 FROM preferences p
+                        WHERE p.environment_id = n.environment_id
+                          AND p.subscriber_id = n.subscriber_id
+                          AND p.category = n.category AND p.channel = 'in_app'
+                          AND p.enabled = false)
+                GROUP BY n.category
+
+                UNION ALL
+
+               SELECT n.category, count(*) AS unread
+                 FROM counter c
+                 JOIN notifications n
+                   ON n.environment_id = $1 AND n.subscriber_id = $2
+                 JOIN wanted_categories wanted ON wanted.category = n.category
+                WHERE n.visible_at <= now()
+                  AND n.visible_at <= c.read_watermark
+                  AND n.read_at IS NULL
+                  AND n.unread_at IS NOT NULL
+                  AND NOT (n.archived_at IS NOT NULL
+                        OR (n.unarchived_at IS NULL
+                            AND n.visible_at <= c.archive_watermark))
+                  AND NOT EXISTS (SELECT 1 FROM preferences p
+                        WHERE p.environment_id = n.environment_id
+                          AND p.subscriber_id = n.subscriber_id
+                          AND p.category = n.category AND p.channel = 'in_app'
+                          AND p.enabled = false)
+                GROUP BY n.category
+
+                UNION ALL
+
+               SELECT b.category, count(*) AS unread
+                 FROM counter c
+                 JOIN broadcasts b ON b.environment_id = $1
+                 JOIN wanted_categories wanted ON wanted.category = b.category
+                 LEFT JOIN broadcast_reads br
+                   ON br.environment_id = b.environment_id
+                  AND br.subscriber_id = $2
+                  AND br.broadcast_id = b.id
+                 LEFT JOIN broadcast_archives ba
+                   ON ba.environment_id = b.environment_id
+                  AND ba.subscriber_id = $2
+                  AND ba.broadcast_id = b.id
+                WHERE b.created_at >= $3
+                  AND b.created_at > c.read_watermark
+                  AND NOT COALESCE(br.read, false)
+                  AND NOT COALESCE(ba.archived, b.created_at <= c.archive_watermark)
+                  AND NOT EXISTS (SELECT 1 FROM preferences p
+                        WHERE p.environment_id = b.environment_id
+                          AND p.subscriber_id = $2
+                          AND p.category = b.category AND p.channel = 'in_app'
+                          AND p.enabled = false)
+                GROUP BY b.category
+
+                UNION ALL
+
+               SELECT b.category, count(*) AS unread
+                 FROM counter c
+                 JOIN broadcast_reads br
+                   ON br.environment_id = $1 AND br.subscriber_id = $2
+                 JOIN broadcasts b
+                   ON b.environment_id = br.environment_id AND b.id = br.broadcast_id
+                 JOIN wanted_categories wanted ON wanted.category = b.category
+                 LEFT JOIN broadcast_archives ba
+                   ON ba.environment_id = b.environment_id
+                  AND ba.subscriber_id = br.subscriber_id
+                  AND ba.broadcast_id = b.id
+                WHERE NOT br.read
+                  AND br.broadcast_created_at <= c.read_watermark
+                  AND b.created_at >= $3
+                  AND NOT COALESCE(ba.archived, b.created_at <= c.archive_watermark)
+                  AND NOT EXISTS (SELECT 1 FROM preferences p
+                        WHERE p.environment_id = b.environment_id
+                          AND p.subscriber_id = $2
+                          AND p.category = b.category AND p.channel = 'in_app'
+                          AND p.enabled = false)
+                GROUP BY b.category
+           ),
+           category_totals AS (
+               SELECT category, sum(unread) AS unread
+                 FROM category_counts
+                GROUP BY category
+           )
+           SELECT COALESCE(sum(category_totals.unread), 0)::int AS "unread!"
+             FROM requested_filters filters
+             LEFT JOIN requested_categories requested USING (filter_index)
+             LEFT JOIN category_totals USING (category)
+            GROUP BY filters.filter_index
+            ORDER BY filters.filter_index"#,
+        environment_id,
+        subscriber_id,
+        subscriber_created_at,
+        &filters.category_filter_indexes,
+        &filters.categories,
+    )
+    .fetch_all(conn)
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| FilteredInboxCount { unread: row.unread })
+        .collect())
 }
 
 /// The unread/unseen count: maintained direct counters plus two live
@@ -1905,5 +2160,67 @@ mod tests {
         assert!(decode_cursor("").is_none());
         let bogus = URL_SAFE_NO_PAD.encode("hello world");
         assert!(decode_cursor(&bogus).is_none());
+    }
+
+    #[test]
+    fn count_filters_are_bounded_and_deduplicated() {
+        let normalized = normalize_count_filters(FilteredInboxCountsRequest {
+            filters: vec![
+                InboxCountFilter {
+                    categories: vec!["billing".into(), "billing".into(), "refund".into()],
+                },
+                InboxCountFilter {
+                    categories: vec!["billing".into()],
+                },
+            ],
+        })
+        .unwrap();
+        assert_eq!(normalized.category_filter_indexes, [0, 0, 1]);
+        assert_eq!(normalized.categories, ["billing", "refund", "billing"]);
+
+        for request in [
+            FilteredInboxCountsRequest { filters: vec![] },
+            FilteredInboxCountsRequest {
+                filters: vec![InboxCountFilter { categories: vec![] }],
+            },
+            FilteredInboxCountsRequest {
+                filters: vec![InboxCountFilter {
+                    categories: vec![String::new()],
+                }],
+            },
+            FilteredInboxCountsRequest {
+                filters: vec![InboxCountFilter {
+                    categories: vec!["x".repeat(256)],
+                }],
+            },
+            FilteredInboxCountsRequest {
+                filters: vec![
+                    InboxCountFilter {
+                        categories: (0..50).map(|i| format!("first.{i}")).collect(),
+                    },
+                    InboxCountFilter {
+                        categories: (0..51).map(|i| format!("second.{i}")).collect(),
+                    },
+                ],
+            },
+            FilteredInboxCountsRequest {
+                filters: (0..101)
+                    .map(|_| InboxCountFilter {
+                        categories: vec!["category".into()],
+                    })
+                    .collect(),
+            },
+        ] {
+            assert!(normalize_count_filters(request).is_err());
+        }
+
+        let maximum = FilteredInboxCountsRequest {
+            filters: (0..100)
+                .map(|i| InboxCountFilter {
+                    categories: vec![format!("category.{i}")],
+                })
+                .collect(),
+        };
+        assert!(normalize_count_filters(maximum).is_ok());
     }
 }
