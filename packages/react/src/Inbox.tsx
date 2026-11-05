@@ -19,8 +19,10 @@ export type { InboxAppearance, InboxSlot } from './appearance';
  * Drop-in bell + badge + popover inbox.
  *
  * Two usage modes:
- * - Standalone: pass `serverUrl`/`environment`/`subscriberId`(/`subscriberHash`)
- *   and <Inbox /> constructs and owns its client.
+ * - Standalone: pass `serverUrl`/`environment`/`subscriberId`(/`subscriberHash`,
+ *   `subscriberHashExpiresAt`) and <Inbox /> constructs and owns its client.
+ *   A change of `subscriberHash` or `subscriberHashExpiresAt` replaces the
+ *   credential of the owned client with no remount.
  * - Provided: render inside <ChimelyProvider> and pass no connection props.
  *   Connection props, when present, take precedence over the provider.
  *
@@ -35,6 +37,8 @@ export interface InboxProps<TPayload = WellKnownPayload> extends InboxContentPro
   environment?: string;
   subscriberId?: string;
   subscriberHash?: string;
+  /** Expiry of a v2 `subscriberHash`, in unix seconds. */
+  subscriberHashExpiresAt?: number;
   backoff?: ChimelyClientConfig['backoff'];
 
   /** Popover placement relative to the bell. Default: 'bottom-end'. */
@@ -55,7 +59,8 @@ export interface InboxProps<TPayload = WellKnownPayload> extends InboxContentPro
 }
 
 export function Inbox<TPayload = WellKnownPayload>(props: InboxProps<TPayload>): ReactNode {
-  const { serverUrl, environment, subscriberId, subscriberHash, backoff } = props;
+  const { serverUrl, environment, subscriberId, subscriberHash, subscriberHashExpiresAt, backoff } =
+    props;
   const contextClient = useContext(ChimelyContext);
   // Connection props are all-or-nothing and take precedence over the provider.
   const [owned] = useState(() => {
@@ -68,6 +73,9 @@ export function Inbox<TPayload = WellKnownPayload>(props: InboxProps<TPayload>):
     const config: ChimelyClientConfig = { serverUrl, environment, subscriberId };
     if (subscriberHash !== undefined) {
       config.subscriberHash = subscriberHash;
+    }
+    if (subscriberHashExpiresAt !== undefined) {
+      config.subscriberHashExpiresAt = subscriberHashExpiresAt;
     }
     if (backoff !== undefined) {
       config.backoff = backoff;
@@ -87,6 +95,12 @@ export function Inbox<TPayload = WellKnownPayload>(props: InboxProps<TPayload>):
       owned.close();
     };
   }, [owned]);
+  useEffect(() => {
+    if (!owned || subscriberHash === undefined) {
+      return;
+    }
+    owned.setCredentials({ subscriberHash, subscriberHashExpiresAt });
+  }, [owned, subscriberHash, subscriberHashExpiresAt]);
   return (
     <ChimelyContext.Provider value={client}>
       <InboxView<TPayload> {...props} />

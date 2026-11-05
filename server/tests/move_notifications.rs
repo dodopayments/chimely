@@ -1,6 +1,7 @@
 //! Management endpoints that list the stored notifications of one subscriber
 //! and move them to another subscriber. A move keeps the read and archive
-//! state of each notification and keeps the counters exact.
+//! state of each notification and keeps the counters exact. The seen state of
+//! the target does not change.
 
 mod support;
 
@@ -73,6 +74,10 @@ async fn state_of(app: &support::TestApp, sub: &str) -> HashMap<String, (bool, b
 async fn move_keeps_read_and_archive_state() {
     let app = support::spawn().await;
 
+    // A target notice older than every source notice. The target never opens
+    // its inbox, so this notice stays unseen.
+    let dst_older = notif_id(&app.create_notification(DST, "c").await);
+
     // Archived by the archive watermark.
     let archived = notif_id(&app.create_notification(SRC, "c").await);
     assert!(
@@ -109,6 +114,13 @@ async fn move_keeps_read_and_archive_state() {
     );
     // Plain unread.
     let fresh = notif_id(&app.create_notification(SRC, "c").await);
+    // The source opens its inbox, so every source notice is seen.
+    assert!(
+        app.post_inbox(SRC, "/v1/inbox/seen-all")
+            .await
+            .status()
+            .is_success()
+    );
     app.drain_jobs().await;
 
     // The target reads everything it has after every source notice exists, so
@@ -125,7 +137,9 @@ async fn move_keeps_read_and_archive_state() {
     let before = state_of(&app, SRC).await;
     let src_counts = app.counts(SRC).await;
     assert_eq!(src_counts.0, 2, "by_override and fresh are unread");
-    assert_eq!(app.counts(DST).await.0, 0);
+    assert_eq!(src_counts.1, 0, "the source saw every notice");
+    let dst_before = app.counts(DST).await;
+    assert_eq!(dst_before, (0, 2), "dst_older and dst_own are unseen");
 
     let all = vec![
         archived.clone(),
@@ -142,6 +156,10 @@ async fn move_keeps_read_and_archive_state() {
         assert_eq!(after.get(id), before.get(id), "state of {id} changed");
     }
     assert_eq!(after.get(&dst_own), Some(&(true, false)));
+    assert_eq!(after.get(&dst_older), Some(&(true, false)));
+    // The target seen_watermark does not move: the target's own unseen notices
+    // stay unseen, and the five moved notices show as unseen.
+    assert_eq!(app.counts(DST).await.1, dst_before.1 + 5);
     assert!(state_of(&app, SRC).await.is_empty());
     assert_eq!(app.counts(DST).await.0, src_counts.0);
     assert_eq!(app.counts(SRC).await, (0, 0));

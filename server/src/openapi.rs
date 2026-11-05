@@ -27,7 +27,8 @@ const INFO_DESCRIPTION: &str = r#"Two planes, one binary:
   its expiry, and when the expiry is more than
   `subscriber_hash_max_ttl_seconds` (plus 60 seconds) in the future. An
   environment with `require_subscriber_hash_expiry = true` refuses every hash
-  without an expiry. A subscriber id must not contain a newline.
+  without an expiry. A request with a v2 hash refuses a subscriber id that
+  contains a newline.
 
 Subscriber-plane scoping travels in headers (or query parameters where
 headers are impossible, i.e. `EventSource`):
@@ -198,13 +199,6 @@ pub fn api_doc() -> utoipa::openapi::OpenApi {
         ))),
     );
     components.add_security_scheme(
-        "SubscriberExpires",
-        SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::with_description(
-            "X-Chimely-Subscriber-Expires",
-            "Expiry of a v2 subscriber hash, in unix seconds. Send it with every v2 hash.",
-        ))),
-    );
-    components.add_security_scheme(
         "SubscriberEnvQ",
         SecurityScheme::ApiKey(ApiKey::Query(ApiKeyValue::new("environment"))),
     );
@@ -215,13 +209,6 @@ pub fn api_doc() -> utoipa::openapi::OpenApi {
     components.add_security_scheme(
         "SubscriberHashQ",
         SecurityScheme::ApiKey(ApiKey::Query(ApiKeyValue::new("subscriber_hash"))),
-    );
-    components.add_security_scheme(
-        "SubscriberExpiresQ",
-        SecurityScheme::ApiKey(ApiKey::Query(ApiKeyValue::with_description(
-            "subscriber_expires",
-            "Expiry of a v2 subscriber hash, in unix seconds.",
-        ))),
     );
 
     // Reusable error responses. RateLimited is registered through the derive
@@ -321,12 +308,60 @@ fn fixups(doc: &mut utoipa::openapi::OpenApi) {
         }
     }
 
+    add_subscriber_expiry_params(doc);
+
     // The upsert body is optional in the contract.
     if let Some(item) = doc.paths.paths.get_mut("/v1/subscribers/{subscriber_id}")
         && let Some(put) = item.put.as_mut()
         && let Some(body) = put.request_body.as_mut()
     {
         body.required = Some(Required::False);
+    }
+}
+
+/// Adds the optional v2 expiry to every subscriber-plane operation. The header
+/// goes where the hash travels in a header (`SubscriberHash`), the query
+/// parameter where it travels in the query (`SubscriberHashQ`).
+fn add_subscriber_expiry_params(doc: &mut utoipa::openapi::OpenApi) {
+    use utoipa::openapi::Required;
+    use utoipa::openapi::path::{ParameterBuilder, ParameterIn};
+
+    const DESCRIPTION: &str = "Expiry of a v2 subscriber hash, in unix seconds. Send it with every v2 hash. Omit it for a legacy hash.";
+    let uses_scheme = |op: &utoipa::openapi::path::Operation, scheme: &str| {
+        op.security.iter().flatten().any(|req| {
+            serde_json::to_value(req)
+                .ok()
+                .and_then(|v| v.as_object().map(|o| o.contains_key(scheme)))
+                .unwrap_or(false)
+        })
+    };
+    for item in doc.paths.paths.values_mut() {
+        let ops = [
+            item.get.as_mut(),
+            item.put.as_mut(),
+            item.post.as_mut(),
+            item.delete.as_mut(),
+            item.patch.as_mut(),
+        ];
+        for op in ops.into_iter().flatten() {
+            let (name, location) = if uses_scheme(op, "SubscriberHash") {
+                ("X-Chimely-Subscriber-Expires", ParameterIn::Header)
+            } else if uses_scheme(op, "SubscriberHashQ") {
+                ("subscriber_expires", ParameterIn::Query)
+            } else {
+                continue;
+            };
+            let param = ParameterBuilder::new()
+                .name(name)
+                .parameter_in(location)
+                .required(Required::False)
+                .description(Some(DESCRIPTION))
+                .schema(Some(
+                    ObjectBuilder::new().schema_type(Type::Integer).build(),
+                ))
+                .build();
+            op.parameters.get_or_insert_with(Vec::new).push(param);
+        }
     }
 }
 

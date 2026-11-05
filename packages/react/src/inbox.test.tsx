@@ -847,4 +847,71 @@ describe('standalone mode', () => {
     unmount();
     expect(stub.stream().closed).toBe(true);
   });
+
+  test('standalone mode forwards the expiry of a v2 hash', async () => {
+    const stub = createStubServer({ requireHash: 'cafe', requireExpires: '1767225600' });
+    stub.addNotification({ payload: { title: 'v2 works' } });
+    vi.stubGlobal('fetch', stub.fetchFn);
+    function EventSourceStub(this: unknown, url: string) {
+      return stub.createEventSource(url);
+    }
+    vi.stubGlobal('EventSource', EventSourceStub);
+
+    render(
+      <Inbox
+        serverUrl="https://chimely.test"
+        environment={stub.environment}
+        subscriberId={stub.subscriberId}
+        subscriberHash="cafe"
+        subscriberHashExpiresAt={1767225600}
+        backoff={{ initialDelayMs: 5 }}
+      />,
+    );
+
+    const streamUrl = new URL(stub.stream().url);
+    expect(streamUrl.searchParams.get('subscriber_hash')).toBe('cafe');
+    expect(streamUrl.searchParams.get('subscriber_expires')).toBe('1767225600');
+
+    stub.openStream();
+    fireEvent.click(bell());
+    await waitFor(() => {
+      expect(screen.getByText('v2 works')).toBeDefined();
+    });
+    const counts = stub.requestsFor('/v1/inbox/counts');
+    expect(counts.length).toBeGreaterThan(0);
+    for (const request of counts) {
+      expect(request.status).toBe(200);
+      expect(request.headers['x-chimely-subscriber-expires']).toBe('1767225600');
+    }
+  });
+
+  test('a new standalone credential reopens the stream with no remount', async () => {
+    const stub = createStubServer();
+    vi.stubGlobal('fetch', stub.fetchFn);
+    function EventSourceStub(this: unknown, url: string) {
+      return stub.createEventSource(url);
+    }
+    vi.stubGlobal('EventSource', EventSourceStub);
+
+    const props = {
+      serverUrl: 'https://chimely.test',
+      environment: stub.environment,
+      subscriberId: stub.subscriberId,
+      backoff: { initialDelayMs: 5 },
+    };
+    const { rerender } = render(
+      <Inbox {...props} subscriberHash="cafe" subscriberHashExpiresAt={1767225600} />,
+    );
+    stub.openStream();
+    const first = stub.stream();
+
+    rerender(<Inbox {...props} subscriberHash="beef" subscriberHashExpiresAt={1767229200} />);
+    await waitFor(() => {
+      expect(stub.stream()).not.toBe(first);
+    });
+    expect(first.closed).toBe(true);
+    const streamUrl = new URL(stub.stream().url);
+    expect(streamUrl.searchParams.get('subscriber_hash')).toBe('beef');
+    expect(streamUrl.searchParams.get('subscriber_expires')).toBe('1767229200');
+  });
 });

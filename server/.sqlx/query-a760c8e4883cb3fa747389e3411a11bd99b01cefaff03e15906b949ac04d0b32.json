@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT subscriber_id, read_watermark, seen_watermark, archive_watermark\n             FROM subscriber_counters\n            WHERE environment_id = $1 AND subscriber_id = ANY($2)\n            ORDER BY subscriber_id\n            FOR UPDATE",
+  "query": "SELECT subscriber_id, read_watermark, archive_watermark\n             FROM subscriber_counters\n            WHERE environment_id = $1 AND subscriber_id = ANY($2)\n            ORDER BY subscriber_id\n            FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -27,17 +27,6 @@
       },
       {
         "ordinal": 2,
-        "name": "seen_watermark",
-        "type_info": "Timestamptz",
-        "origin": {
-          "Table": {
-            "table": "subscriber_counters",
-            "name": "seen_watermark"
-          }
-        }
-      },
-      {
-        "ordinal": 3,
         "name": "archive_watermark",
         "type_info": "Timestamptz",
         "origin": {
@@ -57,9 +46,8 @@
     "nullable": [
       false,
       false,
-      false,
       false
     ]
   },
-  "hash": "f384d4c996e5c5b49520e6c020d2b3c376fd8bd3a75fc564e7c1cf9c59340dba"
+  "hash": "a760c8e4883cb3fa747389e3411a11bd99b01cefaff03e15906b949ac04d0b32"
 }

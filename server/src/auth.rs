@@ -372,12 +372,6 @@ impl FromRequestParts<AppState> for SubscriberAuth {
                 "subscriber id exceeds 255 characters",
             ));
         }
-        // The v2 message separates its fields with newlines.
-        if external_id.contains('\n') {
-            return Err(ApiError::bad_request(
-                "subscriber id must not contain a newline",
-            ));
-        }
         let hash = pick(HEADER_SUBSCRIBER_HASH, QUERY_SUBSCRIBER_HASH);
         let expires = pick(HEADER_SUBSCRIBER_EXPIRES, QUERY_SUBSCRIBER_EXPIRES);
 
@@ -396,6 +390,13 @@ impl FromRequestParts<AppState> for SubscriberAuth {
         let mut credential_expires_at = None;
         match (&hash, &expires) {
             (Some(hash), Some(expires)) => {
+                // The v2 message separates its fields with newlines. Legacy
+                // hashes keep working for ids that hold a newline.
+                if external_id.contains('\n') {
+                    return Err(ApiError::bad_request(
+                        "subscriber id must not contain a newline",
+                    ));
+                }
                 let exp: i64 = expires.parse().map_err(|_| {
                     ApiError::bad_request("subscriber hash expiry must be unix seconds")
                 })?;
@@ -474,7 +475,7 @@ pub fn compute_subscriber_hash(secret: &str, subscriber_id: &str) -> String {
 }
 
 /// The v2 message. The `v2` prefix separates it from the legacy message, and
-/// a newline in the subscriber id is refused before this runs.
+/// a v2 request with a newline in the subscriber id is refused before this runs.
 fn v2_message(subscriber_id: &str, expires_at: i64) -> String {
     format!("v2\n{subscriber_id}\n{expires_at}")
 }

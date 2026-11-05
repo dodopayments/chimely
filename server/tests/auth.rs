@@ -346,17 +346,69 @@ async fn v2_hash_is_refused_when_expired_too_far_or_for_another_id() {
         (400, "subscriber hash expiry must be unix seconds")
     );
 
-    // A newline in the id would make the v2 message ambiguous.
+    // A newline in the id would make the v2 message ambiguous, so a v2 hash
+    // refuses it. A legacy hash keeps working for an id already stored that way.
+    let newline_id = "usr\n1";
+    let v2 = v2_hash(&secret, newline_id, exp);
     let res = app
         .client
         .get(format!(
-            "{}/v1/inbox/counts?environment={slug}&subscriber_id=usr%0A1",
+            "{}/v1/inbox/counts?environment={slug}&subscriber_id=usr%0A1&subscriber_hash={v2}&subscriber_expires={exp}",
             app.base,
         ))
         .send()
         .await
         .unwrap();
-    assert_eq!(res.status(), 400, "newline in the subscriber id");
+    assert_eq!(
+        res.status(),
+        400,
+        "newline in the subscriber id with a v2 hash"
+    );
+    let legacy_newline = compute_subscriber_hash(&secret, newline_id);
+    let res = app
+        .client
+        .get(format!(
+            "{}/v1/inbox/counts?environment={slug}&subscriber_id=usr%0A1&subscriber_hash={legacy_newline}",
+            app.base,
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        res.status(),
+        200,
+        "newline in the subscriber id with a legacy hash"
+    );
+}
+
+#[tokio::test]
+async fn expiry_rule_is_refused_when_the_environment_does_not_require_a_hash() {
+    let app = support::spawn_dev_mode().await; // require_subscriber_hash = false
+    let res = patch_env(
+        &app,
+        serde_json::json!({ "require_subscriber_hash_expiry": true }),
+    )
+    .await;
+    assert_eq!(res.status(), 400);
+    let body: serde_json::Value = res.json().await.unwrap();
+    assert_eq!(
+        body["error"]["message"],
+        "require_subscriber_hash_expiry needs require_subscriber_hash = true"
+    );
+
+    // The other settings still change.
+    let res = patch_env(
+        &app,
+        serde_json::json!({
+            "require_subscriber_hash_expiry": false,
+            "subscriber_hash_max_ttl_seconds": 3600,
+        }),
+    )
+    .await;
+    assert_eq!(res.status(), 200);
+    let body: serde_json::Value = res.json().await.unwrap();
+    assert_eq!(body["require_subscriber_hash_expiry"], false);
+    assert_eq!(body["subscriber_hash_max_ttl_seconds"], 3600);
 }
 
 #[tokio::test]

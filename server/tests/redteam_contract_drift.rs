@@ -11,6 +11,41 @@ mod support;
 
 use chimely::openapi::api_doc;
 
+#[test]
+fn subscriber_operations_declare_optional_expiry_and_stored_payload() {
+    let doc = serde_json::to_value(api_doc()).expect("OpenAPI document");
+    let paths = doc["paths"].as_object().expect("paths");
+    let mut subscriber_operations = 0;
+    for (path, item) in paths {
+        for (method, op) in item.as_object().expect("path item") {
+            let Some(security) = op["security"].as_array() else {
+                continue;
+            };
+            let (name, location) = if security.iter().any(|s| s.get("SubscriberHash").is_some()) {
+                ("X-Chimely-Subscriber-Expires", "header")
+            } else if security.iter().any(|s| s.get("SubscriberHashQ").is_some()) {
+                ("subscriber_expires", "query")
+            } else {
+                continue;
+            };
+            subscriber_operations += 1;
+            let param = op["parameters"]
+                .as_array()
+                .expect("subscriber parameters")
+                .iter()
+                .find(|p| p["name"] == name && p["in"] == location)
+                .unwrap_or_else(|| panic!("{method} {path} must declare {name}"));
+            assert_eq!(param["required"], false);
+            assert_eq!(param["schema"]["type"], "integer");
+        }
+    }
+    assert!(subscriber_operations >= 16);
+    assert_eq!(
+        doc["components"]["schemas"]["StoredNotification"]["properties"]["payload"]["$ref"],
+        "#/components/schemas/Payload"
+    );
+}
+
 /// `listInboxItems` returns 400 for bad input, and the annotation declares it.
 #[tokio::test]
 async fn list_items_400_is_declared_in_the_generated_spec() {

@@ -373,6 +373,8 @@ pub const MAX_SUBSCRIBER_HASH_TTL_SECONDS: i32 = 604_800;
 #[derive(Deserialize, ToSchema)]
 pub struct AdminUpdateEnvironmentRequest {
     /// Refuse every subscriber hash without an expiry, legacy hashes included.
+    /// Only an environment with `require_subscriber_hash = true` accepts `true`.
+    /// Otherwise a request with no hash still passes, so the rule has no effect.
     pub require_subscriber_hash_expiry: Option<bool>,
     /// The largest accepted distance of a v2 expiry from now, 60 to 604800 seconds.
     pub subscriber_hash_max_ttl_seconds: Option<i32>,
@@ -384,7 +386,7 @@ pub struct AdminUpdateEnvironmentRequest {
     tag = "admin",
     operation_id = "adminUpdateEnvironment",
     summary = "Update subscriber hash settings",
-    description = r#"Set the expiry rules for subscriber hashes. Omitted fields keep their value. Set require_subscriber_hash_expiry only after every backend signs v2 hashes. Legacy hashes stop working at once."#,
+    description = r#"Set the expiry rules for subscriber hashes. Omitted fields keep their value. Set require_subscriber_hash_expiry only after every backend signs v2 hashes. Legacy hashes stop working at once. An environment with require_subscriber_hash = false refuses require_subscriber_hash_expiry = true with 400, because a request with no hash still passes there."#,
     params(("env_id" = String, Path, description = "Environment TypeID (env_…).")),
     request_body = AdminUpdateEnvironmentRequest,
     responses(
@@ -429,6 +431,20 @@ pub async fn update_environment(
     }) {
         return Err(ApiError::bad_request(
             "subscriber_hash_max_ttl_seconds must be between 60 and 604800",
+        ));
+    }
+    // require_subscriber_hash never changes after create, so this read cannot race.
+    let require_hash = sqlx::query_scalar!(
+        "SELECT require_subscriber_hash FROM environments WHERE id = $1",
+        env,
+    )
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::from)?
+    .ok_or_else(|| ApiError::not_found("no such environment"))?;
+    if req.require_subscriber_hash_expiry == Some(true) && !require_hash {
+        return Err(ApiError::bad_request(
+            "require_subscriber_hash_expiry needs require_subscriber_hash = true",
         ));
     }
     let affected = sqlx::query!(

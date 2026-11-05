@@ -551,7 +551,7 @@ pub struct StoredNotification {
     /// TypeID, `notif_…`.
     pub id: String,
     pub category: String,
-    #[schema(value_type = Object)]
+    #[schema(value_type = crate::api::contract::Payload)]
     pub payload: Value,
     pub visible_at: String,
 }
@@ -614,7 +614,7 @@ pub async fn list_subscriber_notifications(
 ) -> Result<Json<StoredNotificationPage>, ApiError> {
     enforce_api_key_limit(&state, &auth).await?;
     let env = auth.environment_id;
-    validate_subscriber_id(&subscriber_id, "subscriber_id")?;
+    validate_subscriber_id_length(&subscriber_id, "subscriber_id")?;
     let limit = query.limit.unwrap_or(MAX_SUBSCRIBER_NOTIFICATION_PAGE);
     if !(1..=MAX_SUBSCRIBER_NOTIFICATION_PAGE).contains(&limit) {
         return Err(ApiError::bad_request("limit must be between 1 and 100"));
@@ -683,7 +683,7 @@ pub async fn list_subscriber_notifications(
     tag = "management",
     operation_id = "moveSubscriberNotifications",
     summary = "Move notifications to another subscriber",
-    description = r#"Move up to 100 visible direct notifications to another subscriber. Each notification keeps its read and archive state. The category mutes of the source are copied to the target. Ids that the source does not hold, and scheduled notifications that are not yet visible, are skipped, so a repeated call is safe. The target subscriber is created if it does not exist."#,
+    description = r#"Move up to 100 visible direct notifications to another subscriber. Each notification keeps its read and archive state. The seen state of the target does not change, so moved notifications can show as unseen. The category mutes of the source are copied to the target. Ids that the source does not hold, and scheduled notifications that are not yet visible, are skipped, so a repeated call is safe. The target subscriber is created if it does not exist."#,
     params(("subscriber_id" = String, Path, max_length = 255, description = "The source subscriber id.")),
     request_body = MoveNotificationsRequest,
     responses(
@@ -712,9 +712,15 @@ pub async fn move_subscriber_notifications(
 ) -> Result<Json<MoveNotificationsResponse>, ApiError> {
     enforce_api_key_limit(&state, &auth).await?;
     let env = auth.environment_id;
-    validate_subscriber_id(&from, "subscriber_id")?;
+    validate_subscriber_id_length(&from, "subscriber_id")?;
     let to = req.to_subscriber_id;
-    validate_subscriber_id(&to, "to_subscriber_id")?;
+    validate_subscriber_id_length(&to, "to_subscriber_id")?;
+    // The target signs in with v2 hashes, and the v2 message cannot hold a newline.
+    if to.contains('\n') {
+        return Err(ApiError::bad_request(
+            "to_subscriber_id must not contain a newline",
+        ));
+    }
     if to == from {
         return Err(ApiError::bad_request(
             "to_subscriber_id must differ from the source",
@@ -788,7 +794,7 @@ async fn move_notifications_txn(
 
     // Ascending uuid order, so two opposite moves cannot deadlock.
     let counters = sqlx::query!(
-        r#"SELECT subscriber_id, read_watermark, seen_watermark, archive_watermark
+        r#"SELECT subscriber_id, read_watermark, archive_watermark
              FROM subscriber_counters
             WHERE environment_id = $1 AND subscriber_id = ANY($2)
             ORDER BY subscriber_id
@@ -843,7 +849,7 @@ async fn move_notifications_txn(
                      AND t.nid = n.id::text
                      AND (t.idx - 1) >=
                          COALESCE((j.progress_cursor->>'offset')::bigint, 0))
-           RETURNING n.visible_at, (n.visible_at <= $9) AS "was_seen!""#,
+           RETURNING n.id"#,
         env,
         source,
         target,
@@ -852,7 +858,6 @@ async fn move_notifications_txn(
         dst.read_watermark,
         src.archive_watermark,
         dst.archive_watermark,
-        src.seen_watermark,
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -861,22 +866,8 @@ async fn move_notifications_txn(
         return Ok(0);
     }
 
-    if let Some(seen) = moved
-        .iter()
-        .filter(|r| r.was_seen)
-        .map(|r| r.visible_at)
-        .max()
-    {
-        sqlx::query!(
-            r#"UPDATE subscriber_counters SET seen_watermark = GREATEST(seen_watermark, $3)
-                WHERE environment_id = $1 AND subscriber_id = $2"#,
-            env,
-            target,
-            seen,
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
+    // The target seen_watermark does not move. Raising it would also mark
+    // unopened target notifications as seen. Moved notifications can show as unseen.
     sqlx::query!(
         r#"INSERT INTO preferences (environment_id, subscriber_id, category, channel, enabled)
            SELECT environment_id, $3, category, channel, enabled FROM preferences
@@ -895,15 +886,10 @@ async fn move_notifications_txn(
     Ok(moved.len() as u64)
 }
 
-fn validate_subscriber_id(id: &str, field: &str) -> Result<(), ApiError> {
+fn validate_subscriber_id_length(id: &str, field: &str) -> Result<(), ApiError> {
     if id.is_empty() || id.len() > 255 {
         return Err(ApiError::bad_request(format!(
             "{field} must be 1–255 characters"
-        )));
-    }
-    if id.contains('\n') {
-        return Err(ApiError::bad_request(format!(
-            "{field} must not contain a newline"
         )));
     }
     Ok(())
