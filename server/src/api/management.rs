@@ -12,16 +12,16 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Months, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::auth::ManagementAuth;
 use crate::error::ApiError;
-use crate::extract::ApiJson;
+use crate::extract::{ApiJson, ApiQuery};
 use crate::state::AppState;
-use crate::{api, ids, jobs, ratelimit, timeline};
+use crate::{api, ids, jobs, ratelimit, timeline, worker};
 
 pub const MAX_PAYLOAD_BYTES: usize = 16 * 1024;
 /// `deliver_at` cap. Partition pre-creation headroom covers it.
@@ -531,6 +531,382 @@ pub async fn get_notification_timeline(
             .collect::<Vec<_>>(),
     }))
     .into_response())
+}
+
+// =============================================================================
+// Subscriber notification list and move
+// =============================================================================
+
+/// Page size cap of the list, and the id cap of one move.
+pub const MAX_SUBSCRIBER_NOTIFICATION_PAGE: i64 = 100;
+
+#[derive(Debug, Deserialize)]
+pub struct SubscriberNotificationsQuery {
+    pub cursor: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StoredNotification {
+    /// TypeID, `notif_…`.
+    pub id: String,
+    pub category: String,
+    #[schema(value_type = Object)]
+    pub payload: Value,
+    pub visible_at: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StoredNotificationPage {
+    pub items: Vec<StoredNotification>,
+    /// Opaque keyset token. Null when the last page is reached.
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct MoveNotificationsRequest {
+    /// The subscriber that receives the notifications. 1-255 characters, no newline.
+    pub to_subscriber_id: String,
+    /// Up to 100 `notif_…` ids. Ids that the source does not hold are skipped.
+    pub notification_ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MoveNotificationsResponse {
+    pub moved: u64,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/subscribers/{subscriber_id}/notifications",
+    tag = "management",
+    operation_id = "listSubscriberNotifications",
+    summary = "List a subscriber's notifications",
+    description = r#"Every stored direct notification of one subscriber, oldest first, archived and scheduled ones included. Use next_cursor for the next page. An unknown subscriber returns an empty page."#,
+    params(
+        ("subscriber_id" = String, Path, max_length = 255, description = "Customer-provided subscriber id."),
+        ("cursor" = Option<String>, Query, description = "Opaque keyset cursor. Omit it for the first page."),
+        ("limit" = Option<i64>, Query, minimum = 1, maximum = 100, description = "Page size. The default is 100."),
+    ),
+    responses(
+        (status = 200, description = "A page of notifications.", body = StoredNotificationPage),
+        (
+            status = 400,
+            description = "Malformed cursor or out-of-range limit.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "limit must be between 1 and 100"}}),
+        ),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid API key"}}),
+        ),
+        (status = 429, response = crate::api::contract::RateLimited),
+    ),
+    security(("ApiKeyBearer" = []))
+)]
+pub async fn list_subscriber_notifications(
+    State(state): State<AppState>,
+    auth: ManagementAuth,
+    Path(subscriber_id): Path<String>,
+    ApiQuery(query): ApiQuery<SubscriberNotificationsQuery>,
+) -> Result<Json<StoredNotificationPage>, ApiError> {
+    enforce_api_key_limit(&state, &auth).await?;
+    let env = auth.environment_id;
+    validate_subscriber_id(&subscriber_id, "subscriber_id")?;
+    let limit = query.limit.unwrap_or(MAX_SUBSCRIBER_NOTIFICATION_PAGE);
+    if !(1..=MAX_SUBSCRIBER_NOTIFICATION_PAGE).contains(&limit) {
+        return Err(ApiError::bad_request("limit must be between 1 and 100"));
+    }
+    let (after_ts, after_id) = match &query.cursor {
+        None => (None, None),
+        Some(c) => {
+            let (ts, id) = api::inbox::decode_cursor(c)
+                .ok_or_else(|| ApiError::bad_request("malformed cursor"))?;
+            (Some(ts), Some(id))
+        }
+    };
+
+    let internal = sqlx::query_scalar!(
+        "SELECT id FROM subscribers WHERE environment_id = $1 AND subscriber_id = $2",
+        env,
+        &subscriber_id,
+    )
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(ApiError::from)?;
+    let Some(internal) = internal else {
+        return Ok(Json(StoredNotificationPage {
+            items: Vec::new(),
+            next_cursor: None,
+        }));
+    };
+
+    let rows = sqlx::query!(
+        r#"SELECT id, category, payload, visible_at FROM notifications
+            WHERE environment_id = $1 AND subscriber_id = $2
+              AND ($3::timestamptz IS NULL OR (visible_at, id) > ($3, $4::uuid))
+            ORDER BY visible_at, id
+            LIMIT $5"#,
+        env,
+        internal,
+        after_ts,
+        after_id,
+        limit,
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    let next_cursor = (rows.len() as i64 == limit)
+        .then(|| {
+            rows.last()
+                .map(|r| api::inbox::encode_cursor(r.visible_at, r.id))
+        })
+        .flatten();
+    let items = rows
+        .into_iter()
+        .map(|r| StoredNotification {
+            id: ids::typeid(ids::NOTIFICATION, r.id),
+            category: r.category,
+            payload: r.payload,
+            visible_at: api::format_ts(r.visible_at),
+        })
+        .collect();
+    Ok(Json(StoredNotificationPage { items, next_cursor }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/subscribers/{subscriber_id}/notifications/move",
+    tag = "management",
+    operation_id = "moveSubscriberNotifications",
+    summary = "Move notifications to another subscriber",
+    description = r#"Move up to 100 visible direct notifications to another subscriber. Each notification keeps its read and archive state. The category mutes of the source are copied to the target. Ids that the source does not hold, and scheduled notifications that are not yet visible, are skipped, so a repeated call is safe. The target subscriber is created if it does not exist."#,
+    params(("subscriber_id" = String, Path, max_length = 255, description = "The source subscriber id.")),
+    request_body = MoveNotificationsRequest,
+    responses(
+        (status = 200, description = "The number of moved notifications.", body = MoveNotificationsResponse),
+        (
+            status = 400,
+            description = "Validation error.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "to_subscriber_id must differ from the source"}}),
+        ),
+        (
+            status = 401,
+            description = "Missing/invalid API key or subscriber hash.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "invalid API key"}}),
+        ),
+        (status = 429, response = crate::api::contract::RateLimited),
+    ),
+    security(("ApiKeyBearer" = []))
+)]
+pub async fn move_subscriber_notifications(
+    State(state): State<AppState>,
+    auth: ManagementAuth,
+    Path(from): Path<String>,
+    ApiJson(req): ApiJson<MoveNotificationsRequest>,
+) -> Result<Json<MoveNotificationsResponse>, ApiError> {
+    enforce_api_key_limit(&state, &auth).await?;
+    let env = auth.environment_id;
+    validate_subscriber_id(&from, "subscriber_id")?;
+    let to = req.to_subscriber_id;
+    validate_subscriber_id(&to, "to_subscriber_id")?;
+    if to == from {
+        return Err(ApiError::bad_request(
+            "to_subscriber_id must differ from the source",
+        ));
+    }
+    if req.notification_ids.len() > MAX_SUBSCRIBER_NOTIFICATION_PAGE as usize {
+        return Err(ApiError::bad_request(
+            "notification_ids must contain at most 100 ids",
+        ));
+    }
+    let notification_ids = req
+        .notification_ids
+        .iter()
+        .map(|id| ids::parse_typeid(ids::NOTIFICATION, id))
+        .collect::<Option<Vec<Uuid>>>()
+        .ok_or_else(|| ApiError::bad_request("notification_ids must be notif_ ids"))?;
+    if notification_ids.is_empty() {
+        return Ok(Json(MoveNotificationsResponse { moved: 0 }));
+    }
+    let moved = move_notifications_txn(&state, env, &from, &to, &notification_ids).await?;
+    Ok(Json(MoveNotificationsResponse { moved }))
+}
+
+async fn move_notifications_txn(
+    state: &AppState,
+    env: Uuid,
+    from: &str,
+    to: &str,
+    notification_ids: &[Uuid],
+) -> anyhow::Result<u64> {
+    let mut tx = state.pool.begin().await?;
+    let source = sqlx::query_scalar!(
+        "SELECT id FROM subscribers WHERE environment_id = $1 AND subscriber_id = $2",
+        env,
+        from,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(source) = source else {
+        return Ok(0);
+    };
+
+    // No backdate. Broadcast read state does not move, so an older target
+    // created_at would show old broadcasts as new.
+    sqlx::query!(
+        r#"INSERT INTO subscribers (environment_id, id, subscriber_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (environment_id, subscriber_id) DO NOTHING"#,
+        env,
+        ids::new_uuid(),
+        to,
+    )
+    .execute(&mut *tx)
+    .await?;
+    let target = sqlx::query_scalar!(
+        "SELECT id FROM subscribers WHERE environment_id = $1 AND subscriber_id = $2",
+        env,
+        to,
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    sqlx::query!(
+        r#"INSERT INTO subscriber_counters (environment_id, subscriber_id)
+           SELECT $1, unnest($2::uuid[])
+           ON CONFLICT (environment_id, subscriber_id) DO NOTHING"#,
+        env,
+        &[source, target][..],
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Ascending uuid order, so two opposite moves cannot deadlock.
+    let counters = sqlx::query!(
+        r#"SELECT subscriber_id, read_watermark, seen_watermark, archive_watermark
+             FROM subscriber_counters
+            WHERE environment_id = $1 AND subscriber_id = ANY($2)
+            ORDER BY subscriber_id
+            FOR UPDATE"#,
+        env,
+        &[source, target][..],
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let src = counters
+        .iter()
+        .find(|c| c.subscriber_id == source)
+        .ok_or_else(|| anyhow::anyhow!("source counters row missing"))?;
+    let dst = counters
+        .iter()
+        .find(|c| c.subscriber_id == target)
+        .ok_or_else(|| anyhow::anyhow!("target counters row missing"))?;
+
+    // State becomes explicit per row. An override is set only at or below the
+    // target watermark (migration 0004). Above it, NULL already means unread
+    // or unarchived. Rows still owned by a pending deliver job are skipped.
+    let moved = sqlx::query!(
+        r#"UPDATE notifications n SET
+               subscriber_id = $3,
+               read_at = CASE
+                   WHEN n.read_at IS NOT NULL
+                        OR (n.unread_at IS NULL AND n.visible_at <= $5)
+                   THEN COALESCE(n.read_at, $5) END,
+               unread_at = CASE
+                   WHEN n.read_at IS NULL
+                        AND (n.unread_at IS NOT NULL OR n.visible_at > $5)
+                        AND n.visible_at <= $6
+                   THEN COALESCE(n.unread_at, now()) END,
+               archived_at = CASE
+                   WHEN n.archived_at IS NOT NULL
+                        OR (n.unarchived_at IS NULL AND n.visible_at <= $7)
+                   THEN COALESCE(n.archived_at, $7) END,
+               unarchived_at = CASE
+                   WHEN n.archived_at IS NULL
+                        AND (n.unarchived_at IS NOT NULL OR n.visible_at > $7)
+                        AND n.visible_at <= $8
+                   THEN COALESCE(n.unarchived_at, now()) END
+           WHERE n.environment_id = $1 AND n.subscriber_id = $2
+             AND n.id = ANY($4)
+             AND n.visible_at <= now()
+             AND NOT EXISTS (SELECT 1 FROM jobs j
+                   CROSS JOIN LATERAL jsonb_array_elements_text(
+                       CASE WHEN jsonb_typeof(j.payload->'notification_ids') = 'array'
+                            THEN j.payload->'notification_ids' END)
+                       WITH ORDINALITY AS t(nid, idx)
+                   WHERE j.environment_id = $1 AND j.job_type = 'deliver'
+                     AND t.nid = n.id::text
+                     AND (t.idx - 1) >=
+                         COALESCE((j.progress_cursor->>'offset')::bigint, 0))
+           RETURNING n.visible_at, (n.visible_at <= $9) AS "was_seen!""#,
+        env,
+        source,
+        target,
+        notification_ids,
+        src.read_watermark,
+        dst.read_watermark,
+        src.archive_watermark,
+        dst.archive_watermark,
+        src.seen_watermark,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    if moved.is_empty() {
+        tx.commit().await?;
+        return Ok(0);
+    }
+
+    if let Some(seen) = moved
+        .iter()
+        .filter(|r| r.was_seen)
+        .map(|r| r.visible_at)
+        .max()
+    {
+        sqlx::query!(
+            r#"UPDATE subscriber_counters SET seen_watermark = GREATEST(seen_watermark, $3)
+                WHERE environment_id = $1 AND subscriber_id = $2"#,
+            env,
+            target,
+            seen,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    sqlx::query!(
+        r#"INSERT INTO preferences (environment_id, subscriber_id, category, channel, enabled)
+           SELECT environment_id, $3, category, channel, enabled FROM preferences
+            WHERE environment_id = $1 AND subscriber_id = $2
+           ON CONFLICT DO NOTHING"#,
+        env,
+        source,
+        target,
+    )
+    .execute(&mut *tx)
+    .await?;
+    worker::recount_subscriber(&mut tx, env, source).await?;
+    worker::recount_subscriber(&mut tx, env, target).await?;
+    jobs::enqueue_hint(&mut tx, env, &[source, target], "read_state", &[]).await?;
+    tx.commit().await?;
+    Ok(moved.len() as u64)
+}
+
+fn validate_subscriber_id(id: &str, field: &str) -> Result<(), ApiError> {
+    if id.is_empty() || id.len() > 255 {
+        return Err(ApiError::bad_request(format!(
+            "{field} must be 1–255 characters"
+        )));
+    }
+    if id.contains('\n') {
+        return Err(ApiError::bad_request(format!(
+            "{field} must not contain a newline"
+        )));
+    }
+    Ok(())
 }
 
 // =============================================================================

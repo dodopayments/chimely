@@ -109,6 +109,10 @@ pub struct AdminEnvironment {
     pub slug: String,
     pub name: String,
     pub require_subscriber_hash: bool,
+    /// True when every subscriber hash must carry an expiry (v2).
+    pub require_subscriber_hash_expiry: bool,
+    /// The largest accepted distance of a v2 expiry from now, in seconds.
+    pub subscriber_hash_max_ttl_seconds: i32,
     pub created_at: String,
 }
 
@@ -118,6 +122,10 @@ pub struct AdminEnvironmentDetail {
     pub slug: String,
     pub name: String,
     pub require_subscriber_hash: bool,
+    /// True when every subscriber hash must carry an expiry (v2).
+    pub require_subscriber_hash_expiry: bool,
+    /// The largest accepted distance of a v2 expiry from now, in seconds.
+    pub subscriber_hash_max_ttl_seconds: i32,
     /// The dedicated subscriber HMAC secret. Plaintext by design. The customer
     /// backend computes hashes with it. Returned only to roles holding
     /// `env:read_secret` (developer/admin). Omitted otherwise.
@@ -172,7 +180,8 @@ pub async fn list_environments(
 ) -> Result<Json<Vec<AdminEnvironment>>, ApiError> {
     auth.require(Capability::Read)?;
     let rows = sqlx::query!(
-        r#"SELECT id, slug, name, require_subscriber_hash, created_at
+        r#"SELECT id, slug, name, require_subscriber_hash, require_subscriber_hash_expiry,
+                  subscriber_hash_max_ttl_seconds, created_at
              FROM environments ORDER BY created_at"#,
     )
     .fetch_all(&state.pool)
@@ -185,6 +194,8 @@ pub async fn list_environments(
                 slug: r.slug,
                 name: r.name,
                 require_subscriber_hash: r.require_subscriber_hash,
+                require_subscriber_hash_expiry: r.require_subscriber_hash_expiry,
+                subscriber_hash_max_ttl_seconds: r.subscriber_hash_max_ttl_seconds,
                 created_at: format_ts(r.created_at),
             })
             .collect(),
@@ -251,7 +262,8 @@ pub async fn create_environment(
                (id, slug, name, subscriber_hmac_secret, require_subscriber_hash)
            VALUES ($1, $2, $3, $4, $5)
            ON CONFLICT (slug) DO NOTHING
-           RETURNING created_at"#,
+           RETURNING created_at, require_subscriber_hash_expiry,
+                     subscriber_hash_max_ttl_seconds"#,
         id,
         slug,
         name,
@@ -273,6 +285,8 @@ pub async fn create_environment(
             slug: slug.to_owned(),
             name: name.to_owned(),
             require_subscriber_hash: req.require_subscriber_hash,
+            require_subscriber_hash_expiry: created.require_subscriber_hash_expiry,
+            subscriber_hash_max_ttl_seconds: created.subscriber_hash_max_ttl_seconds,
             // The creator holds env:create, which only admin has, and admin
             // also holds env:read_secret, so the secret is always returned
             // here. It is needed immediately to wire up the widget.
@@ -324,7 +338,8 @@ pub async fn get_environment(
     let env = parse_env_id(&env_id)?;
     let row = sqlx::query!(
         r#"SELECT id, slug, name, require_subscriber_hash, subscriber_hmac_secret,
-                  subscriber_hmac_secret_previous, subscriber_hmac_rotated_at, created_at
+                  subscriber_hmac_secret_previous, subscriber_hmac_rotated_at, created_at,
+                  require_subscriber_hash_expiry, subscriber_hash_max_ttl_seconds
              FROM environments WHERE id = $1"#,
         env,
     )
@@ -338,6 +353,8 @@ pub async fn get_environment(
         slug: row.slug,
         name: row.name,
         require_subscriber_hash: row.require_subscriber_hash,
+        require_subscriber_hash_expiry: row.require_subscriber_hash_expiry,
+        subscriber_hash_max_ttl_seconds: row.subscriber_hash_max_ttl_seconds,
         // env:read_secret gates the plaintext secret. viewer/operator see the
         // environment without it.
         subscriber_hmac_secret: auth
@@ -347,6 +364,100 @@ pub async fn get_environment(
         subscriber_hmac_rotated_at: row.subscriber_hmac_rotated_at.map(format_ts),
         created_at: format_ts(row.created_at),
     }))
+}
+
+/// The accepted range of `subscriber_hash_max_ttl_seconds`: 1 minute to 7 days.
+pub const MIN_SUBSCRIBER_HASH_TTL_SECONDS: i32 = 60;
+pub const MAX_SUBSCRIBER_HASH_TTL_SECONDS: i32 = 604_800;
+
+#[derive(Deserialize, ToSchema)]
+pub struct AdminUpdateEnvironmentRequest {
+    /// Refuse every subscriber hash without an expiry, legacy hashes included.
+    pub require_subscriber_hash_expiry: Option<bool>,
+    /// The largest accepted distance of a v2 expiry from now, 60 to 604800 seconds.
+    pub subscriber_hash_max_ttl_seconds: Option<i32>,
+}
+
+#[utoipa::path(
+    patch,
+    path = "/admin/api/environments/{env_id}",
+    tag = "admin",
+    operation_id = "adminUpdateEnvironment",
+    summary = "Update subscriber hash settings",
+    description = r#"Set the expiry rules for subscriber hashes. Omitted fields keep their value. Set require_subscriber_hash_expiry only after every backend signs v2 hashes. Legacy hashes stop working at once."#,
+    params(("env_id" = String, Path, description = "Environment TypeID (env_…).")),
+    request_body = AdminUpdateEnvironmentRequest,
+    responses(
+        (status = 200, description = "Updated environment.", body = AdminEnvironmentDetail),
+        (
+            status = 400,
+            description = "Validation error.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "invalid_request", "message": "subscriber_hash_max_ttl_seconds must be between 60 and 604800"}}),
+        ),
+        (
+            status = 401,
+            description = "Authentication required (no or expired session).",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "unauthorized", "message": "admin session required"}}),
+        ),
+        (
+            status = 403,
+            description = "Authenticated but the role lacks the capability.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "forbidden", "message": "your role does not permit this action"}}),
+        ),
+        (
+            status = 404,
+            description = "No such environment.",
+            body = crate::api::contract::Error,
+            example = json!({"error": {"code": "not_found", "message": "no such environment"}}),
+        ),
+    ),
+    security(("AdminSession" = []))
+)]
+pub async fn update_environment(
+    auth: AdminAuth,
+    State(state): State<AppState>,
+    Path(env_id): Path<String>,
+    ApiJson(req): ApiJson<AdminUpdateEnvironmentRequest>,
+) -> Result<Json<AdminEnvironmentDetail>, ApiError> {
+    auth.require(Capability::HmacRotate)?;
+    let env = parse_env_id(&env_id)?;
+    if req.subscriber_hash_max_ttl_seconds.is_some_and(|ttl| {
+        !(MIN_SUBSCRIBER_HASH_TTL_SECONDS..=MAX_SUBSCRIBER_HASH_TTL_SECONDS).contains(&ttl)
+    }) {
+        return Err(ApiError::bad_request(
+            "subscriber_hash_max_ttl_seconds must be between 60 and 604800",
+        ));
+    }
+    let affected = sqlx::query!(
+        r#"UPDATE environments SET
+               require_subscriber_hash_expiry =
+                   COALESCE($2, require_subscriber_hash_expiry),
+               subscriber_hash_max_ttl_seconds =
+                   COALESCE($3, subscriber_hash_max_ttl_seconds),
+               updated_at = now()
+           WHERE id = $1"#,
+        env,
+        req.require_subscriber_hash_expiry,
+        req.subscriber_hash_max_ttl_seconds,
+    )
+    .execute(&state.pool)
+    .await
+    .map_err(ApiError::from)?
+    .rows_affected();
+    if affected == 0 {
+        return Err(ApiError::not_found("no such environment"));
+    }
+    tracing::info!(
+        admin = %auth.user.email,
+        environment = %env_id,
+        require_subscriber_hash_expiry = ?req.require_subscriber_hash_expiry,
+        subscriber_hash_max_ttl_seconds = ?req.subscriber_hash_max_ttl_seconds,
+        "environment subscriber hash settings updated"
+    );
+    get_environment(auth, State(state), Path(env_id)).await
 }
 
 // =============================================================================

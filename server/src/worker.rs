@@ -854,6 +854,18 @@ async fn process_counter_rebuild(
     payload: &Value,
 ) -> anyhow::Result<Outcome> {
     let subscriber: Uuid = serde_json::from_value(payload["subscriber_id"].clone())?;
+    recount_subscriber(tx, env, subscriber).await?;
+    jobs::enqueue_hint(tx, env, &[subscriber], "read_state", &[]).await?;
+    Ok(Outcome::Done)
+}
+
+/// Exact, mute-aware recount of one subscriber's direct counters. The caller
+/// enqueues the hint.
+pub(crate) async fn recount_subscriber(
+    tx: &mut sqlx::PgConnection,
+    env: Uuid,
+    subscriber: Uuid,
+) -> anyhow::Result<()> {
     // Lock the counters row FIRST (same reasoning as the deliver bump: the
     // recount statement must see a snapshot taken after the lock).
     sqlx::query!(
@@ -917,8 +929,7 @@ async fn process_counter_rebuild(
     )
     .execute(&mut *tx)
     .await?;
-    jobs::enqueue_hint(tx, env, &[subscriber], "read_state", &[]).await?;
-    Ok(Outcome::Done)
+    Ok(())
 }
 
 /// Test hook: claim the next due job for `env` and apply ONE deliver chunk,

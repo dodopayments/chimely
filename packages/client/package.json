@@ -1,6 +1,6 @@
 {
   "name": "@chimely/client",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Framework-agnostic headless core for the Chimely in-app notification inbox.",
   "keywords": [
     "notifications",

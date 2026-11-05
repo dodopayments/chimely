@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, slug, name, require_subscriber_hash, created_at\n             FROM environments ORDER BY created_at",
+  "query": "SELECT id, slug, name, require_subscriber_hash, require_subscriber_hash_expiry,\n                  subscriber_hash_max_ttl_seconds, created_at\n             FROM environments ORDER BY created_at",
   "describe": {
     "columns": [
       {
@@ -49,6 +49,28 @@
       },
       {
         "ordinal": 4,
+        "name": "require_subscriber_hash_expiry",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "environments",
+            "name": "require_subscriber_hash_expiry"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "subscriber_hash_max_ttl_seconds",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "environments",
+            "name": "subscriber_hash_max_ttl_seconds"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -67,8 +89,10 @@
       false,
       false,
       false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "db6b540e402824ca0f8e7a7d9bbd01d6cbead3d0596eee546c6f101132687623"
+  "hash": "b593df9a79d58749b19a37fdcc9f27fcd8ed7bb11ff94b6f8ef7d61e54439ca7"
 }

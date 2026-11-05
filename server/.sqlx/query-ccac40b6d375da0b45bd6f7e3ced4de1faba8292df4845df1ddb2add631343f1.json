@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO preferences (environment_id, subscriber_id, category, channel, enabled)\n           SELECT environment_id, $3, category, channel, enabled FROM preferences\n            WHERE environment_id = $1 AND subscriber_id = $2\n           ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ccac40b6d375da0b45bd6f7e3ced4de1faba8292df4845df1ddb2add631343f1"
+}

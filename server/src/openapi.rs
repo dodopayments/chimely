@@ -21,6 +21,13 @@ const INFO_DESCRIPTION: &str = r#"Two planes, one binary:
   computed by the customer's backend. Mandatory in environments with
   `require_subscriber_hash = true` (the production default); optional in
   dev environments so the quickstart works without a backend.
+  An expiring (v2) hash signs
+  `"v2\n" + subscriber_id + "\n" + expires_at`, where `expires_at` is unix
+  seconds. Send `expires_at` with the hash. Chimely refuses a v2 hash after
+  its expiry, and when the expiry is more than
+  `subscriber_hash_max_ttl_seconds` (plus 60 seconds) in the future. An
+  environment with `require_subscriber_hash_expiry = true` refuses every hash
+  without an expiry. A subscriber id must not contain a newline.
 
 Subscriber-plane scoping travels in headers (or query parameters where
 headers are impossible, i.e. `EventSource`):
@@ -30,6 +37,7 @@ headers are impossible, i.e. `EventSource`):
 | `X-Chimely-Environment` | `environment` | environment slug |
 | `X-Chimely-Subscriber` | `subscriber_id` | customer-provided subscriber id |
 | `X-Chimely-Subscriber-Hash` | `subscriber_hash` | HMAC hash (when required) |
+| `X-Chimely-Subscriber-Expires` | `subscriber_expires` | expiry of a v2 hash, unix seconds |
 
 **Idempotency.** Every create accepts `idempotency_key` (client-supplied or
 server-generated and echoed). Uniqueness is per environment per resource
@@ -72,6 +80,8 @@ change). Status codes are conventional and 429 carries `Retry-After`.
         crate::api::management::create_broadcast,
         crate::api::management::get_notification_timeline,
         crate::api::management::upsert_subscriber,
+        crate::api::management::list_subscriber_notifications,
+        crate::api::management::move_subscriber_notifications,
         crate::api::preferences::get_subscriber_preferences,
         crate::api::preferences::set_subscriber_preferences,
         crate::api::inbox::list_items,
@@ -103,6 +113,7 @@ change). Status codes are conventional and 429 carries `Retry-After`.
         crate::api::admin::list_environments,
         crate::api::admin::create_environment,
         crate::api::admin::get_environment,
+        crate::api::admin::update_environment,
         crate::api::admin::rotate_hmac,
         crate::api::admin::complete_hmac_rotation,
         crate::api::admin::list_api_keys,
@@ -187,6 +198,13 @@ pub fn api_doc() -> utoipa::openapi::OpenApi {
         ))),
     );
     components.add_security_scheme(
+        "SubscriberExpires",
+        SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::with_description(
+            "X-Chimely-Subscriber-Expires",
+            "Expiry of a v2 subscriber hash, in unix seconds. Send it with every v2 hash.",
+        ))),
+    );
+    components.add_security_scheme(
         "SubscriberEnvQ",
         SecurityScheme::ApiKey(ApiKey::Query(ApiKeyValue::new("environment"))),
     );
@@ -197,6 +215,13 @@ pub fn api_doc() -> utoipa::openapi::OpenApi {
     components.add_security_scheme(
         "SubscriberHashQ",
         SecurityScheme::ApiKey(ApiKey::Query(ApiKeyValue::new("subscriber_hash"))),
+    );
+    components.add_security_scheme(
+        "SubscriberExpiresQ",
+        SecurityScheme::ApiKey(ApiKey::Query(ApiKeyValue::with_description(
+            "subscriber_expires",
+            "Expiry of a v2 subscriber hash, in unix seconds.",
+        ))),
     );
 
     // Reusable error responses. RateLimited is registered through the derive

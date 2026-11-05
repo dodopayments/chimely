@@ -114,6 +114,12 @@ export interface ChimelyClientConfig {
    * environment allows it (dev quickstart).
    */
   subscriberHash?: string;
+  /**
+   * Expiry of a v2 subscriber hash, in unix seconds. Set it when YOUR
+   * backend signs `v2\n{subscriberId}\n{expiresAt}`. Omit it for a
+   * legacy hash.
+   */
+  subscriberHashExpiresAt?: number;
   backoff?: BackoffConfig;
   /** Page size for list fetches (1–100). Default: 20. */
   pageSize?: number;

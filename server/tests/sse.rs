@@ -253,3 +253,44 @@ async fn subscriber_hash_is_scrubbed_from_access_logs() {
     );
     assert!(captured.contains("subscriber_hash=redacted"), "{captured}");
 }
+
+/// A stream opened with an expiring credential ends at the expiry with a
+/// `retry` event. The client then reconnects with its current credential.
+#[tokio::test]
+async fn stream_ends_at_credential_expiry() {
+    use hmac::{Hmac, Mac as _};
+    let app = support::spawn().await;
+    let sub = "usr_sse_expiry";
+    let exp = chrono::Utc::now().timestamp() + 2;
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(app.env.hmac_secret.as_bytes()).unwrap();
+    mac.update(format!("v2\n{sub}\n{exp}").as_bytes());
+    let hash = hex::encode(mac.finalize().into_bytes());
+    let mut res = app
+        .client
+        .get(format!(
+            "{}/v1/inbox/stream?environment={}&subscriber_id={sub}&subscriber_hash={hash}&subscriber_expires={exp}",
+            app.base, app.env.slug,
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(4);
+    let mut text = String::new();
+    let mut ended = false;
+    while let Ok(chunk) = tokio::time::timeout_at(deadline, res.chunk()).await {
+        match chunk {
+            Ok(Some(bytes)) => text.push_str(&String::from_utf8_lossy(&bytes)),
+            Ok(None) | Err(_) => {
+                ended = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        text.contains("event: retry"),
+        "no retry event before expiry close: {text}"
+    );
+    assert!(ended, "the stream must close at the credential expiry");
+}
