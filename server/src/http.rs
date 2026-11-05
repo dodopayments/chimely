@@ -33,6 +33,7 @@ pub fn router(state: AppState) -> Router {
             HeaderName::from_static("x-chimely-environment"),
             HeaderName::from_static("x-chimely-subscriber"),
             HeaderName::from_static("x-chimely-subscriber-hash"),
+            HeaderName::from_static("x-chimely-subscriber-expires"),
         ])
         .expose_headers([header::ETAG])
         .max_age(Duration::from_secs(3600));
@@ -100,6 +101,14 @@ pub fn router(state: AppState) -> Router {
             get(preferences::get_subscriber_preferences)
                 .put(preferences::set_subscriber_preferences),
         )
+        .route(
+            "/v1/subscribers/{subscriber_id}/notifications",
+            get(management::list_subscriber_notifications),
+        )
+        .route(
+            "/v1/subscribers/{subscriber_id}/notifications/move",
+            post(management::move_subscriber_notifications),
+        )
         // Subscriber plane (CORS-enabled)
         .merge(subscriber_plane)
         // Admin plane. The JSON API gates on AdminAuth (a server-side session
@@ -154,7 +163,7 @@ fn admin_plane() -> Router<AppState> {
         )
         .route(
             "/admin/api/environments/{env_id}",
-            get(admin::get_environment),
+            get(admin::get_environment).patch(admin::update_environment),
         )
         .route(
             "/admin/api/environments/{env_id}/hmac/rotate",

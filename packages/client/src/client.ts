@@ -73,7 +73,7 @@ const defaultCreateEventSource = (url: string): EventSourceLike => {
  * - markAllSeen() zeroes unseen without touching read state.
  */
 export class ChimelyClient<TPayload = WellKnownPayload> {
-  private readonly config: ChimelyClientConfig;
+  private config: ChimelyClientConfig;
   private readonly baseUrl: string;
   private readonly pageSize: number;
   private readonly backoff: ResolvedBackoff;
@@ -108,7 +108,7 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
   private fetchingMore: Promise<void> | null = null;
 
   constructor(config: ChimelyClientConfig) {
-    this.config = config;
+    this.config = { ...config };
     this.baseUrl = config.serverUrl.replace(/\/+$/, '');
     this.pageSize = Math.min(100, Math.max(1, config.pageSize ?? 20));
     this.backoff = resolveBackoff(config.backoff);
@@ -139,6 +139,38 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
     this.source?.close();
     this.source = null;
     this.store.patch({ status: 'closed' });
+  }
+
+  /** Replace the subscriber hash and its expiry. Opens at most one stream. */
+  setCredentials(creds: { subscriberHash: string; subscriberHashExpiresAt?: number }): void {
+    if (
+      creds.subscriberHash === this.config.subscriberHash &&
+      creds.subscriberHashExpiresAt === this.config.subscriberHashExpiresAt
+    ) {
+      return;
+    }
+    this.config = {
+      ...this.config,
+      subscriberHash: creds.subscriberHash,
+      subscriberHashExpiresAt: creds.subscriberHashExpiresAt,
+    };
+    const { status } = this.store.getSnapshot();
+    if (status === 'idle' || status === 'closed') {
+      // connect() reads the new fields. Opening here would race the provider's connect().
+      return;
+    }
+    this.generation += 1;
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.source?.close();
+    this.source = null;
+    this.attempts = 0;
+    this.retryOverrideMs = null;
+    this.store.patch({ status: 'connecting' });
+    this.openStream();
+    void this.refresh();
   }
 
   getSnapshot(): InboxSnapshot<TPayload> {
@@ -583,6 +615,9 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
     if (this.config.subscriberHash !== undefined) {
       headers['X-Chimely-Subscriber-Hash'] = this.config.subscriberHash;
     }
+    if (this.config.subscriberHashExpiresAt !== undefined) {
+      headers['X-Chimely-Subscriber-Expires'] = String(this.config.subscriberHashExpiresAt);
+    }
     if (init?.ifNoneMatch) {
       headers['If-None-Match'] = init.ifNoneMatch;
     }
@@ -618,6 +653,9 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
     if (this.config.subscriberHash !== undefined) {
       params.set('subscriber_hash', this.config.subscriberHash);
     }
+    if (this.config.subscriberHashExpiresAt !== undefined) {
+      params.set('subscriber_expires', String(this.config.subscriberHashExpiresAt));
+    }
     if (this.lastEventId !== null) {
       params.set('last_event_id', this.lastEventId);
     }
@@ -633,6 +671,7 @@ export class ChimelyClient<TPayload = WellKnownPayload> {
       this.handleStreamFailure();
       return;
     }
+    this.source?.close();
     this.source = source;
     source.addEventListener('open', () => {
       if (generation !== this.generation) {

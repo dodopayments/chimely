@@ -7,7 +7,10 @@
 //! environment requires it) `hex(HMAC-SHA256(subscriber_hmac_secret,
 //! subscriber_id))`, verified against the current then the previous secret
 //! slot so secret rotation never invalidates live sessions. Headers with
-//! query-parameter fallbacks (EventSource cannot set headers).
+//! query-parameter fallbacks (EventSource cannot set headers). A v2 hash
+//! signs `"v2\n" + subscriber_id + "\n" + expires_at` and travels with its
+//! expiry in unix seconds. An environment can refuse every hash without an
+//! expiry.
 //!
 //! Admin: built-in users (Argon2id passwords) with a server-side session in
 //! an HttpOnly, SameSite=Strict cookie scoped to /admin. Roles are
@@ -39,6 +42,10 @@ pub const HEADER_SUBSCRIBER_HASH: &str = "x-chimely-subscriber-hash";
 pub const QUERY_ENVIRONMENT: &str = "environment";
 pub const QUERY_SUBSCRIBER: &str = "subscriber_id";
 pub const QUERY_SUBSCRIBER_HASH: &str = "subscriber_hash";
+pub const HEADER_SUBSCRIBER_EXPIRES: &str = "x-chimely-subscriber-expires";
+pub const QUERY_SUBSCRIBER_EXPIRES: &str = "subscriber_expires";
+/// Clock-skew allowance on top of the environment maximum TTL.
+const EXPIRY_SKEW_SECONDS: i64 = 60;
 
 /// A management-plane caller. Resolving it authenticates the request.
 pub struct ManagementAuth {
@@ -328,6 +335,8 @@ pub struct SubscriberAuth {
     pub external_id: String,
     /// Drives broadcast visibility (`broadcasts.created_at >= this`).
     pub subscriber_created_at: DateTime<Utc>,
+    /// Set for a v2 credential. The SSE stream ends at this time.
+    pub credential_expires_at: Option<DateTime<Utc>>,
 }
 
 impl FromRequestParts<AppState> for SubscriberAuth {
@@ -364,10 +373,12 @@ impl FromRequestParts<AppState> for SubscriberAuth {
             ));
         }
         let hash = pick(HEADER_SUBSCRIBER_HASH, QUERY_SUBSCRIBER_HASH);
+        let expires = pick(HEADER_SUBSCRIBER_EXPIRES, QUERY_SUBSCRIBER_EXPIRES);
 
         let env = sqlx::query!(
             r#"SELECT id, require_subscriber_hash,
-                      subscriber_hmac_secret, subscriber_hmac_secret_previous
+                      subscriber_hmac_secret, subscriber_hmac_secret_previous,
+                      require_subscriber_hash_expiry, subscriber_hash_max_ttl_seconds
                  FROM environments WHERE slug = $1"#,
             &slug,
         )
@@ -376,8 +387,46 @@ impl FromRequestParts<AppState> for SubscriberAuth {
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::unauthorized("unknown environment"))?;
 
-        match &hash {
-            Some(hash) => {
+        let mut credential_expires_at = None;
+        match (&hash, &expires) {
+            (Some(hash), Some(expires)) => {
+                // The v2 message separates its fields with newlines. Legacy
+                // hashes keep working for ids that hold a newline.
+                if external_id.contains('\n') {
+                    return Err(ApiError::bad_request(
+                        "subscriber id must not contain a newline",
+                    ));
+                }
+                let exp: i64 = expires.parse().map_err(|_| {
+                    ApiError::bad_request("subscriber hash expiry must be unix seconds")
+                })?;
+                let now = Utc::now().timestamp();
+                if exp <= now {
+                    return Err(ApiError::unauthorized("subscriber hash expired"));
+                }
+                if exp > now + i64::from(env.subscriber_hash_max_ttl_seconds) + EXPIRY_SKEW_SECONDS
+                {
+                    return Err(ApiError::unauthorized(
+                        "subscriber hash expiry exceeds the environment maximum",
+                    ));
+                }
+                let valid =
+                    verify_subscriber_hash_v2(&env.subscriber_hmac_secret, &external_id, exp, hash)
+                        || env
+                            .subscriber_hmac_secret_previous
+                            .as_deref()
+                            .is_some_and(|prev| {
+                                verify_subscriber_hash_v2(prev, &external_id, exp, hash)
+                            });
+                if !valid {
+                    return Err(ApiError::unauthorized("invalid subscriber hash"));
+                }
+                credential_expires_at = DateTime::from_timestamp(exp, 0);
+            }
+            (Some(_), None) if env.require_subscriber_hash_expiry => {
+                return Err(ApiError::unauthorized("subscriber hash expiry required"));
+            }
+            (Some(hash), None) => {
                 let valid = verify_subscriber_hash(&env.subscriber_hmac_secret, &external_id, hash)
                     || env
                         .subscriber_hmac_secret_previous
@@ -387,10 +436,10 @@ impl FromRequestParts<AppState> for SubscriberAuth {
                     return Err(ApiError::unauthorized("invalid subscriber hash"));
                 }
             }
-            None if env.require_subscriber_hash => {
+            (None, _) if env.require_subscriber_hash => {
                 return Err(ApiError::unauthorized("subscriber hash required"));
             }
-            None => {} // dev-mode environment: hash optional
+            (None, _) => {} // dev-mode environment: hash optional
         }
 
         let (subscriber_id, subscriber_created_at) =
@@ -401,6 +450,7 @@ impl FromRequestParts<AppState> for SubscriberAuth {
             subscriber_id,
             external_id,
             subscriber_created_at,
+            credential_expires_at,
         })
     }
 }
@@ -422,6 +472,28 @@ pub fn compute_subscriber_hash(secret: &str, subscriber_id: &str) -> String {
         Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("hmac accepts any key length");
     mac.update(subscriber_id.as_bytes());
     hex::encode(mac.finalize().into_bytes())
+}
+
+/// The v2 message. The `v2` prefix separates it from the legacy message, and
+/// a v2 request with a newline in the subscriber id is refused before this runs.
+fn v2_message(subscriber_id: &str, expires_at: i64) -> String {
+    format!("v2\n{subscriber_id}\n{expires_at}")
+}
+
+/// `hex(HMAC-SHA256(secret, "v2\n" + subscriber_id + "\n" + expires_at))`,
+/// constant-time comparison.
+pub fn verify_subscriber_hash_v2(
+    secret: &str,
+    subscriber_id: &str,
+    expires_at: i64,
+    hash_hex: &str,
+) -> bool {
+    verify_subscriber_hash(secret, &v2_message(subscriber_id, expires_at), hash_hex)
+}
+
+/// Test/SDK helper: compute the v2 subscriber hash the customer backend would.
+pub fn compute_subscriber_hash_v2(secret: &str, subscriber_id: &str, expires_at: i64) -> String {
+    compute_subscriber_hash(secret, &v2_message(subscriber_id, expires_at))
 }
 
 /// Lazy subscriber + counters upsert. Returns (internal id, created_at).

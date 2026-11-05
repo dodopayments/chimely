@@ -28,6 +28,8 @@ export interface StubServerOptions {
   subscriberId?: string;
   /** When set, X-Chimely-Subscriber-Hash must equal it or the stub returns 401. */
   requireHash?: string;
+  /** When set, X-Chimely-Subscriber-Expires must equal it or the stub returns 401. */
+  requireExpires?: string;
   baseTimeMs?: number;
 }
 
@@ -94,6 +96,7 @@ export class StubServer {
   readonly environment: string;
   readonly subscriberId: string;
   readonly requireHash: string | undefined;
+  readonly requireExpires: string | undefined;
   readonly requests: RecordedRequest[] = [];
   readonly sources: FakeEventSource[] = [];
 
@@ -109,6 +112,7 @@ export class StubServer {
     this.environment = options.environment ?? 'env-test';
     this.subscriberId = options.subscriberId ?? 'usr_1';
     this.requireHash = options.requireHash;
+    this.requireExpires = options.requireExpires;
     this.baseTimeMs = options.baseTimeMs ?? Date.UTC(2026, 0, 1);
   }
 
@@ -296,7 +300,10 @@ export class StubServer {
     if (
       headers['x-chimely-environment'] !== this.environment ||
       headers['x-chimely-subscriber'] !== this.subscriberId ||
-      (this.requireHash !== undefined && headers['x-chimely-subscriber-hash'] !== this.requireHash)
+      (this.requireHash !== undefined &&
+        headers['x-chimely-subscriber-hash'] !== this.requireHash) ||
+      (this.requireExpires !== undefined &&
+        headers['x-chimely-subscriber-expires'] !== this.requireExpires)
     ) {
       return json(401, errorBody('unauthorized', 'missing or invalid subscriber auth'));
     }

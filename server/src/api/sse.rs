@@ -32,7 +32,7 @@ use crate::state::AppState;
     tag = "subscriber",
     operation_id = "streamInbox",
     summary = "Inbox stream",
-    description = r#"A Server-Sent Events stream of hints: each event tells the client to refetch the inbox over REST, so missed events are harmless (the events carry no data). Authenticated via query parameters because EventSource cannot set request headers."#,
+    description = r#"A Server-Sent Events stream of hints: each event tells the client to refetch the inbox over REST, so missed events are harmless (the events carry no data). Authenticated via query parameters because EventSource cannot set request headers. A stream opened with an expiring subscriber hash (subscriber_expires) sends a retry event and closes at that expiry."#,
     params(("Last-Event-ID" = Option<String>, Header, description = "Sent automatically by EventSource on reconnect.")),
     responses(
         (status = 200, description = "Event stream.",
@@ -99,6 +99,11 @@ pub async fn stream(
     let mut shutdown = state.shutdown.clone();
     let env = auth.environment_id;
     let sub = auth.subscriber_id;
+    // A v2 credential ends the stream at its expiry. The client reconnects
+    // with its current credential.
+    let expiry = auth
+        .credential_expires_at
+        .map(|at| tokio::time::Instant::now() + (at - Utc::now()).to_std().unwrap_or_default());
 
     let stream = async_stream::stream! {
         let _guard = guard;
@@ -113,6 +118,10 @@ pub async fn stream(
             }
             tokio::select! {
                 _ = shutdown.changed() => {
+                    yield Ok(retry_event(retry_after));
+                    break;
+                }
+                () = until(expiry) => {
                     yield Ok(retry_event(retry_after));
                     break;
                 }
@@ -142,6 +151,14 @@ pub async fn stream(
             .interval(state.cfg.sse_ping_interval)
             .text("ping"),
     ))
+}
+
+/// Resolves at `deadline`, or never when there is none.
+async fn until(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
+    }
 }
 
 struct ConnectionGuard {

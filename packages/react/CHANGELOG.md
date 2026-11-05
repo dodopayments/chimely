@@ -1,5 +1,17 @@
 # @chimely/react
 
+## 0.3.0
+
+### Minor Changes
+
+- Expiring subscriber credentials: `subscriberHashExpiresAt` (unix seconds) sends the expiry of a v2 subscriber hash as `X-Chimely-Subscriber-Expires` and `subscriber_expires`. `setCredentials({ subscriberHash, subscriberHashExpiresAt })` replaces the credential of a live client. It reopens the stream once and refetches, with no remount. The client copies its config, so a credential change never writes to the caller's object.
+- Standalone `<Inbox />` accepts `subscriberHashExpiresAt` and forwards it to its owned client. A change of `subscriberHash` or `subscriberHashExpiresAt` calls `setCredentials()`, so the inbox does not remount.
+
+### Patch Changes
+
+- Updated dependencies:
+  - @chimely/client@0.3.0
+
 ## 0.2.2
 
 ### Patch Changes

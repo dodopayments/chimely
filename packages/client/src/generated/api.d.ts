@@ -90,7 +90,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update subscriber hash settings
+         * @description Set the expiry rules for subscriber hashes. Omitted fields keep their value. Set require_subscriber_hash_expiry only after every backend signs v2 hashes. Legacy hashes stop working at once.
+         */
+        patch: operations["adminUpdateEnvironment"];
         trace?: never;
     };
     "/admin/api/environments/{env_id}/api-keys": {
@@ -670,7 +674,7 @@ export interface paths {
         };
         /**
          * Inbox stream
-         * @description A Server-Sent Events stream of hints: each event tells the client to refetch the inbox over REST, so missed events are harmless (the events carry no data). Authenticated via query parameters because EventSource cannot set request headers.
+         * @description A Server-Sent Events stream of hints: each event tells the client to refetch the inbox over REST, so missed events are harmless (the events carry no data). Authenticated via query parameters because EventSource cannot set request headers. A stream opened with an expiring subscriber hash (subscriber_expires) sends a retry event and closes at that expiry.
          */
         get: operations["streamInbox"];
         put?: never;
@@ -735,6 +739,46 @@ export interface paths {
          */
         put: operations["upsertSubscriber"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/subscribers/{subscriber_id}/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a subscriber's notifications
+         * @description Every stored direct notification of one subscriber, oldest first, archived and scheduled ones included. Use next_cursor for the next page. An unknown subscriber returns an empty page.
+         */
+        get: operations["listSubscriberNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/subscribers/{subscriber_id}/notifications/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move notifications to another subscriber
+         * @description Move up to 100 visible direct notifications to another subscriber. Each notification keeps its read and archive state. The category mutes of the source are copied to the target. Ids that the source does not hold, and scheduled notifications that are not yet visible, are skipped, so a repeated call is safe. The target subscriber is created if it does not exist.
+         */
+        post: operations["moveSubscriberNotifications"];
         delete?: never;
         options?: never;
         head?: never;
@@ -824,7 +868,14 @@ export interface components {
             id: string;
             name: string;
             require_subscriber_hash: boolean;
+            /** @description True when every subscriber hash must carry an expiry (v2). */
+            require_subscriber_hash_expiry: boolean;
             slug: string;
+            /**
+             * Format: int32
+             * @description The largest accepted distance of a v2 expiry from now, in seconds.
+             */
+            subscriber_hash_max_ttl_seconds: number;
         };
         AdminEnvironmentDetail: {
             created_at: string;
@@ -836,7 +887,14 @@ export interface components {
             id: string;
             name: string;
             require_subscriber_hash: boolean;
+            /** @description True when every subscriber hash must carry an expiry (v2). */
+            require_subscriber_hash_expiry: boolean;
             slug: string;
+            /**
+             * Format: int32
+             * @description The largest accepted distance of a v2 expiry from now, in seconds.
+             */
+            subscriber_hash_max_ttl_seconds: number;
             subscriber_hmac_rotated_at?: string | null;
             /**
              * @description The dedicated subscriber HMAC secret. Plaintext by design. The customer
@@ -931,6 +989,15 @@ export interface components {
         AdminTimelineEntry: {
             occurred_at: string;
             status: string;
+        };
+        AdminUpdateEnvironmentRequest: {
+            /** @description Refuse every subscriber hash without an expiry, legacy hashes included. */
+            require_subscriber_hash_expiry?: boolean | null;
+            /**
+             * Format: int32
+             * @description The largest accepted distance of a v2 expiry from now, 60 to 604800 seconds.
+             */
+            subscriber_hash_max_ttl_seconds?: number | null;
         };
         AdminUpdateUserRequest: {
             disabled?: boolean | null;
@@ -1032,6 +1099,16 @@ export interface components {
             /** @description Opaque keyset token; null when the last page is reached. */
             next_cursor: string | null;
         };
+        MoveNotificationsRequest: {
+            /** @description Up to 100 `notif_…` ids. Ids that the source does not hold are skipped. */
+            notification_ids: string[];
+            /** @description The subscriber that receives the notifications. 1-255 characters, no newline. */
+            to_subscriber_id: string;
+        };
+        MoveNotificationsResponse: {
+            /** Format: int64 */
+            moved: number;
+        };
         /**
          * @description TypeID: `notif_` + UUIDv7 suffix (Crockford base32).
          * @example notif_01h455vb4pex5vsknk084sn02q
@@ -1086,6 +1163,18 @@ export interface components {
         /** @description Partial upsert — listed (category, channel) pairs are written; unlisted pairs are untouched. Setting enabled=true deletes the explicit row (absence means enabled). */
         PreferenceWriteList: {
             preferences: components["schemas"]["Preference"][];
+        };
+        StoredNotification: {
+            category: string;
+            /** @description TypeID, `notif_…`. */
+            id: string;
+            payload: Record<string, never>;
+            visible_at: string;
+        };
+        StoredNotificationPage: {
+            items: components["schemas"]["StoredNotification"][];
+            /** @description Opaque keyset token. Null when the last page is reached. */
+            next_cursor?: string | null;
         };
         Subscriber: {
             /**
@@ -1512,6 +1601,101 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminEnvironmentDetail"];
+                };
+            };
+            /** @description Authentication required (no or expired session). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "admin session required"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authenticated but the role lacks the capability. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "forbidden",
+                     *         "message": "your role does not permit this action"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such environment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "not_found",
+                     *         "message": "no such environment"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminUpdateEnvironment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Environment TypeID (env_…). */
+                env_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminUpdateEnvironmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated environment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminEnvironmentDetail"];
+                };
+            };
+            /** @description Validation error. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "invalid_request",
+                     *         "message": "subscriber_hash_max_ttl_seconds must be between 60 and 604800"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Authentication required (no or expired session). */
@@ -3983,6 +4167,131 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    listSubscriberNotifications: {
+        parameters: {
+            query?: {
+                /** @description Opaque keyset cursor. Omit it for the first page. */
+                cursor?: string;
+                /** @description Page size. The default is 100. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Customer-provided subscriber id. */
+                subscriber_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of notifications. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoredNotificationPage"];
+                };
+            };
+            /** @description Malformed cursor or out-of-range limit. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "invalid_request",
+                     *         "message": "limit must be between 1 and 100"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid API key"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    moveSubscriberNotifications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The source subscriber id. */
+                subscriber_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveNotificationsRequest"];
+            };
+        };
+        responses: {
+            /** @description The number of moved notifications. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MoveNotificationsResponse"];
+                };
+            };
+            /** @description Validation error. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "invalid_request",
+                     *         "message": "to_subscriber_id must differ from the source"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Missing/invalid API key or subscriber hash. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "unauthorized",
+                     *         "message": "invalid API key"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["RateLimited"];
         };
     };
     getSubscriberPreferences: {

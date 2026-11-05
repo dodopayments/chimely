@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, slug, name, require_subscriber_hash, subscriber_hmac_secret,\n                  subscriber_hmac_secret_previous, subscriber_hmac_rotated_at, created_at\n             FROM environments WHERE id = $1",
+  "query": "SELECT id, require_subscriber_hash,\n                      subscriber_hmac_secret, subscriber_hmac_secret_previous,\n                      require_subscriber_hash_expiry, subscriber_hash_max_ttl_seconds\n                 FROM environments WHERE slug = $1",
   "describe": {
     "columns": [
       {
@@ -16,28 +16,6 @@
       },
       {
         "ordinal": 1,
-        "name": "slug",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "environments",
-            "name": "slug"
-          }
-        }
-      },
-      {
-        "ordinal": 2,
-        "name": "name",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "environments",
-            "name": "name"
-          }
-        }
-      },
-      {
-        "ordinal": 3,
         "name": "require_subscriber_hash",
         "type_info": "Bool",
         "origin": {
@@ -48,7 +26,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 2,
         "name": "subscriber_hmac_secret",
         "type_info": "Text",
         "origin": {
@@ -59,7 +37,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 3,
         "name": "subscriber_hmac_secret_previous",
         "type_info": "Text",
         "origin": {
@@ -70,43 +48,41 @@
         }
       },
       {
-        "ordinal": 6,
-        "name": "subscriber_hmac_rotated_at",
-        "type_info": "Timestamptz",
+        "ordinal": 4,
+        "name": "require_subscriber_hash_expiry",
+        "type_info": "Bool",
         "origin": {
           "Table": {
             "table": "environments",
-            "name": "subscriber_hmac_rotated_at"
+            "name": "require_subscriber_hash_expiry"
           }
         }
       },
       {
-        "ordinal": 7,
-        "name": "created_at",
-        "type_info": "Timestamptz",
+        "ordinal": 5,
+        "name": "subscriber_hash_max_ttl_seconds",
+        "type_info": "Int4",
         "origin": {
           "Table": {
             "table": "environments",
-            "name": "created_at"
+            "name": "subscriber_hash_max_ttl_seconds"
           }
         }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Text"
       ]
     },
     "nullable": [
       false,
       false,
       false,
-      false,
-      false,
       true,
-      true,
+      false,
       false
     ]
   },
-  "hash": "02b7a8edc635d2854f95e2c3fcd362e42f594f551db01404522edf2d59afbf08"
+  "hash": "a0c49039c0a994c9d590364c7ce3a45c7a47ed836fb098d460ed8cae85ecf3e5"
 }

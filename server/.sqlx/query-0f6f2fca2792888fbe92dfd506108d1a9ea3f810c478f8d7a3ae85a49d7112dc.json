@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT require_subscriber_hash FROM environments WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "require_subscriber_hash",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "environments",
+            "name": "require_subscriber_hash"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0f6f2fca2792888fbe92dfd506108d1a9ea3f810c478f8d7a3ae85a49d7112dc"
+}

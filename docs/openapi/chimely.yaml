@@ -14,6 +14,13 @@ info:
       computed by the customer's backend. Mandatory in environments with
       `require_subscriber_hash = true` (the production default); optional in
       dev environments so the quickstart works without a backend.
+      An expiring (v2) hash signs
+      `"v2\n" + subscriber_id + "\n" + expires_at`, where `expires_at` is unix
+      seconds. Send `expires_at` with the hash. Chimely refuses a v2 hash after
+      its expiry, and when the expiry is more than
+      `subscriber_hash_max_ttl_seconds` (plus 60 seconds) in the future. An
+      environment with `require_subscriber_hash_expiry = true` refuses every hash
+      without an expiry. A subscriber id must not contain a newline.
 
     Subscriber-plane scoping travels in headers (or query parameters where
     headers are impossible, i.e. `EventSource`):
@@ -23,6 +30,7 @@ info:
     | `X-Chimely-Environment` | `environment` | environment slug |
     | `X-Chimely-Subscriber` | `subscriber_id` | customer-provided subscriber id |
     | `X-Chimely-Subscriber-Hash` | `subscriber_hash` | HMAC hash (when required) |
+    | `X-Chimely-Subscriber-Expires` | `subscriber_expires` | expiry of a v2 hash, unix seconds |
 
     **Idempotency.** Every create accepts `idempotency_key` (client-supplied or
     server-generated and echoed). Uniqueness is per environment per resource
@@ -285,6 +293,74 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AdminEnvironmentDetail'
+        '401':
+          description: Authentication required (no or expired session).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: admin session required
+        '403':
+          description: Authenticated but the role lacks the capability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: forbidden
+                  message: your role does not permit this action
+        '404':
+          description: No such environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: not_found
+                  message: no such environment
+      security:
+      - AdminSession: []
+    patch:
+      tags:
+      - admin
+      summary: Update subscriber hash settings
+      description: Set the expiry rules for subscriber hashes. Omitted fields keep their value. Set require_subscriber_hash_expiry only after every backend signs v2 hashes. Legacy hashes stop working at once.
+      operationId: adminUpdateEnvironment
+      parameters:
+      - name: env_id
+        in: path
+        description: Environment TypeID (env_…).
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUpdateEnvironmentRequest'
+        required: true
+      responses:
+        '200':
+          description: Updated environment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEnvironmentDetail'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: invalid_request
+                  message: subscriber_hash_max_ttl_seconds must be between 60 and 604800
         '401':
           description: Authentication required (no or expired session).
           content:
@@ -1941,7 +2017,7 @@ paths:
       tags:
       - subscriber
       summary: Inbox stream
-      description: 'A Server-Sent Events stream of hints: each event tells the client to refetch the inbox over REST, so missed events are harmless (the events carry no data). Authenticated via query parameters because EventSource cannot set request headers.'
+      description: 'A Server-Sent Events stream of hints: each event tells the client to refetch the inbox over REST, so missed events are harmless (the events carry no data). Authenticated via query parameters because EventSource cannot set request headers. A stream opened with an expiring subscriber hash (subscriber_expires) sends a retry event and closes at that expiry.'
       operationId: streamInbox
       parameters:
       - name: Last-Event-ID
@@ -2124,6 +2200,119 @@ paths:
                 error:
                   code: unauthorized
                   message: invalid API key
+      security:
+      - ApiKeyBearer: []
+  /v1/subscribers/{subscriber_id}/notifications:
+    get:
+      tags:
+      - management
+      summary: List a subscriber's notifications
+      description: Every stored direct notification of one subscriber, oldest first, archived and scheduled ones included. Use next_cursor for the next page. An unknown subscriber returns an empty page.
+      operationId: listSubscriberNotifications
+      parameters:
+      - name: subscriber_id
+        in: path
+        description: Customer-provided subscriber id.
+        required: true
+        schema:
+          type: string
+          maxLength: 255
+      - name: cursor
+        in: query
+        description: Opaque keyset cursor. Omit it for the first page.
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: Page size. The default is 100.
+        required: false
+        schema:
+          type: integer
+          format: int64
+          maximum: 100
+          minimum: 1
+      responses:
+        '200':
+          description: A page of notifications.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoredNotificationPage'
+        '400':
+          description: Malformed cursor or out-of-range limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: invalid_request
+                  message: limit must be between 1 and 100
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid API key
+        '429':
+          $ref: '#/components/responses/RateLimited'
+      security:
+      - ApiKeyBearer: []
+  /v1/subscribers/{subscriber_id}/notifications/move:
+    post:
+      tags:
+      - management
+      summary: Move notifications to another subscriber
+      description: Move up to 100 visible direct notifications to another subscriber. Each notification keeps its read and archive state. The category mutes of the source are copied to the target. Ids that the source does not hold, and scheduled notifications that are not yet visible, are skipped, so a repeated call is safe. The target subscriber is created if it does not exist.
+      operationId: moveSubscriberNotifications
+      parameters:
+      - name: subscriber_id
+        in: path
+        description: The source subscriber id.
+        required: true
+        schema:
+          type: string
+          maxLength: 255
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveNotificationsRequest'
+        required: true
+      responses:
+        '200':
+          description: The number of moved notifications.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoveNotificationsResponse'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: invalid_request
+                  message: to_subscriber_id must differ from the source
+        '401':
+          description: Missing/invalid API key or subscriber hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: unauthorized
+                  message: invalid API key
+        '429':
+          $ref: '#/components/responses/RateLimited'
       security:
       - ApiKeyBearer: []
   /v1/subscribers/{subscriber_id}/preferences:
@@ -2354,6 +2543,8 @@ components:
       - slug
       - name
       - require_subscriber_hash
+      - require_subscriber_hash_expiry
+      - subscriber_hash_max_ttl_seconds
       - created_at
       properties:
         created_at:
@@ -2365,8 +2556,15 @@ components:
           type: string
         require_subscriber_hash:
           type: boolean
+        require_subscriber_hash_expiry:
+          type: boolean
+          description: True when every subscriber hash must carry an expiry (v2).
         slug:
           type: string
+        subscriber_hash_max_ttl_seconds:
+          type: integer
+          format: int32
+          description: The largest accepted distance of a v2 expiry from now, in seconds.
     AdminEnvironmentDetail:
       type: object
       required:
@@ -2374,6 +2572,8 @@ components:
       - slug
       - name
       - require_subscriber_hash
+      - require_subscriber_hash_expiry
+      - subscriber_hash_max_ttl_seconds
       - has_previous_secret
       - created_at
       properties:
@@ -2390,8 +2590,15 @@ components:
           type: string
         require_subscriber_hash:
           type: boolean
+        require_subscriber_hash_expiry:
+          type: boolean
+          description: True when every subscriber hash must carry an expiry (v2).
         slug:
           type: string
+        subscriber_hash_max_ttl_seconds:
+          type: integer
+          format: int32
+          description: The largest accepted distance of a v2 expiry from now, in seconds.
         subscriber_hmac_rotated_at:
           type: string
           nullable: true
@@ -2602,6 +2809,18 @@ components:
           type: string
         status:
           type: string
+    AdminUpdateEnvironmentRequest:
+      type: object
+      properties:
+        require_subscriber_hash_expiry:
+          type: boolean
+          description: Refuse every subscriber hash without an expiry, legacy hashes included.
+          nullable: true
+        subscriber_hash_max_ttl_seconds:
+          type: integer
+          format: int32
+          description: The largest accepted distance of a v2 expiry from now, 60 to 604800 seconds.
+          nullable: true
     AdminUpdateUserRequest:
       type: object
       properties:
@@ -2821,6 +3040,29 @@ components:
           type: string
           description: Opaque keyset token; null when the last page is reached.
           nullable: true
+    MoveNotificationsRequest:
+      type: object
+      required:
+      - to_subscriber_id
+      - notification_ids
+      properties:
+        notification_ids:
+          type: array
+          items:
+            type: string
+          description: Up to 100 `notif_…` ids. Ids that the source does not hold are skipped.
+        to_subscriber_id:
+          type: string
+          description: The subscriber that receives the notifications. 1-255 characters, no newline.
+    MoveNotificationsResponse:
+      type: object
+      required:
+      - moved
+      properties:
+        moved:
+          type: integer
+          format: int64
+          minimum: 0
     NotificationId:
       type: string
       description: 'TypeID: `notif_` + UUIDv7 suffix (Crockford base32).'
@@ -2906,6 +3148,36 @@ components:
             $ref: '#/components/schemas/Preference'
           maxItems: 100
           minItems: 1
+    StoredNotification:
+      type: object
+      required:
+      - id
+      - category
+      - payload
+      - visible_at
+      properties:
+        category:
+          type: string
+        id:
+          type: string
+          description: TypeID, `notif_…`.
+        payload:
+          type: object
+        visible_at:
+          type: string
+    StoredNotificationPage:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StoredNotification'
+        next_cursor:
+          type: string
+          description: Opaque keyset token. Null when the last page is reached.
+          nullable: true
     Subscriber:
       type: object
       required:
@@ -3000,6 +3272,16 @@ components:
       type: apiKey
       in: query
       name: environment
+    SubscriberExpires:
+      type: apiKey
+      in: header
+      name: X-Chimely-Subscriber-Expires
+      description: Expiry of a v2 subscriber hash, in unix seconds. Send it with every v2 hash.
+    SubscriberExpiresQ:
+      type: apiKey
+      in: query
+      name: subscriber_expires
+      description: Expiry of a v2 subscriber hash, in unix seconds.
     SubscriberHash:
       type: apiKey
       in: header

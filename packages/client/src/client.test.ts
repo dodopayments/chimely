@@ -678,3 +678,114 @@ describe('snapshot immutability', () => {
     }
   });
 });
+
+describe('expiring credentials', () => {
+  test('sends the expiry header and query when set', async () => {
+    const stub = createStubServer({ requireHash: 'v2hash' });
+    const client = makeClient(stub, {
+      subscriberHash: 'v2hash',
+      subscriberHashExpiresAt: 1_900_000_000,
+    });
+    await connectAndLoad(client, stub);
+
+    expect(new URL(stub.stream().url).searchParams.get('subscriber_expires')).toBe('1900000000');
+    const listRequest = must(stub.requestsFor('/v1/inbox/items')[0]);
+    expect(listRequest.headers['x-chimely-subscriber-expires']).toBe('1900000000');
+  });
+
+  test('omits the expiry when not configured', async () => {
+    const stub = createStubServer();
+    const client = makeClient(stub, { subscriberHash: 'legacy' });
+    await connectAndLoad(client, stub);
+
+    expect(new URL(stub.stream().url).searchParams.has('subscriber_expires')).toBe(false);
+    const listRequest = must(stub.requestsFor('/v1/inbox/items')[0]);
+    expect('x-chimely-subscriber-expires' in listRequest.headers).toBe(false);
+  });
+
+  test('setCredentials is a no-op for the same hash and expiry', async () => {
+    const stub = createStubServer();
+    const client = makeClient(stub, { subscriberHash: 'h1', subscriberHashExpiresAt: 100 });
+    await connectAndLoad(client, stub);
+    const sources = stub.sources.length;
+    const requests = stub.requests.length;
+
+    client.setCredentials({ subscriberHash: 'h1', subscriberHashExpiresAt: 100 });
+
+    expect(stub.sources.length).toBe(sources);
+    expect(stub.requests.length).toBe(requests);
+    expect(client.getSnapshot().status).toBe('connected');
+  });
+
+  test('setCredentials before connect stores the credential and opens nothing', async () => {
+    const stub = createStubServer();
+    const client = makeClient(stub, { subscriberHash: 'h1', subscriberHashExpiresAt: 100 });
+
+    client.setCredentials({ subscriberHash: 'h2', subscriberHashExpiresAt: 200 });
+    expect(stub.sources.length).toBe(0);
+    expect(stub.requests.length).toBe(0);
+
+    client.connect();
+    expect(stub.sources.length).toBe(1);
+    const url = new URL(stub.stream().url);
+    expect(url.searchParams.get('subscriber_hash')).toBe('h2');
+    expect(url.searchParams.get('subscriber_expires')).toBe('200');
+
+    client.close();
+    client.setCredentials({ subscriberHash: 'h3', subscriberHashExpiresAt: 300 });
+    expect(stub.sources.length).toBe(1);
+    expect(client.getSnapshot().status).toBe('closed');
+  });
+
+  test('setCredentials reopens the stream with the new hash and refreshes', async () => {
+    const stub = createStubServer();
+    stub.addNotification({ payload: { title: 'one' } });
+    const client = makeClient(stub, { subscriberHash: 'h1', subscriberHashExpiresAt: 100 });
+    await connectAndLoad(client, stub);
+    const first = stub.stream();
+    const before = stub.requestsFor('/v1/inbox/items').length;
+
+    client.setCredentials({ subscriberHash: 'h2', subscriberHashExpiresAt: 200 });
+
+    expect(first.closed).toBe(true);
+    expect(stub.sources.length).toBe(2);
+    const second = stub.stream();
+    expect(second.closed).toBe(false);
+    expect(new URL(second.url).searchParams.get('subscriber_hash')).toBe('h2');
+    expect(client.getSnapshot().status).toBe('connecting');
+
+    await vi.waitFor(() => {
+      expect(stub.requestsFor('/v1/inbox/items').length).toBe(before + 1);
+    });
+    const refetch = must(stub.requestsFor('/v1/inbox/items')[before]);
+    expect(refetch.headers['x-chimely-subscriber-hash']).toBe('h2');
+    expect(refetch.headers['x-chimely-subscriber-expires']).toBe('200');
+
+    // Callbacks of the closed source are no-ops.
+    const snapshot = client.getSnapshot();
+    first.emit('open');
+    first.emit('error');
+    expect(client.getSnapshot()).toBe(snapshot);
+    expect(stub.sources.length).toBe(2);
+
+    stub.openStream();
+    expect(client.getSnapshot().status).toBe('connected');
+  });
+
+  test('setCredentials never writes to the caller config', () => {
+    const stub = createStubServer();
+    const config: ChimelyClientConfig = {
+      serverUrl: 'https://chimely.test',
+      environment: stub.environment,
+      subscriberId: stub.subscriberId,
+      subscriberHash: 'h1',
+      subscriberHashExpiresAt: 100,
+      fetchFn: stub.fetchFn,
+      createEventSource: stub.createEventSource,
+    };
+    const client = new ChimelyClient(config);
+    client.setCredentials({ subscriberHash: 'h2', subscriberHashExpiresAt: 200 });
+    expect(config.subscriberHash).toBe('h1');
+    expect(config.subscriberHashExpiresAt).toBe(100);
+  });
+});

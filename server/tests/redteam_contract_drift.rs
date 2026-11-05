@@ -11,6 +11,41 @@ mod support;
 
 use chimely::openapi::api_doc;
 
+#[test]
+fn subscriber_operations_declare_optional_expiry_and_stored_payload() {
+    let doc = serde_json::to_value(api_doc()).expect("OpenAPI document");
+    let paths = doc["paths"].as_object().expect("paths");
+    let mut subscriber_operations = 0;
+    for (path, item) in paths {
+        for (method, op) in item.as_object().expect("path item") {
+            let Some(security) = op["security"].as_array() else {
+                continue;
+            };
+            let (name, location) = if security.iter().any(|s| s.get("SubscriberHash").is_some()) {
+                ("X-Chimely-Subscriber-Expires", "header")
+            } else if security.iter().any(|s| s.get("SubscriberHashQ").is_some()) {
+                ("subscriber_expires", "query")
+            } else {
+                continue;
+            };
+            subscriber_operations += 1;
+            let param = op["parameters"]
+                .as_array()
+                .expect("subscriber parameters")
+                .iter()
+                .find(|p| p["name"] == name && p["in"] == location)
+                .unwrap_or_else(|| panic!("{method} {path} must declare {name}"));
+            assert_eq!(param["required"], false);
+            assert_eq!(param["schema"]["type"], "integer");
+        }
+    }
+    assert!(subscriber_operations >= 16);
+    assert_eq!(
+        doc["components"]["schemas"]["StoredNotification"]["properties"]["payload"]["$ref"],
+        "#/components/schemas/Payload"
+    );
+}
+
 /// `listInboxItems` returns 400 for bad input, and the annotation declares it.
 #[tokio::test]
 async fn list_items_400_is_declared_in_the_generated_spec() {
@@ -42,4 +77,120 @@ async fn list_items_400_is_declared_in_the_generated_spec() {
          limit/cursor; generated spec declares only {declared:?}. schemathesis \
          would otherwise report an undocumented HTTP status code.",
     );
+}
+
+fn declared(path: &str, method: &str) -> Vec<String> {
+    let doc = api_doc();
+    let item = doc
+        .paths
+        .paths
+        .get(path)
+        .unwrap_or_else(|| panic!("{path} missing from the spec"));
+    let op = match method {
+        "get" => item.get.as_ref(),
+        "post" => item.post.as_ref(),
+        "patch" => item.patch.as_ref(),
+        _ => None,
+    }
+    .unwrap_or_else(|| panic!("{method} {path} missing from the spec"));
+    op.responses.responses.keys().cloned().collect()
+}
+
+/// The subscriber-notification list, the move, and the environment PATCH
+/// return only statuses that their annotations declare.
+#[tokio::test]
+async fn subscriber_move_list_and_environment_patch_statuses_are_declared() {
+    let app = support::spawn().await;
+    let list = "/v1/subscribers/{subscriber_id}/notifications";
+    let mv = "/v1/subscribers/{subscriber_id}/notifications/move";
+    let env_path = "/admin/api/environments/{env_id}";
+
+    let mut seen: Vec<(&str, &str, u16)> = Vec::new();
+    let get = |q: &str, key: bool| {
+        let req = app.client.get(format!(
+            "{}/v1/subscribers/usr_c/notifications{q}",
+            app.base
+        ));
+        if key {
+            req.bearer_auth(&app.env.api_key)
+        } else {
+            req
+        }
+    };
+    seen.push((
+        list,
+        "get",
+        get("", true).send().await.unwrap().status().as_u16(),
+    ));
+    seen.push((
+        list,
+        "get",
+        get("?limit=0", true)
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+    ));
+    seen.push((
+        list,
+        "get",
+        get("", false).send().await.unwrap().status().as_u16(),
+    ));
+
+    let body = serde_json::json!({ "to_subscriber_id": "usr_d", "notification_ids": [] });
+    let same = serde_json::json!({ "to_subscriber_id": "usr_c", "notification_ids": [] });
+    let url = format!("{}/v1/subscribers/usr_c/notifications/move", app.base);
+    for (json, key) in [(&body, true), (&same, true), (&body, false)] {
+        let req = app.client.post(&url).json(json);
+        let req = if key {
+            req.bearer_auth(&app.env.api_key)
+        } else {
+            req
+        };
+        seen.push((mv, "post", req.send().await.unwrap().status().as_u16()));
+    }
+
+    let env = chimely::ids::typeid(chimely::ids::ENVIRONMENT, app.env.id);
+    let missing = chimely::ids::typeid(chimely::ids::ENVIRONMENT, uuid::Uuid::now_v7());
+    for (id, json) in [
+        (
+            &env,
+            serde_json::json!({ "subscriber_hash_max_ttl_seconds": 7200 }),
+        ),
+        (
+            &env,
+            serde_json::json!({ "subscriber_hash_max_ttl_seconds": 1 }),
+        ),
+        (
+            &missing,
+            serde_json::json!({ "require_subscriber_hash_expiry": true }),
+        ),
+    ] {
+        let res = app
+            .admin_patch(&format!("/admin/api/environments/{id}"), json)
+            .send()
+            .await
+            .unwrap();
+        seen.push((env_path, "patch", res.status().as_u16()));
+    }
+    let anon = reqwest::Client::new()
+        .patch(format!("{}/admin/api/environments/{env}", app.base))
+        .header("x-chimely-admin", "1")
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    seen.push((env_path, "patch", anon.status().as_u16()));
+
+    let expected = [200, 400, 401, 200, 400, 401, 200, 400, 404, 401];
+    let got: Vec<u16> = seen.iter().map(|s| s.2).collect();
+    assert_eq!(got, expected, "handler statuses");
+    for (path, method, status) in seen {
+        let declared = declared(path, method);
+        assert!(
+            declared.contains(&status.to_string()),
+            "{method} {path} returned {status} but declares only {declared:?}"
+        );
+    }
 }

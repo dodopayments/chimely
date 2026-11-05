@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO environments\n               (id, slug, name, subscriber_hmac_secret, require_subscriber_hash)\n           VALUES ($1, $2, $3, $4, $5)\n           ON CONFLICT (slug) DO NOTHING\n           RETURNING created_at, require_subscriber_hash_expiry,\n                     subscriber_hash_max_ttl_seconds",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "environments",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "require_subscriber_hash_expiry",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "environments",
+            "name": "require_subscriber_hash_expiry"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "subscriber_hash_max_ttl_seconds",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "environments",
+            "name": "subscriber_hash_max_ttl_seconds"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c493afa4bb1fcc4f75aec1ba3a92e9f142151ab8cef1408ec80ef6bf8e17d8fd"
+}

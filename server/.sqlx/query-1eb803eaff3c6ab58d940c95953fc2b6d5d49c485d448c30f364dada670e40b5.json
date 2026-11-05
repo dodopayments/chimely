@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE environments SET\n               require_subscriber_hash_expiry =\n                   COALESCE($2, require_subscriber_hash_expiry),\n               subscriber_hash_max_ttl_seconds =\n                   COALESCE($3, subscriber_hash_max_ttl_seconds),\n               updated_at = now()\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1eb803eaff3c6ab58d940c95953fc2b6d5d49c485d448c30f364dada670e40b5"
+}
