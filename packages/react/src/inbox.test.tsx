@@ -885,6 +885,36 @@ describe('standalone mode', () => {
     }
   });
 
+  test('a new standalone credential reconnects a client that gave up', async () => {
+    const stub = createStubServer();
+    vi.stubGlobal('fetch', stub.fetchFn);
+    function EventSourceStub(this: unknown, url: string) {
+      return stub.createEventSource(url);
+    }
+    vi.stubGlobal('EventSource', EventSourceStub);
+
+    const props = {
+      serverUrl: 'https://chimely.test',
+      environment: stub.environment,
+      subscriberId: stub.subscriberId,
+      backoff: { initialDelayMs: 5, maxAttempts: 1 },
+    };
+    const { rerender } = render(
+      <Inbox {...props} subscriberHash="cafe" subscriberHashExpiresAt={1767225600} />,
+    );
+    stub.openStream();
+    stub.dropStream();
+    expect(stub.sources).toHaveLength(1);
+
+    rerender(<Inbox {...props} subscriberHash="beef" subscriberHashExpiresAt={1767229200} />);
+    await waitFor(() => {
+      expect(stub.sources).toHaveLength(2);
+    });
+    const streamUrl = new URL(stub.stream().url);
+    expect(streamUrl.searchParams.get('subscriber_hash')).toBe('beef');
+    expect(streamUrl.searchParams.get('subscriber_expires')).toBe('1767229200');
+  });
+
   test('a new standalone credential reopens the stream with no remount', async () => {
     const stub = createStubServer();
     vi.stubGlobal('fetch', stub.fetchFn);

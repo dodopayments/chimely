@@ -100,6 +100,10 @@ export function Inbox<TPayload = WellKnownPayload>(props: InboxProps<TPayload>):
       return;
     }
     owned.setCredentials({ subscriberHash, subscriberHashExpiresAt });
+    // A client that gave up after maxAttempts stays closed until a new connect().
+    if (owned.getSnapshot().status === 'closed') {
+      owned.connect();
+    }
   }, [owned, subscriberHash, subscriberHashExpiresAt]);
   return (
     <ChimelyContext.Provider value={client}>
