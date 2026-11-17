@@ -1,11 +1,11 @@
 ---
 # SonarQube static analysis, reporting to the org-level SONAR_HOST_URL secret.
 #
-# `runs-on: arc-shared` is load-bearing. The SonarQube host is VPN-only and a
-# GitHub-hosted runner cannot resolve it. arc-shared is the in-cluster ARC
+# `runs-on: arc-sonar` is load-bearing. The SonarQube host is VPN-only and a
+# GitHub-hosted runner cannot resolve it. arc-sonar is the in-cluster ARC
 # runner scale set defined in dodopayments/devops
-# (infra-apps/prod/apps/arc-shared). A job that queues instead of starting
-# means the repo is missing from the arc-shared runner group, which is an org
+# (infra-apps/prod/apps/arc-sonar). A job that queues instead of starting
+# means the repo is missing from the arc-sonar runner group, which is an org
 # setting rather than a property of this file.
 #
 # push-to-main only. SonarQube Community Build analyses the main branch alone.
@@ -40,7 +40,7 @@ jobs:
     # Without this, a manual dispatch from a feature branch overwrites main's
     # analysis. See the header comment.
     if: github.ref == 'refs/heads/main'
-    runs-on: arc-shared
+    runs-on: arc-sonar
     timeout-minutes: 20
     steps:
       - name: Checkout repository
