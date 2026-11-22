@@ -1,7 +1,7 @@
 //! Proptest suites drive random interleavings of create, schedule, read,
 //! read-all, seen-all, preference-flip, and broadcast against a real server
-//! and Postgres, asserting the list, the counts, and read state stay in
-//! agreement across both sources.
+//! and Postgres, asserting the list, global and filtered counts, and read
+//! state stay in agreement across both sources.
 //!
 //! One container per suite. Each case runs in a fresh environment. Ops are
 //! separated by a 1ms pause so distinct transactions cannot share a
@@ -313,6 +313,23 @@ async fn run_case(app: &TestApp, ops: Vec<Op>, check_list_equality: bool) {
     let (unread, unseen) = counts(app, &env).await;
     assert_eq!(unread, model.expected_unread(), "unread count");
     assert_eq!(unseen, model.expected_unseen(), "unseen count");
+
+    let filtered = filtered_counts(app, &env).await;
+    let expected_filtered: Vec<i64> = (0..CATEGORIES.len())
+        .map(|category| {
+            model
+                .items
+                .iter()
+                .filter(|item| {
+                    item.category == category
+                        && !model.muted.contains(&item.category)
+                        && !model.read(item)
+                        && !model.archived(item)
+                })
+                .count() as i64
+        })
+        .collect();
+    assert_eq!(filtered, expected_filtered, "filtered unread counts");
 
     // count == visible unread items, exact at all times including under
     // mutes. Every counter path (insert, deliver, individual read, broadcast
@@ -727,6 +744,29 @@ async fn counts(app: &TestApp, env: &TestEnvironment) -> (i64, i64) {
         body["unread"].as_i64().unwrap(),
         body["unseen"].as_i64().unwrap(),
     )
+}
+
+async fn filtered_counts(app: &TestApp, env: &TestEnvironment) -> Vec<i64> {
+    let filters: Vec<_> = CATEGORIES
+        .iter()
+        .map(|category| json!({ "categories": [category] }))
+        .collect();
+    let res = app
+        .client
+        .post(format!("{}/v1/inbox/counts", app.base))
+        .headers(app.subscriber_headers_for(env, SUB))
+        .json(&json!({ "filters": filters }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let body: serde_json::Value = res.json().await.unwrap();
+    body["counts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|count| count["unread"].as_i64().unwrap())
+        .collect()
 }
 
 async fn list_all(app: &TestApp, env: &TestEnvironment) -> Vec<serde_json::Value> {

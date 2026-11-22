@@ -339,6 +339,66 @@ contract_schema!(
 );
 
 contract_schema!(
+    InboxCountFilter,
+    ObjectBuilder::new()
+        .property(
+            "categories",
+            ArrayBuilder::new()
+                .items(string().max_length(Some(255)))
+                .min_items(Some(1))
+                .max_items(Some(100))
+                .description(Some("Exact category names combined with OR semantics.")),
+        )
+        .required("categories")
+        .into()
+);
+
+contract_schema!(
+    FilteredInboxCountsRequest,
+    ObjectBuilder::new()
+        .description(Some(
+            "Ordered category filters. The complete request is limited to 100 category entries."
+        ))
+        .property(
+            "filters",
+            ArrayBuilder::new()
+                .items(Ref::from_schema_name("InboxCountFilter"))
+                .min_items(Some(1))
+                .max_items(Some(100)),
+        )
+        .required("filters")
+        .into()
+);
+
+contract_schema!(
+    FilteredInboxCount,
+    ObjectBuilder::new()
+        .property(
+            "unread",
+            ObjectBuilder::new()
+                .schema_type(Type::Integer)
+                .minimum(Some(0)),
+        )
+        .required("unread")
+        .into()
+);
+
+contract_schema!(
+    FilteredInboxCounts,
+    ObjectBuilder::new()
+        .property(
+            "counts",
+            ArrayBuilder::new()
+                .items(Ref::from_schema_name("FilteredInboxCount"))
+                .min_items(Some(1))
+                .max_items(Some(100))
+                .description(Some("Results in the same order as the request filters.")),
+        )
+        .required("counts")
+        .into()
+);
+
+contract_schema!(
     Preference,
     ObjectBuilder::new()
         .property("category", string())

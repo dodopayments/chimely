@@ -62,6 +62,20 @@ describe('lastRefreshNewItemIds', () => {
     expect(client.getSnapshot().lastRefreshNewItemIds).toBe(before);
   });
 
+  test('a filter reset leaves it untouched until the new first page merges', async () => {
+    const stub = createStubServer();
+    stub.addNotification();
+    const client = makeClient(stub);
+    await connectAndLoad(client, stub);
+
+    const before = client.getSnapshot().lastRefreshNewItemIds;
+    const switched = client.setFilter('unread');
+    expect(client.getSnapshot().lastRefreshNewItemIds).toBe(before);
+
+    await switched;
+    expect(client.getSnapshot().lastRefreshNewItemIds).not.toBe(before);
+  });
+
   test('a hint-driven prepend lists exactly the prepended ids', async () => {
     const stub = createStubServer();
     for (let i = 0; i < 8; i += 1) {
