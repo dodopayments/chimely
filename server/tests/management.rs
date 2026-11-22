@@ -273,6 +273,72 @@ async fn malformed_bodies_get_the_error_envelope() {
     assert_eq!(body["error"]["code"], "invalid_request");
 }
 
+/// Rejection messages are static. serde rejection prose quotes a
+/// caller-supplied scalar on a type mismatch, so a canary token in the bad
+/// value must never surface in the 400 body.
+#[tokio::test]
+async fn rejection_messages_never_echo_caller_input() {
+    let app = support::spawn().await;
+
+    // Type mismatch inside the JSON body: subscriber_id expects a string.
+    let res = app
+        .mgmt_post(
+            "/v1/notifications",
+            json!({ "subscriber_id": ["CANARY-9f2"], "category": "x" }),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+    let body: serde_json::Value = res.json().await.expect("envelope body");
+    let message = body["error"]["message"].as_str().unwrap();
+    assert!(
+        !message.contains("CANARY-9f2"),
+        "caller input echoed into the 400 body: {message}"
+    );
+    assert_eq!(message, "request body does not match the expected schema");
+
+    // Type mismatch in the query string.
+    let res = app
+        .client
+        .get(format!("{}/v1/inbox/items?limit=CANARY-9f2", app.base))
+        .headers(app.subscriber_headers("usr_canary"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+    let body: serde_json::Value = res.json().await.expect("envelope body");
+    let message = body["error"]["message"].as_str().unwrap();
+    assert!(
+        !message.contains("CANARY-9f2"),
+        "caller input echoed into the 400 body: {message}"
+    );
+    assert_eq!(
+        message,
+        "query string does not match the expected parameters"
+    );
+
+    // Unknown preference channel: the value must not reflect back.
+    let res = app
+        .client
+        .put(format!("{}/v1/inbox/preferences", app.base))
+        .headers(app.subscriber_headers("usr_canary"))
+        .json(&json!({ "preferences": [
+            { "category": "billing", "channel": "CANARY-9f2", "enabled": false }
+        ] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+    let body: serde_json::Value = res.json().await.expect("envelope body");
+    let message = body["error"]["message"].as_str().unwrap();
+    assert!(
+        !message.contains("CANARY-9f2"),
+        "caller input echoed into the 400 body: {message}"
+    );
+    assert_eq!(message, "channel must be one of: in_app");
+}
+
 #[tokio::test]
 async fn management_plane_requires_a_valid_bearer_key() {
     let app = support::spawn().await;
