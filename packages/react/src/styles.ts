@@ -253,6 +253,7 @@ export const INBOX_CSS = `
   background: var(--chimely-colorMuted, #f3f4f6);
 }
 .chimely-item {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -303,6 +304,22 @@ export const INBOX_CSS = `
   border-radius: 50%;
   background: var(--chimely-colorPrimary, #1264FF);
   flex: none;
+}
+.chimely-item-severity {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 3px;
+}
+.chimely-item-severity-high {
+  background: var(--chimely-colorSeverityHigh, #dc2626);
+}
+.chimely-item-severity-medium {
+  background: var(--chimely-colorSeverityMedium, #d97706);
+}
+.chimely-item-severity-low {
+  background: var(--chimely-colorSeverityLow, #2563eb);
 }
 .chimely-empty {
   padding: 32px 16px;
