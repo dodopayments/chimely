@@ -184,6 +184,12 @@ export function NotificationList<TPayload>(props: NotificationListProps<TPayload
 
   return (
     <div className="chimely-list-container">
+      {/* Screen-reader announcement for arrivals held behind the pill. The
+          pill is a visual affordance only; a polite status region announces
+          the same text so the count change is perceivable without focus. */}
+      <span className="chimely-sr-only" role="status">
+        {pendingCount > 0 ? strings.newNotifications(pendingCount) : ''}
+      </span>
       {pendingCount > 0 && (
         <button
           type="button"

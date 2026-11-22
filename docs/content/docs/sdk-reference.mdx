@@ -296,6 +296,29 @@ import { ChimelyProvider } from '@chimely/react';
 
 `useChimelyClient()` returns the client; it throws outside a provider.
 
+### One client per page
+
+Every standalone `<Inbox />` (connection props passed directly) owns its own
+client and therefore its own SSE connection. Browsers cap concurrent
+connections per origin on HTTP/1.1 at around six, so a page rendering several
+standalone inboxes (a bell in the header, another in a drawer, a full-page
+inbox) can starve the host app's own requests.
+
+Render one `ChimelyProvider` near the root instead and let every `<Inbox />`,
+`<Bell />`, and hook inside it share the provider's client — one SSE
+connection, one snapshot, no cap pressure:
+
+```tsx
+<ChimelyProvider config={{ serverUrl, environment, subscriberId, subscriberHash }}>
+  <Header>
+    <Inbox />       {/* no connection props: reads the shared client */}
+  </Header>
+  <Drawer>
+    <InboxContent />
+  </Drawer>
+</ChimelyProvider>
+```
+
 ## `@chimely/client`
 
 ```ts

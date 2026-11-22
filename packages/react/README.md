@@ -40,6 +40,12 @@ For custom UIs, skip the popover and compose:
   `renderBell`, `renderFooter`) to replace one fragment while keeping the
   rest
 
+Pages rendering more than one inbox surface should share one client through
+a single `ChimelyProvider` near the root: each standalone `<Inbox />` opens
+its own SSE connection, and HTTP/1.1 browsers cap concurrent connections per
+origin at about six. See
+[One client per page](https://chimely.dev/docs/sdk-reference#one-client-per-page).
+
 ## Theming
 
 Plain CSS with custom properties. `appearance.variables` sets tokens
